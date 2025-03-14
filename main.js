@@ -23,7 +23,7 @@ const botToken = process.env.BOT_TOKEN;
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
-const { MaleEmoji, MaleRole, Hoedown_New_banner, FemaleRole, MaleName, FemaleName } = require('./config.json');
+const { MaleEmoji, MaleRole, FemaleEmoji, FemaleRole, MaleName, FemaleName } = require('./config.json');
 
 const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
@@ -51,7 +51,7 @@ const calculateTotalReactions = (post) => {
         if (reaction === MaleEmoji) {
             totalMaleReactions++;
         }
-        if (reaction === Hoedown_New_banner) {
+        if (reaction === FemaleEmoji) {
             totalFemaleReactions++;
         }
     });
@@ -227,7 +227,7 @@ client.on('messageCreate', async message => {
         const exampleEmbed = new EmbedBuilder()
             .setColor('#444444')
             .setTitle('React to the emoji if you are able to make it to this time slot.')
-            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${MaleEmoji} for ${MaleName}\n${Hoedown_New_banner} for ${FemaleName}\n`)
+            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${MaleEmoji} for ${MaleName}\n${FemaleEmoji} for ${FemaleName}\n`)
             .setTimestamp();
 
         message.channel.send({ embeds: [exampleEmbed] }).then(async msg => {
@@ -238,7 +238,7 @@ client.on('messageCreate', async message => {
             // Add a slight delay before adding the bot's reactions
             await new Promise(resolve => setTimeout(resolve, 500));
             await msg.react(MaleEmoji);
-            await msg.react(Hoedown_New_banner);
+            await msg.react(FemaleEmoji);
             console.log(`Bot reacted to message: ${msg.id}`);
         });
     }
