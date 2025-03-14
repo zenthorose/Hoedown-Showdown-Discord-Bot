@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder } = require('discord.js');
-const { MaleEmoji, MaleName, Hoedown_New_banner, FemaleName } = require('../config.json');
+const { MaleEmoji, MaleName, FemaleEmoji, FemaleName } = require('../config.json');
 
 module.exports = {
     data: new SlashCommandBuilder()
