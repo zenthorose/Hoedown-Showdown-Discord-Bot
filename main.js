@@ -23,7 +23,7 @@ const botToken = process.env.BOT_TOKEN;
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
-const { MaleEmoji, MaleRole, FemaleEmoji, FemaleRole, MaleName, FemaleName } = require('./config.json');
+const { MaleEmoji, MaleRole, MaleName } = require('./config.json');
 
 const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
@@ -46,16 +46,12 @@ app.get('/ping', (req, res) => {
 
 const calculateTotalReactions = (post) => {
     let totalMaleReactions = 0;
-    let totalFemaleReactions = 0;
     post.reactions.forEach(reaction => {
         if (reaction === MaleEmoji) {
             totalMaleReactions++;
         }
-        if (reaction === FemaleEmoji) {
-            totalFemaleReactions++;
-        }
     });
-    return { totalMaleReactions, totalFemaleReactions };
+    return { totalMaleReactions };
 };
 
 
@@ -153,8 +149,8 @@ client.on('messageCreate', async message => {
             // const post = reactionPosts.find(post => post.messageId === postId);
             const post = reactionPostsManager.findPostByMessageId(postId);
             if (post) {
-                const { totalMaleReactions, totalFemaleReactions } = calculateTotalReactions(post);
-                message.channel.send(`Post in channel ${post.channelId} with message ID ${post.messageId} has ${totalMaleReactions} male reactions and ${totalFemaleReactions} female reactions.`);
+                const { totalMaleReactions } = calculateTotalReactions(post);
+                message.channel.send(`Post in channel ${post.channelId} with message ID ${post.messageId} has ${totalMaleReactions} male reactions.`);
             } else {
                 message.channel.send(`No post found with message ID ${postId}.`);
             }
@@ -162,8 +158,8 @@ client.on('messageCreate', async message => {
             message.channel.send(`Total reactions for each post:`);
             // reactionPosts.forEach(post => {
                 reactionPostsManager.getAllPosts().forEach(post => {
-                const { totalMaleReactions, totalFemaleReactions } = calculateTotalReactions(post);
-                message.channel.send(`Post in channel ${post.channelId} with message ID ${post.messageId} has ${totalMaleReactions} male reactions and ${totalFemaleReactions} female reactions.`);
+                const { totalMaleReactions } = calculateTotalReactions(post);
+                message.channel.send(`Post in channel ${post.channelId} with message ID ${post.messageId} has ${totalMaleReactions} male reactions.`);
             });
         }
     }
@@ -227,7 +223,7 @@ client.on('messageCreate', async message => {
         const exampleEmbed = new EmbedBuilder()
             .setColor('#444444')
             .setTitle('React to the emoji if you are able to make it to this time slot.')
-            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${MaleEmoji} for ${MaleName}\n${FemaleEmoji} for ${FemaleName}\n`)
+            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${MaleEmoji} for ${MaleName}\n`)
             .setTimestamp();
 
         message.channel.send({ embeds: [exampleEmbed] }).then(async msg => {
@@ -238,7 +234,6 @@ client.on('messageCreate', async message => {
             // Add a slight delay before adding the bot's reactions
             await new Promise(resolve => setTimeout(resolve, 500));
             await msg.react(MaleEmoji);
-            await msg.react(FemaleEmoji);
             console.log(`Bot reacted to message: ${msg.id}`);
         });
     }
