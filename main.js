@@ -108,19 +108,12 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
     const post = reactionPostsManager.findPostByMessageId(reaction.message.id);
     if (post) {
-        if (reaction.emoji.name === MaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.add(MaleRole);
-            post.reactions.push(MaleEmoji);
-            console.log(`Added MaleEmoji reaction to post: ${reaction.message.id}`);
-        }
-        if (reaction.emoji.name === FemaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.add(FemaleRole);
-            post.reactions.push(FemaleEmoji);
-            console.log(`Added FemaleEmoji reaction to post: ${reaction.message.id}`);
-        }
+        post.reactions.push(reaction.emoji.name);
+        console.log(`Added reaction ${reaction.emoji.name} to post: ${reaction.message.id}`);
     }
     console.log(reactionPostsManager.getAllPosts());
 });
+
 
 
 
@@ -136,21 +129,13 @@ client.on('messageReactionRemove', async (reaction, user) => {
 
     const post = reactionPostsManager.findPostByMessageId(reaction.message.id);
     if (post) {
-        if (reaction.emoji.name === MaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.remove(MaleRole);
-            const index = post.reactions.indexOf(MaleEmoji);
-            if (index > -1) post.reactions.splice(index, 1);
-            console.log(`Removed MaleEmoji reaction from post: ${reaction.message.id}`);
-        }
-        if (reaction.emoji.name === FemaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.remove(FemaleRole);
-            const index = post.reactions.indexOf(FemaleEmoji);
-            if (index > -1) post.reactions.splice(index, 1);
-            console.log(`Removed FemaleEmoji reaction from post: ${reaction.message.id}`);
-        }
+        const index = post.reactions.indexOf(reaction.emoji.name);
+        if (index > -1) post.reactions.splice(index, 1);
+        console.log(`Removed reaction ${reaction.emoji.name} from post: ${reaction.message.id}`);
     }
     console.log(reactionPostsManager.getAllPosts());
 });
+
 
 
 
