@@ -165,78 +165,10 @@ client.on('messageCreate', async message => {
     }
 
 
-
-
-
-
-    if (message.content.startsWith('!reactions')) {
-        const splitMessage = message.content.split(' ');
-        if (splitMessage.length > 1) {
-            const messageId = splitMessage[1];
-            try {
-                const targetMessage = await message.channel.messages.fetch(messageId);
-                const reactions = targetMessage.reactions.cache;
-
-                if (reactions.size > 0) {
-                    const embed = new EmbedBuilder()
-                        .setColor('#444444')
-                        .setTitle(`Reactions for message ID ${messageId}`)
-                        .setTimestamp();
-
-                    for (const reaction of reactions.values()) {
-                        const users = await reaction.users.fetch();
-                        const userList = users
-                            .filter(user => user.id !== client.user.id) // Ignore bot's own reactions
-                            .map(user => user.username)
-                            .join(', ');
-                        embed.addFields({ name: `Emoji: ${reaction.emoji.name}`, value: userList || 'No users' });
-                    }
-
-                    message.channel.send({ embeds: [embed] });
-                } else {
-                    message.channel.send(`No reactions found for message ID ${messageId}.`);
-                }
-            } catch (error) {
-                console.error(error);
-                message.channel.send(`Failed to fetch reactions for message ID ${messageId}.`);
-            }
-        } else {
-            message.channel.send(`Usage: !reactions <messageId>`);
-        }
-    }
-
-
-
-
-
-
     if (message.content === '!ping') {
         message.channel.send('Pong!');
     }
 
-
-
-
-
-
-    if (message.content === '!reactionrole') {
-        const exampleEmbed = new EmbedBuilder()
-            .setColor('#444444')
-            .setTitle('React to the emoji if you are able to make it to this time slot.')
-            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${MaleEmoji} for ${MaleName}\n`)
-            .setTimestamp();
-
-        message.channel.send({ embeds: [exampleEmbed] }).then(async msg => {
-            reactionPostsManager.addPost({ channelId: msg.channel.id, messageId: msg.id, embedId: exampleEmbed.id, reactions: [] });
-            console.log(`Added new reaction post: ${msg.id}`);
-            console.log(reactionPostsManager.getAllPosts());
-
-            // Add a slight delay before adding the bot's reactions
-            await new Promise(resolve => setTimeout(resolve, 500));
-            await msg.react(MaleEmoji);
-            console.log(`Bot reacted to message: ${msg.id}`);
-        });
-    }
 });
 
 
