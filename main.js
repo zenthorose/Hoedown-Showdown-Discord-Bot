@@ -100,61 +100,6 @@ client.on('interactionCreate', async interaction => {
 
 
 
-client.on('messageReactionAdd', async (reaction, user) => {
-    if (reaction.message.partial) await reaction.message.fetch();
-    if (reaction.partial) await reaction.fetch();
-    if (user.bot) return; // Ignore bot's own reactions
-    if (!reaction.message.guild) return;
-
-    const post = reactionPostsManager.findPostByMessageId(reaction.message.id);
-    if (post) {
-        if (reaction.emoji.name === MaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.add(MaleRole);
-            post.reactions.push(MaleEmoji);
-            console.log(`Added MaleEmoji reaction to post: ${reaction.message.id}`);
-        }
-        if (reaction.emoji.name === FemaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.add(FemaleRole);
-            post.reactions.push(FemaleEmoji);
-            console.log(`Added FemaleEmoji reaction to post: ${reaction.message.id}`);
-        }
-    }
-    console.log(reactionPostsManager.getAllPosts());
-});
-
-
-
-
-
-
-
-client.on('messageReactionRemove', async (reaction, user) => {
-    if (reaction.message.partial) await reaction.message.fetch();
-    if (reaction.partial) await reaction.fetch();
-    if (user.bot) return; // Ignore bot's own reactions
-    if (!reaction.message.guild) return;
-
-    const post = reactionPostsManager.findPostByMessageId(reaction.message.id);
-    if (post) {
-        if (reaction.emoji.name === MaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.remove(MaleRole);
-            const index = post.reactions.indexOf(MaleEmoji);
-            if (index > -1) post.reactions.splice(index, 1);
-            console.log(`Removed MaleEmoji reaction from post: ${reaction.message.id}`);
-        }
-        if (reaction.emoji.name === FemaleEmoji) {
-            await reaction.message.guild.members.cache.get(user.id).roles.remove(FemaleRole);
-            const index = post.reactions.indexOf(FemaleEmoji);
-            if (index > -1) post.reactions.splice(index, 1);
-            console.log(`Removed FemaleEmoji reaction from post: ${reaction.message.id}`);
-        }
-    }
-    console.log(reactionPostsManager.getAllPosts());
-});
-
-
-
-
 
 
 client.on('messageCreate', async message => {

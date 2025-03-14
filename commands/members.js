@@ -7,7 +7,7 @@ module.exports = {
     async execute(interaction) {
         await interaction.guild.members.fetch(); // Ensures cache is populated
         const members = interaction.guild.members.cache
-            .map(member => `${member.user.username}#${member.user.discriminator} (ID: ${member.user.id})`)
+            .map(member => `${member.user.username} (ID: ${member.user.id})`)
             .join('\n');
 
             const { MessageAttachment } = require('discord.js');
