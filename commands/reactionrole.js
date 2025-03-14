@@ -21,7 +21,7 @@ module.exports = {
         // Add a slight delay before adding the bot's reactions
         // await new Promise(resolve => setTimeout(resolve, 500));
         await message.react(MaleEmoji);
-        await message.react(Hoedown_New_banner);
+        await message.react(FemaleEmoji);
         console.log(`Bot reacted to message via slash command: ${message.id}`);
     }
 };
