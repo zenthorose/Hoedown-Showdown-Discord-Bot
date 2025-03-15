@@ -25,15 +25,16 @@ const reactionPostsManager = new ReactionPostsManager();
 
 const { Hoedown_New_banner } = require('./config.json');
 
-const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
+const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
     const command = require(`./commands/${file}`);
     if (command.data && command.data.name) {
         client.commands.set(command.data.name, command);
     } else {
-        console.error(`Command file ${file} is missing a valid command structure.`);
+        console.error(`⚠️ Command file ${file} is missing a valid structure.`);
     }
 }
+
 
 const express = require('express');
 const app = express();
