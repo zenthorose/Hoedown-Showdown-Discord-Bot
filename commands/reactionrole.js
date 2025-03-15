@@ -46,7 +46,7 @@ module.exports = {
                 await message.react(Hoedown_New_banner);
 
                 // ⏳ Add a small delay (1 second) before posting the next message
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 5000));
             }
 
         } catch (error) {
