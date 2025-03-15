@@ -1,5 +1,6 @@
 ﻿require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, EmbedBuilder, REST, Routes } = require('discord.js');
+const fs = require('fs');
 
 const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -16,15 +17,15 @@ const client = new Client({
 });
 
 const prefix = '.';
-const fs = require('fs');
 client.commands = new Collection();
 const botToken = process.env.BOT_TOKEN;
+const { statusChannelId } = require('./config.json');
 
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
-
 const { Hoedown_New_banner } = require('./config.json');
 
+// Load commands from /commands/
 const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
     const command = require(`./commands/${file}`);
@@ -35,7 +36,6 @@ for (const file of commandFiles) {
     }
 }
 
-
 const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
@@ -45,14 +45,23 @@ app.get('/ping', (req, res) => {
     res.send('Pong!');
 });
 
-
-
-
-const { statusChannelId } = require('./config.json');
-
-// Send a startup message when the bot is ready
+// Auto-register slash commands when the bot starts
 client.once('ready', async () => {
     console.log(`✅ Bot is online and ready!`);
+
+    const commands = [];
+    for (const file of commandFiles) {
+        const command = require(`./commands/${file}`);
+        commands.push(command.data.toJSON());
+    }
+
+    const rest = new REST({ version: '10' }).setToken(botToken);
+    try {
+        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+        console.log('✅ Slash commands registered successfully.');
+    } catch (error) {
+        console.error('❌ Failed to register slash commands:', error);
+    }
 
     const channel = client.channels.cache.get(statusChannelId);
     if (channel) {
@@ -75,13 +84,7 @@ process.on('SIGTERM', async () => {
     process.exit(0);
 });
 
-
-
-
-
-
-
-
+// Handle slash commands
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
@@ -96,14 +99,11 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-
-
-
-
+// Reaction handling
 client.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.message.partial) await reaction.message.fetch();
     if (reaction.partial) await reaction.fetch();
-    if (user.bot) return; // Ignore bot's own reactions
+    if (user.bot) return;
     if (!reaction.message.guild) return;
 
     const post = reactionPostsManager.findPostByMessageId(reaction.message.id);
@@ -114,17 +114,10 @@ client.on('messageReactionAdd', async (reaction, user) => {
     console.log(reactionPostsManager.getAllPosts());
 });
 
-
-
-
-
-
-
-
 client.on('messageReactionRemove', async (reaction, user) => {
     if (reaction.message.partial) await reaction.message.fetch();
     if (reaction.partial) await reaction.fetch();
-    if (user.bot) return; // Ignore bot's own reactions
+    if (user.bot) return;
     if (!reaction.message.guild) return;
 
     const post = reactionPostsManager.findPostByMessageId(reaction.message.id);
@@ -136,24 +129,14 @@ client.on('messageReactionRemove', async (reaction, user) => {
     console.log(reactionPostsManager.getAllPosts());
 });
 
-
-
-
-
-
-
+// Basic ping command
 client.on('messageCreate', async message => {
-
-
     if (message.content === '!ping') {
         message.channel.send('Pong!');
     }
-
 });
-
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
     client.login(botToken);
 });
-
