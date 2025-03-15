@@ -23,7 +23,7 @@ const botToken = process.env.BOT_TOKEN;
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
-const { MaleEmoji, MaleRole, MaleName } = require('./config.json');
+const { Hoedown_New_banner } = require('./config.json');
 
 const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
@@ -44,15 +44,6 @@ app.get('/ping', (req, res) => {
     res.send('Pong!');
 });
 
-const calculateTotalReactions = (post) => {
-    let totalMaleReactions = 0;
-    post.reactions.forEach(reaction => {
-        if (reaction === MaleEmoji) {
-            totalMaleReactions++;
-        }
-    });
-    return { totalMaleReactions };
-};
 
 
 
@@ -139,30 +130,6 @@ client.on('messageReactionRemove', async (reaction, user) => {
 
 
 client.on('messageCreate', async message => {
-
-
-    
-    if (message.content.startsWith('!total')) {
-        const splitMessage = message.content.split(' ');
-        if (splitMessage.length > 1) {
-            const postId = splitMessage[1];
-            // const post = reactionPosts.find(post => post.messageId === postId);
-            const post = reactionPostsManager.findPostByMessageId(postId);
-            if (post) {
-                const { totalMaleReactions } = calculateTotalReactions(post);
-                message.channel.send(`Post in channel ${post.channelId} with message ID ${post.messageId} has ${totalMaleReactions} male reactions.`);
-            } else {
-                message.channel.send(`No post found with message ID ${postId}.`);
-            }
-        } else {
-            message.channel.send(`Total reactions for each post:`);
-            // reactionPosts.forEach(post => {
-                reactionPostsManager.getAllPosts().forEach(post => {
-                const { totalMaleReactions } = calculateTotalReactions(post);
-                message.channel.send(`Post in channel ${post.channelId} with message ID ${post.messageId} has ${totalMaleReactions} male reactions.`);
-            });
-        }
-    }
 
 
     if (message.content === '!ping') {
