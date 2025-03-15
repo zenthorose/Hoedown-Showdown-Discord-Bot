@@ -47,21 +47,33 @@ app.get('/ping', (req, res) => {
 
 
 
-client.once('ready', async () => {
-    console.log(`Bot is online!`);
+const { statusChannelId } = require('./config.json');
 
-    const commands = client.commands.map(command => command.data.toJSON());
-    const rest = new REST({ version: '10' }).setToken(botToken);
-    try {
-        await rest.put(
-            Routes.applicationCommands(client.user.id),
-            { body: commands }
-        );
-        console.log('Successfully registered application commands.');
-    } catch (error) {
-        console.error(error);
+// Send a startup message when the bot is ready
+client.once('ready', async () => {
+    console.log(`✅ Bot is online and ready!`);
+
+    const channel = client.channels.cache.get(statusChannelId);
+    if (channel) {
+        channel.send("🚀 Bot has successfully restarted and is ready!");
+        console.log(`✅ Startup message sent to #${channel.name}`);
+    } else {
+        console.log("⚠️ Warning: Could not find the status channel. Check your config.json.");
     }
 });
+
+// Detect when Render stops the bot (for a GitHub push restart)
+process.on('SIGTERM', async () => {
+    console.log("🔄 Render is stopping the bot for redeployment...");
+
+    const channel = client.channels.cache.get(statusChannelId);
+    if (channel) {
+        await channel.send("🔄 Bot is restarting (GitHub Deploy)...");
+    }
+
+    process.exit(0);
+});
+
 
 
 
