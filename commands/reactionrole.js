@@ -1,11 +1,11 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder } = require('discord.js');
-const { Hoedown_New_banner } = require('../config.json');
+const { Hoedown_New_banner } = require('../config.json'); // Default emoji from config
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('reactionrole')
-        .setDescription('Send multiple reaction role messages with different times!'),
+        .setDescription('Send multiple reaction role messages with different times and emojis!'),
     async execute(interaction, reactionPostsManager) {
         try {
             // List of preset time slots
@@ -28,26 +28,46 @@ module.exports = {
                 "6:30 AM EST",
             ];
 
-            // Acknowledge the command before posting messages
-            await interaction.reply({ content: "Posting reaction role messages...", ephemeral: true });
+            // List of emojis (must match the length of `timeSlots`)
+            const emojis = [
+                "🔥", "🌟", "⚡", "💥", "🎉", "🚀", "🕒", "⏰",
+                "🌙", "☀️", "🎶", "🏆", "📅", "✅", "🎭", "👑"
+            ];
 
-            // Loop through each time slot and send a message
-            for (const timeSlot of timeSlots) {
+            // Ensure lists are the same length to avoid mismatches
+            if (timeSlots.length !== emojis.length) {
+                throw new Error("The number of emojis must match the number of time slots.");
+            }
+
+            // Acknowledge command first
+            const responseMessage = await interaction.reply({ 
+                content: "Posting reaction role messages...", 
+                ephemeral: true 
+            });
+
+            // Loop through each time slot and emoji
+            for (let i = 0; i < timeSlots.length; i++) {
+                const timeSlot = timeSlots[i];
+                const emoji = emojis[i]; // Pick matching emoji for this time slot
+
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
-                    .setTitle(`${Hoedown_New_banner} React to join the ${timeSlot} time slot!`)
+                    .setTitle(`${emoji} React to join the ${timeSlot} time slot!`)
                     .setTimestamp(); 
 
                 const message = await interaction.channel.send({ embeds: [exampleEmbed] });
                 reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
 
-                console.log(`Posted reaction role for: ${timeSlot}`);
+                console.log(`Posted reaction role for: ${timeSlot} with emoji ${emoji}`);
 
-                await message.react(Hoedown_New_banner);
+                await message.react(emoji); // React with corresponding emoji
 
                 // ⏳ Add a small delay (1 second) before posting the next message
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
+
+            // 🔥 Delete the original bot response
+            await responseMessage.delete();
 
         } catch (error) {
             console.error("Error executing reactionrole command:", error);
