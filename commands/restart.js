@@ -7,7 +7,7 @@ module.exports = {
         .setDescription('Restarts the bot (Admin Only)'),
     
     async execute(interaction) {
-        const allowedUserId = 'YOUR_DISCORD_USER_ID'; // Replace with your Discord ID
+        const allowedUserId = '144747826981765120'; // Replace with your actual Discord ID
 
         if (interaction.user.id !== allowedUserId) {
             return interaction.reply({ content: "❌ You do not have permission to restart the bot!", ephemeral: true });
