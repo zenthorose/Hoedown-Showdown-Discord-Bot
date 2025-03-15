@@ -25,9 +25,7 @@ const clientId = process.env.CLIENT_ID;
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
-const { Hoedown_New_banner, statusChannelId } = require('./config.json');
-
-const SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE";
+const { Hoedown_New_banner, statusChannelId, SPREADSHEET_ID, SHEET_NAME } = require('./config.json');
 const credentials = {
     type: "service_account",
     project_id: process.env.GOOGLE_PROJECT_ID,
@@ -94,7 +92,7 @@ client.once('ready', async () => {
 
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
-                range: "A1",
+                range: `${SHEET_NAME}!A1`,
                 valueInputOption: "RAW",
                 resource: { values: [["Username", "User ID"], ...sortedMembers] }
             });
