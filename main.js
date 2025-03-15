@@ -1,6 +1,7 @@
 ﻿require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, EmbedBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
+const moment = require('moment-timezone'); // 📌 Ensure 'moment-timezone' is installed
 
 const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -45,7 +46,12 @@ app.get('/ping', (req, res) => {
     res.send('Pong!');
 });
 
-// Auto-register slash commands when the bot starts
+// Function to get current EST time
+function getCurrentESTTime() {
+    return moment().tz("America/New_York").format("hh:mm A");
+}
+
+// Auto-register slash commands and send status messages
 client.once('ready', async () => {
     console.log(`✅ Bot is online and ready!`);
 
@@ -63,10 +69,12 @@ client.once('ready', async () => {
         console.error('❌ Failed to register slash commands:', error);
     }
 
+    // Send a startup message when the bot is ready
     const channel = client.channels.cache.get(statusChannelId);
     if (channel) {
-        channel.send("🚀 Bot has successfully restarted and is ready!");
-        console.log(`✅ Startup message sent to #${channel.name}`);
+        const currentTimeEST = getCurrentESTTime();
+        channel.send(`🚀 Bot has successfully restarted at ${currentTimeEST} EST!`);
+        console.log(`✅ Startup message sent at ${currentTimeEST} EST.`);
     } else {
         console.log("⚠️ Warning: Could not find the status channel. Check your config.json.");
     }
@@ -78,7 +86,8 @@ process.on('SIGTERM', async () => {
 
     const channel = client.channels.cache.get(statusChannelId);
     if (channel) {
-        await channel.send("🔄 Bot is restarting (GitHub Deploy)...");
+        const currentTimeEST = getCurrentESTTime();
+        await channel.send(`🔄 Bot is restarting (GitHub Deploy) at ${currentTimeEST} EST...`);
     }
 
     process.exit(0);
