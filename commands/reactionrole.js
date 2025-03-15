@@ -1,25 +1,29 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder } = require('discord.js');
-const { Hoedown_New_banner, MaleName } = require('../config.json');
+const { Hoedown_New_banner } = require('../config.json');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('reactionrole')
-        .setDescription('Send the reaction role message!'),
+        .setDescription('Send the reaction role message!')
+        .addStringOption(option => 
+            option.setName('timeslot')
+                .setDescription('Enter the time for this reaction role')
+                .setRequired(true)
+        ),
     async execute(interaction, reactionPostsManager) {
+        const timeSlot = interaction.options.getString('timeslot'); // Get user-inputted time
+
         const exampleEmbed = new EmbedBuilder()
             .setColor('#444444')
             .setTitle('React to the emoji if you are able to make it to this time slot.')
-            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${Hoedown_New_banner} for ${MaleName}\n`)
+            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${Hoedown_New_banner} for ${timeSlot}\n`)
             .setTimestamp();
 
         const message = await interaction.reply({ embeds: [exampleEmbed], fetchReply: true });
         reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
         console.log(`Added new reaction post via slash command: ${message.id}`);
-        console.log(reactionPostsManager.getAllPosts());
 
-        // Add a slight delay before adding the bot's reactions
-        // await new Promise(resolve => setTimeout(resolve, 500));
         await message.react(Hoedown_New_banner);
         console.log(`Bot reacted to message via slash command: ${message.id}`);
     }
