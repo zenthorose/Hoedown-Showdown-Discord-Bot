@@ -42,12 +42,13 @@ module.exports = {
 
                 for (const reaction of reactions.values()) {
                     const users = await reaction.users.fetch();
-                    const userList = users
+                    const sortedUserList = users
                         .filter(user => user.id !== interaction.client.user.id) // Ignore bot's own reactions
                         .map(user => user.username)
+                        .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })) // Sort alphabetically
                         .join(', ');
 
-                    embed.addFields({ name: `Emoji: ${reaction.emoji.name}`, value: userList || 'No users' });
+                    embed.addFields({ name: `Emoji: ${reaction.emoji.name}`, value: sortedUserList || 'No users' });
                 }
 
                 await interaction.reply({ embeds: [embed] });
