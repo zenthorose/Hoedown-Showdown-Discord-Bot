@@ -17,7 +17,7 @@ module.exports = {
         const exampleEmbed = new EmbedBuilder()
             .setColor('#444444')
             .setTitle(`React to ${Hoedown_New_banner} to join the ${timeSlot} time slot!`)
-            .setDescription('') // Keeps the description blank for later use
+            //.setDescription('') Keeps the description blank for later use
             .setTimestamp();
 
         const message = await interaction.reply({ embeds: [exampleEmbed], fetchReply: true });
