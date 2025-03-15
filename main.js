@@ -94,7 +94,7 @@ client.once('ready', async () => {
                 spreadsheetId: SPREADSHEET_ID,
                 range: `${SHEET_NAME}!A1`,
                 valueInputOption: "RAW",
-                resource: { values: [["Username", "User ID"], ...sortedMembers] }
+                resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
             });
 
             console.log("✅ Member list successfully uploaded to Google Sheets!");
