@@ -16,8 +16,8 @@ module.exports = {
 
         const exampleEmbed = new EmbedBuilder()
             .setColor('#444444')
-            .setTitle('React to the emoji if you are able to make it to this time slot.')
-            .setDescription(`Once you have reacted you will be added to the list for the round! If you are unable to make this round please remove your reaction.\n\n${Hoedown_New_banner} for ${timeSlot}\n`)
+            .setTitle(`\n\n${Hoedown_New_banner} for Timeslot: ${timeSlot}\n`)
+            .setDescription()
             .setTimestamp();
 
         const message = await interaction.reply({ embeds: [exampleEmbed], fetchReply: true });
