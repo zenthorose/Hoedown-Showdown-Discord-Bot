@@ -5,27 +5,15 @@ const { Hoedown_New_banner } = require('../config.json'); // Default emoji from 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('reactionrole')
-        .setDescription('Send multiple reaction role messages with different times and emojis!'),
+        .setDescription('Send an announcement followed by multiple reaction role messages!'),
     async execute(interaction, reactionPostsManager) {
         try {
             // List of preset time slots
             const timeSlots = [
-                "8:00 AM EST",
-                "9:30 AM EST",
-                "11:00 AM EST",
-                "12:30 PM EST",
-                "2:00 PM EST",
-                "3:30 PM EST",
-                "5:00 PM EST",
-                "6:30 PM EST",
-                "8:00 PM EST",
-                "9:30 PM EST",
-                "11:00 PM EST",
-                "12:30 AM EST",
-                "2:00 AM EST",
-                "3:30 AM EST",
-                "5:00 AM EST",
-                "6:30 AM EST",
+                "8:00 AM EST", "9:30 AM EST", "11:00 AM EST", "12:30 PM EST",
+                "2:00 PM EST", "3:30 PM EST", "5:00 PM EST", "6:30 PM EST",
+                "8:00 PM EST", "9:30 PM EST", "11:00 PM EST", "12:30 AM EST",
+                "2:00 AM EST", "3:30 AM EST", "5:00 AM EST", "6:30 AM EST",
             ];
 
             // List of emojis (must match the length of `timeSlots`)
@@ -45,6 +33,15 @@ module.exports = {
                 ephemeral: true 
             });
 
+            // 🔹 Post an **Introductory Embed** before the time slot messages
+            const introEmbed = new EmbedBuilder()
+                .setColor('#0099ff')
+                .setTitle("📢 Time Slot Sign-Ups")
+                .setDescription("React to the messages below to sign up for a time slot. Make sure to remove your reaction if you are no longer available.")
+                .setTimestamp();
+
+            await interaction.channel.send({ embeds: [introEmbed] });
+
             // Loop through each time slot and emoji
             for (let i = 0; i < timeSlots.length; i++) {
                 const timeSlot = timeSlots[i];
@@ -52,7 +49,7 @@ module.exports = {
 
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
-                    .setTitle(`${emoji} React to join the ${timeSlot} time slot!`)
+                    .setTitle(`React to ${emoji} to join the ${timeSlot} time slot!`)
                     .setTimestamp(); 
 
                 const message = await interaction.channel.send({ embeds: [exampleEmbed] });
@@ -66,7 +63,7 @@ module.exports = {
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
-            // 🔥 Delete the original bot response
+            // 🔥 Delete the original bot response after all messages are posted
             await responseMessage.delete();
 
         } catch (error) {
