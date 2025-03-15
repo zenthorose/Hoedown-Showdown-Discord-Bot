@@ -54,7 +54,7 @@ client.once('ready', async () => {
     const channel = client.channels.cache.get(statusChannelId);
 
     if (channel) {
-        channel.send("✅ Bot is now online and ready to go! 🚀");
+        channel.send("✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀");
         console.log(`✅ Startup message sent to status channel: ${statusChannelId}`);
     } else {
         console.error("❌ Failed to find the status channel. Check config.json.");
