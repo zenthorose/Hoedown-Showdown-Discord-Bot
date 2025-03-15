@@ -13,7 +13,7 @@ module.exports = {
 
             // Ensure lists are the same length
             if (config.timeSlots.length !== config.emojis.length) {
-                throw new Error("The number of emojis must match the number of time slots.");
+                console.warn("⚠️ Warning: The number of emojis does not match the number of time slots.");
             }
 
             // Acknowledge command first

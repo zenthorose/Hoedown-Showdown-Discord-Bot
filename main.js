@@ -48,18 +48,16 @@ app.get('/ping', (req, res) => {
 
 
 client.once('ready', async () => {
-    console.log(`Bot is online!`);
+    console.log(`✅ Bot is online and ready as ${client.user.tag}!`);
 
-    const commands = client.commands.map(command => command.data.toJSON());
-    const rest = new REST({ version: '10' }).setToken(botToken);
-    try {
-        await rest.put(
-            Routes.applicationCommands(client.user.id),
-            { body: commands }
-        );
-        console.log('Successfully registered application commands.');
-    } catch (error) {
-        console.error(error);
+    const { statusChannelId } = require('./config.json'); // Load status channel ID
+    const channel = client.channels.cache.get(statusChannelId);
+
+    if (channel) {
+        channel.send("✅ Bot is now online and ready to go! 🚀");
+        console.log(`✅ Startup message sent to status channel: ${statusChannelId}`);
+    } else {
+        console.error("❌ Failed to find the status channel. Check config.json.");
     }
 });
 
