@@ -13,10 +13,10 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 
 (async () => {
     try {
-        console.log('❌ Removing all slash commands...');
+        console.log('❌ Removing ALL slash commands...');
         await rest.put(Routes.applicationCommands(clientId), { body: [] });
 
-        console.log('✅ Successfully removed all commands.');
+        console.log('✅ All commands have been removed from Discord.');
     } catch (error) {
         console.error('❌ Failed to remove commands:', error);
     }

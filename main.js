@@ -7,19 +7,6 @@ if (!process.env.CLIENT_ID) {
     process.exit(1);
 }
 
-// Auto-run deploy-commands.js during startup
-console.log("🔄 Running deploy-commands.js to register commands...");
-exec("node deploy-commands.js", (error, stdout, stderr) => {
-    if (error) {
-        console.error(`❌ Error running deploy-commands.js: ${error.message}`);
-        return;
-    }
-    if (stderr) {
-        console.error(`⚠️ deploy-commands.js stderr: ${stderr}`);
-        return;
-    }
-    console.log(`✅ deploy-commands.js output: ${stdout}`);
-});
 
 const { Client, GatewayIntentBits, Partials, Collection, EmbedBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
