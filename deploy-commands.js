@@ -22,8 +22,12 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 
 (async () => {
     try {
-        console.log('🔄 Refreshing application (/) commands...');
+        console.log('❌ Removing old commands...');
+        await rest.put(Routes.applicationCommands(clientId), { body: [] });
+
+        console.log('🔄 Registering new slash commands...');
         await rest.put(Routes.applicationCommands(clientId), { body: commands });
+
         console.log('✅ Successfully reloaded application (/) commands.');
     } catch (error) {
         console.error('❌ Failed to refresh commands:', error);
