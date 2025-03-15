@@ -28,30 +28,30 @@ module.exports = {
                 "6:30 AM EST",
             ];
 
+            // Acknowledge the command before posting messages
+            await interaction.reply({ content: "Posting reaction role messages...", ephemeral: true });
+
             // Loop through each time slot and send a message
             for (const timeSlot of timeSlots) {
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
                     .setTitle(`${Hoedown_New_banner} React to join the ${timeSlot} time slot!`)
-                    //.setDescription('') Keeps the description blank for later use
-                    .setTimestamp(); // No description needed
+                    .setTimestamp(); 
 
                 const message = await interaction.channel.send({ embeds: [exampleEmbed] });
                 reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
 
                 console.log(`Posted reaction role for: ${timeSlot}`);
 
-                // Bot reacts to the message with the banner emoji
                 await message.react(Hoedown_New_banner);
-            }
 
-            // Confirm execution to the user
-            await interaction.reply({ content: "Reaction role messages posted!", ephemeral: true });
+                // ⏳ Add a small delay (1 second) before posting the next message
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
 
         } catch (error) {
             console.error("Error executing reactionrole command:", error);
-            await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+            await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
         }
     }
 };
-
