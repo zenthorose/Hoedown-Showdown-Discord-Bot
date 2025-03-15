@@ -1,26 +1,41 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { MessageAttachment } = require('discord.js');
+const { google } = require('googleapis');
 const fs = require('fs');
+const credentials = require('../service-account.json'); // Your JSON key file
+
+const SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE";
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('members')
-        .setDescription('Fetches a list of all server members with their IDs.'),
+        .setDescription('Fetches a list of all server members and uploads them to Google Sheets.'),
     async execute(interaction) {
         await interaction.guild.members.fetch(); // Ensures cache is populated
 
-        // Sort members alphabetically by username
         const sortedMembers = interaction.guild.members.cache
-            .map(member => `${member.user.username} (ID: ${member.user.id})`)
-            .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
-            .join('\n');
+            .map(member => [member.user.username, member.user.id]) // Format for Sheets
+            .sort((a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' }));
 
-        if (sortedMembers.length > 2000) {
-            fs.writeFileSync('members.txt', sortedMembers);
-            const attachment = new MessageAttachment('members.txt');
-            return interaction.reply({ content: 'Member list:', files: [attachment] });
+        // Authenticate with Google Sheets API
+        const auth = new google.auth.GoogleAuth({
+            credentials,
+            scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        });
+
+        const sheets = google.sheets({ version: "v4", auth });
+
+        try {
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: SPREADSHEET_ID,
+                range: "A1", // Start at the first cell
+                valueInputOption: "RAW",
+                resource: { values: [["Username", "User ID"], ...sortedMembers] } // Header + data
+            });
+
+            await interaction.reply("✅ Member list successfully uploaded to Google Sheets!");
+        } catch (error) {
+            console.error("❌ Error updating Google Sheets:", error);
+            await interaction.reply("❌ Failed to upload member list to Google Sheets.");
         }
-
-        await interaction.reply(`**Server Members:**\n${sortedMembers}`);
     },
 };
