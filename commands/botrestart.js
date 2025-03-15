@@ -3,7 +3,7 @@ const { statusChannelId } = require('../config.json');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('restart')
+        .setName('botrestart')  // Renamed from 'restart' to 'botrestart'
         .setDescription('Restarts the bot (Admin Only)'),
     
     async execute(interaction) {
