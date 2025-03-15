@@ -4,18 +4,24 @@ const { EmbedBuilder } = require('discord.js');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('reactions')
-        .setDescription('Fetches reactions from a specific message.')
+        .setDescription('Fetches reactions from a specific message in any channel.')
         .addStringOption(option =>
             option.setName('messageid')
                 .setDescription('The ID of the message to check reactions for')
+                .setRequired(true)
+        )
+        .addChannelOption(option =>
+            option.setName('channel')
+                .setDescription('The channel where the message is located')
                 .setRequired(true)
         ),
     
     async execute(interaction) {
         const messageId = interaction.options.getString('messageid');
+        const targetChannel = interaction.options.getChannel('channel'); // Get the specified channel
 
         try {
-            const targetMessage = await interaction.channel.messages.fetch(messageId);
+            const targetMessage = await targetChannel.messages.fetch(messageId);
             const reactions = targetMessage.reactions.cache;
 
             if (reactions.size > 0) {

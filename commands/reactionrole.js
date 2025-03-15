@@ -1,21 +1,15 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { EmbedBuilder, ChannelType } = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 const config = require('../config.json'); // Load config
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('reactionrole')
-        .setDescription('Send an announcement followed by multiple reaction role messages!')
-        .addChannelOption(option =>
-            option.setName('channel')
-                .setDescription('Select the channel where messages should be posted')
-                .addChannelTypes(ChannelType.GuildText)
-                .setRequired(true)
-        ),
+        .setDescription('Send an announcement followed by multiple reaction role messages!'),
     
     async execute(interaction, reactionPostsManager) {
         try {
-            const targetChannel = interaction.options.getChannel('channel'); // Get selected channel
+            const targetChannel = interaction.channel; // Use the current channel
 
             // Ensure lists are the same length
             if (config.timeSlots.length !== config.emojis.length) {
@@ -24,7 +18,7 @@ module.exports = {
 
             // Acknowledge command first
             const responseMessage = await interaction.reply({ 
-                content: `Posting reaction role messages in ${targetChannel}!`, 
+                content: "Posting reaction role messages...", 
                 ephemeral: true 
             });
 
