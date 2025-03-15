@@ -90,12 +90,22 @@ client.once('ready', async () => {
 
             const sheets = google.sheets({ version: "v4", auth });
 
+            // 🔴 Step 1: Clear columns A & B before updating
+            await sheets.spreadsheets.values.clear({
+                spreadsheetId: SPREADSHEET_ID,
+                range: `${SHEET_NAME}!A:B`, // Clears columns A & B
+            });
+
+            console.log("🧹 Cleared columns A & B before updating.");
+
+            // 🟢 Step 2: Upload new member list
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_NAME}!A1`,
+                range: `${SHEET_NAME}!A1`, // Start at A1 after clearing
                 valueInputOption: "RAW",
                 resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
             });
+
 
             console.log("✅ Member list successfully uploaded to Google Sheets!");
             channel.send("📊 Member list has been updated in Google Sheets!");
