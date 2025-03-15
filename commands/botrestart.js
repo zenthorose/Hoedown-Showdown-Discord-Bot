@@ -3,7 +3,7 @@ const { statusChannelId } = require('../config.json');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('botrestart')  // Renamed from 'restart' to 'botrestart'
+        .setName('botrestart')
         .setDescription('Restarts the bot (Admin Only)'),
     
     async execute(interaction) {
@@ -19,9 +19,11 @@ module.exports = {
         const channel = interaction.client.channels.cache.get(statusChannelId);
         if (channel) {
             await channel.send("🔄 Bot is restarting...");
+        } else {
+            console.error("⚠️ Warning: `statusChannelId` is undefined or invalid.");
         }
 
-        console.log("🔄 Restarting bot by command...");
+        console.log("🔄 Restarting bot now...");
         process.exit(1); // Exit process, Render will auto-restart
     }
 };
