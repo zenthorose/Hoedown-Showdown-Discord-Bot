@@ -70,14 +70,6 @@ client.once('ready', async () => {
         commands.push(command.data.toJSON());
     }
 
-    const rest = new REST({ version: '10' }).setToken(botToken);
-    try {
-        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-        console.log('✅ Slash commands registered successfully.');
-    } catch (error) {
-        console.error('❌ Failed to register slash commands:', error);
-    }
-
     // Send a startup message when the bot is ready
     const channel = client.channels.cache.get(statusChannelId);
     if (channel) {
