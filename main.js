@@ -1,6 +1,7 @@
 ﻿require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = require('discord.js');
 const { google } = require('googleapis');
+const moment = require('moment-timezone');
 const fs = require('fs');
 
 const client = new Client({
@@ -30,7 +31,7 @@ const credentials = {
     type: "service_account",
     project_id: process.env.GOOGLE_PROJECT_ID,
     private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'), // Fixes key formatting
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
     client_email: process.env.GOOGLE_CLIENT_EMAIL,
     client_id: process.env.GOOGLE_CLIENT_ID,
     auth_uri: process.env.GOOGLE_AUTH_URI,
@@ -38,7 +39,6 @@ const credentials = {
     auth_provider_x509_cert_url: process.env.GOOGLE_AUTH_PROVIDER_CERT,
     client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT
 };
-
 
 // Load commands from /commands/ folder
 const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
@@ -68,8 +68,9 @@ client.once('ready', async () => {
     console.log(`✅ Bot is online and ready as ${client.user.tag}!`);
     const channel = client.channels.cache.get(statusChannelId);
     if (channel) {
-        channel.send("✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀");
-        console.log(`✅ Startup message sent to status channel: ${statusChannelId}`);
+        const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]"); // ✅ Corrected time format
+        channel.send(`✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀\n🕒 Current Time: **${currentTime}**`);
+        console.log(`✅ Startup message sent at ${currentTime}`);
 
         // Auto-upload members to Google Sheets on startup
         try {
@@ -105,7 +106,6 @@ client.once('ready', async () => {
                 valueInputOption: "RAW",
                 resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
             });
-
 
             console.log("✅ Member list successfully uploaded to Google Sheets!");
             channel.send("📊 Member list has been updated in Google Sheets!");
