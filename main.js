@@ -26,7 +26,7 @@ const clientId = process.env.CLIENT_ID;
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
-const { Hoedown_New_banner, statusChannelId, SPREADSHEET_ID, SHEET_NAME } = require('./config.json');
+const { Hoedown_New_banner, statusChannelId, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
 const credentials = {
     type: "service_account",
     project_id: process.env.GOOGLE_PROJECT_ID,
@@ -94,7 +94,7 @@ client.once('ready', async () => {
             // 🔴 Step 1: Clear columns A & B before updating
             await sheets.spreadsheets.values.clear({
                 spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_NAME}!A:B`, // Clears columns A & B
+                range: `${SHEET_MEMBERS}!A:B`, // Clears columns A & B
             });
 
             console.log("🧹 Cleared columns A & B before updating.");
@@ -102,7 +102,7 @@ client.once('ready', async () => {
             // 🟢 Step 2: Upload new member list
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_NAME}!A1`, // Start at A1 after clearing
+                range: `${SHEET_MEMBERS}!A1`, // Start at A1 after clearing
                 valueInputOption: "RAW",
                 resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
             });
