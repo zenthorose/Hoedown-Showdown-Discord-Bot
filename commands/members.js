@@ -38,7 +38,7 @@ module.exports = {
             // 🔴 Step 1: Clear columns A & B before updating
             await sheets.spreadsheets.values.clear({
                 spreadsheetId: SPREADSHEET_ID,
-                range: "A:B",
+                range: `${SHEET_NAME}!A:B`,// Clears column A & B
             });
 
             console.log("🧹 Cleared columns A & B before updating.");
@@ -46,7 +46,7 @@ module.exports = {
             // 🟢 Step 2: Upload new member list
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
-                range: "A1",
+                range: `${SHEET_NAME}!A1`, // Start at A1
                 valueInputOption: "RAW",
                 resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
             });
