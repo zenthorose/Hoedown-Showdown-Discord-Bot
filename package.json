@@ -11,11 +11,11 @@
   "url": "https://github.com/FoldedLettuce/Discord-Reaction-Role-Bot",
   "license": "ISC",
   "dependencies": {
+    "axios": "^1.8.3",
     "discord.js": "^14.16.3",
-    "express": "^4.21.1",
     "dotenv": "^16.4.7",
-    "moment-timezone": "^0.5.40",
+    "express": "^4.21.1",
     "googleapis": "^121.0.0",
-    "axios": "^0.27.2"
+    "moment-timezone": "^0.5.40"
   }
 }
