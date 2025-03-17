@@ -9,6 +9,8 @@
 
   "SHEET_MEMBERS": "Discord Member List",
 
+  "testGroup": ["Alice", "Bob", "Charlie", "David"],
+
   "timeSlots": [
     "<t:1742040000:t>", "<t:1742045400:t>", "<t:1742050800:t>", "<t:1742056200:t>",
     "<t:1742061600:t>", "<t:1742067000:t>", "<t:1742072400:t>", "<t:1742077800:t>",
