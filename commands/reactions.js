@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { google } = require('googleapis');
-const { SPREADSHEET_ID, SHEET_NAME } = require('../config.json'); // Load spreadsheet details
+const { SPREADSHEET_ID, SHEET_REACTIONS } = require('../config.json'); // Load spreadsheet details
 
 const credentials = {
     type: "service_account",
@@ -77,7 +77,7 @@ module.exports = {
             // 🔴 Step 1: Clear column C before updating
             await sheets.spreadsheets.values.clear({
                 spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_NAME}!C:C`, // Clears column C
+                range: `${SHEET_REACTIONS}!C:C`, // Clears column C
             });
 
             console.log("🧹 Cleared column C before updating.");
@@ -85,7 +85,7 @@ module.exports = {
             // 🟢 Step 2: Upload new reactions user list to Column C
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_NAME}!C1`, // Start at C1
+                range: `${SHEET_REACTIONS}!C1`, // Start at C1
                 valueInputOption: "RAW",
                 resource: { values: [["Reacted Users"], ...sortedUserList] } // Header + Data
             });

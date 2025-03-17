@@ -5,7 +5,9 @@
   
   "SPREADSHEET_ID": "1TtFXWGpdbcVBEcj8HSkWWp2Ik0iJ4y_xU_70wrkLIdw",
 
-  "SHEET_NAME": "Discord Bot Page",
+  "SHEET_REACTIONS": "Players That Reacted",
+
+  "SHEET_MEMBERS": "Discord Member List",
 
   "timeSlots": [
     "<t:1742040000:t>", "<t:1742045400:t>", "<t:1742050800:t>", "<t:1742056200:t>",
