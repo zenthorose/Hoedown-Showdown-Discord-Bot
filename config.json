@@ -9,7 +9,21 @@
 
   "SHEET_MEMBERS": "Discord Member List",
 
-  "testGroup": ["Alice", "Bob", "Charlie", "David"],
+  
+  "testGroup": [
+    "Alice", "Bob", "Charlie", "David", "Emma", "Frank", "Grace", "Henry", "Isabella", "Jack",
+    "Katherine", "Liam", "Mia", "Noah", "Olivia", "Paul", "Quinn", "Rachel", "Samuel", "Tina",
+    "Ulysses", "Violet", "William", "Xander", "Yasmine", "Zachary", "Amber", "Brian", "Caitlyn", "Derek",
+    "Eleanor", "Felix", "Georgia", "Harvey", "Ivy", "James", "Kelly", "Lucas", "Madeline", "Nathan",
+    "Oscar", "Penelope", "Quincy", "Rebecca", "Steven", "Trinity", "Umar", "Valerie", "Walter", "Xenia",
+    "Yusuf", "Zoe", "Adam", "Bethany", "Caleb", "Diana", "Ethan", "Fiona", "Gavin", "Hannah",
+    "Isaac", "Jasmine", "Kyle", "Lydia", "Mason", "Natalie", "Owen", "Paige", "Raymond", "Sophia",
+    "Travis", "Uma", "Victor", "Wendy", "Xavier", "Yara", "Zane", "Arthur", "Bianca", "Connor",
+    "Delilah", "Emmett", "Farah", "Gregory", "Hazel", "Ian", "Julian", "Kara", "Leon", "Melanie",
+    "Nolan", "Ophelia", "Preston", "Quinn", "Riley", "Seth", "Tessa", "Uriel", "Vera", "Wesley"
+  ],
+
+
 
   "timeSlots": [
     "<t:1742040000:t>", "<t:1742045400:t>", "<t:1742050800:t>", "<t:1742056200:t>",
