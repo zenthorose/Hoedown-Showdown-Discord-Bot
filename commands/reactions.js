@@ -86,7 +86,7 @@ module.exports = {
             // 🟢 Step 2: Upload new reactions user list to Column C
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_REACTIONS}!C1`, // Start at C1
+                range: `${SHEET_REACTIONS}!A1`, // Start at A1
                 valueInputOption: "RAW",
                 resource: { values: [["Reacted Users"], ...sortedUserList] } // Header + Data
             });
