@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { google } = require('googleapis');
+const axios = require('axios'); // Import axios for HTTP requests
 const { SPREADSHEET_ID, SHEET_REACTIONS } = require('../config.json'); // Load spreadsheet details
 
 const credentials = {
@@ -91,7 +92,17 @@ module.exports = {
             });
 
             console.log("✅ Reaction user list successfully uploaded to Google Sheets!");
-            await interaction.reply("✅ Reaction user list updated in Google Sheets!");
+
+            // 🟣 Step 3: Trigger team generation (call the Google Apps Script Web App)
+            const triggerUrl = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/exec'; // Replace with your actual Google Apps Script Web App URL
+            await axios.post(triggerUrl, {
+                // Send any necessary parameters if needed, like:
+                // sheetId: SPREADSHEET_ID
+            });
+
+            console.log("✅ Triggered team generation via Google Apps Script!");
+            await interaction.reply("✅ Reaction user list updated in Google Sheets and team generation triggered!");
+
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
             await interaction.reply("❌ Failed to upload reaction user list to Google Sheets.");
