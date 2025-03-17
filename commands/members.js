@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { google } = require('googleapis');
-const { SPREADSHEET_ID } = require('../config.json'); // Load from config.json
+const { SPREADSHEET_ID, SHEET_NAME } = require('../config.json');
 
 const credentials = {
     type: "service_account",
