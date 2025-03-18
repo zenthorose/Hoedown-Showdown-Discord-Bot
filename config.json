@@ -1,37 +1,28 @@
 ﻿{
   "Hoedown_New_banner": "<:Hoedown_New_banner:1349945673386295338>",
-  
   "statusChannelId": "1350527088012165190",
-  
+  "TeamChannelPostingID": "1351427301321080902",
   "SPREADSHEET_ID": "1TtFXWGpdbcVBEcj8HSkWWp2Ik0iJ4y_xU_70wrkLIdw",
-
   "SHEET_REACTIONS": "Players That Reacted",
-
   "SHEET_MEMBERS": "Discord Member List",
-
-  
   "testGroup": [
     "Alice", "Bob", "Charlie", "David", "Emma", "Frank", "Grace", "Henry", "Isabella", "Jack",
-    "Katherine", "Liam", "Mia", "Noah", "Olivia", "Paul", "Quinn", "Rachel", "Samuel", "Tina",
-    "Ulysses", "Violet", "William", "Xander", "Yasmine", "Zachary", "Amber", "Brian", "Caitlyn", "Derek",
+    "Katherine", "Liam", "Mia", "Noah", "Olivia", "Paul", "Zane", "Rachel", "Samuel", "Tina",
+    "Ulysses", "Violet", "William", "Yasmine", "Zachary", "Amber", "Brian", "Caitlyn", "Derek",
     "Eleanor", "Felix", "Georgia", "Harvey", "Ivy", "James", "Kelly", "Lucas", "Madeline", "Nathan",
     "Oscar", "Penelope", "Quincy", "Rebecca", "Steven", "Trinity", "Umar", "Valerie", "Walter", "Xenia",
     "Yusuf", "Zoe", "Adam", "Bethany", "Caleb", "Diana", "Ethan", "Fiona", "Gavin", "Hannah",
     "Isaac", "Jasmine", "Kyle", "Lydia", "Mason", "Natalie", "Owen", "Paige", "Raymond", "Sophia",
     "Travis", "Uma", "Victor", "Wendy", "Xavier", "Yara", "Zane", "Arthur", "Bianca", "Connor",
     "Delilah", "Emmett", "Farah", "Gregory", "Hazel", "Ian", "Julian", "Kara", "Leon", "Melanie",
-    "Nolan", "Ophelia", "Preston", "Quinn", "Riley", "Seth", "Tessa", "Uriel", "Vera", "Wesley"
+    "Nolan", "Ophelia", "Preston", "Riley", "Seth", "Tessa", "Uriel", "Vera", "Wesley"
   ],
-
-
-
   "timeSlots": [
     "<t:1742040000:t>", "<t:1742045400:t>", "<t:1742050800:t>", "<t:1742056200:t>",
     "<t:1742061600:t>", "<t:1742067000:t>", "<t:1742072400:t>", "<t:1742077800:t>",
     "<t:1742083200:t>", "<t:1742088600:t>", "<t:1742094000:t>", "<t:1742099400:t>",
     "<t:1742104800:t>", "<t:1742110200:t>", "<t:1742115600:t>", "<t:1742121000:t>"
   ],
-
   "emojis": [
     "🔥", "🌟", "⚡", "💥", "🎉", "🚀", "🕒", "⏰",
     "🌙", "☀️", "🎶", "🏆", "📅", "✅", "🎭", "👑"

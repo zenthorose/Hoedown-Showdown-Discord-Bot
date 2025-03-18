@@ -1,14 +1,14 @@
 {
-  "name": "discord-reaction-role-bot",
+  "name": "hunt-showdown-hoedown-do-see-do-bot",
   "version": "1.0.0",
-  "description": "This is a free open source easy to use Discord reaction role bot.",
+  "description": "This is a bot designed for the Hunt Showdown Hoedown Do-see-do.",
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node main.js"
   },
-  "author": "Folded Lettuce",
-  "url": "https://github.com/FoldedLettuce/Discord-Reaction-Role-Bot",
+  "author": "Zentho",
+  "url": "https://github.com/zenthorose/Hoedown-Showdown-Discord-Bot",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.8.3",
@@ -17,5 +17,8 @@
     "express": "^4.21.1",
     "googleapis": "^121.0.0",
     "moment-timezone": "^0.5.40"
+  },
+  "engines": {
+    "node": "16.x"
   }
 }
