@@ -144,9 +144,34 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Existing ping endpoint
 app.get('/ping', (req, res) => res.send('Pong!'));
+
+// New endpoint to send a message to Discord
+app.post('/sendmessage', async (req, res) => {
+    const { channelId, message } = req.body;
+
+    if (!channelId || !message) {
+        return res.status(400).json({ error: 'Missing required fields: channelId and message' });
+    }
+
+    try {
+        // Get the channel object
+        const channel = await client.channels.fetch(channelId);
+        
+        // Send the message to the channel
+        await channel.send(message);
+        
+        res.status(200).json({ success: `Message sent to channel ${channelId}` });
+    } catch (error) {
+        console.error('Error sending message to Discord:', error);
+        res.status(500).json({ error: 'Failed to send message to Discord' });
+    }
+});
 
 app.listen(port, () => {
     console.log(`🌐 Server is running on port ${port}`);
     client.login(botToken);
 });
+
