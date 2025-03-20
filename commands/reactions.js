@@ -27,6 +27,8 @@ module.exports = {
         ),
 
     async execute(interaction) {
+        await interaction.deferReply(); // ✅ Defer reply to prevent interaction timeout
+
         const messageId = interaction.options.getString('messageid');
 
         try {
@@ -45,12 +47,12 @@ module.exports = {
             }
 
             if (!targetMessage) {
-                return await interaction.reply({ content: `Message with ID ${messageId} not found.`, ephemeral: true });
+                return await interaction.editReply({ content: `Message with ID ${messageId} not found.`, flags: 64 });
             }
 
             const reactions = targetMessage.reactions.cache;
             if (reactions.size === 0) {
-                return await interaction.reply(`No reactions found for message ID ${messageId}.`);
+                return await interaction.editReply({ content: `No reactions found for message ID ${messageId}.`, flags: 64 });
             }
 
             const uniqueUsers = new Set(); // To prevent duplicate usernames
@@ -101,11 +103,12 @@ module.exports = {
             });
 
             console.log("✅ Triggered team generation via Google Apps Script!");
-            await interaction.reply("✅ Reaction user list updated in Google Sheets and team generation triggered!");
+
+            await interaction.editReply("✅ Reaction user list updated in Google Sheets and team generation triggered!");
 
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
-            await interaction.reply("❌ Failed to upload reaction user list to Google Sheets.");
+            await interaction.editReply("❌ Failed to upload reaction user list to Google Sheets.");
         }
     },
 };
