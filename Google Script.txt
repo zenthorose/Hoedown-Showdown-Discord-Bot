@@ -1,0 +1,275 @@
+function createTeams() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Players That Reacted');
+  var discordSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Discord Member List');
+  var names = sheet.getRange('A2:A' + sheet.getLastRow()).getValues().flat().filter(name => name.trim() !== '');
+
+  logToSheet('Starting team creation process...');
+
+  if (names.length === 0) {
+    logToSheet('No names to create teams from.');
+    return;
+  }
+
+  var nextColumn = findNextEmptyColumn(sheet, 3);
+  var teamSetNumber = getLastTeamSetNumber() + 1;
+  var setLabel = teamSetNumber + getOrdinalSuffix(teamSetNumber) + " Team Set";
+  sheet.getRange(1, nextColumn).setValue(setLabel);
+  sheet.getRange('B2:B' + sheet.getLastRow()).clearContent();
+
+  names = shuffle(names);
+  var eastPlayers = [];
+  var westPlayers = [];
+  var mixedPlayers = [];
+  var assignedPlayers = new Set();
+
+  names.forEach(playerName => {
+    var discordRow = discordSheet.createTextFinder(playerName).findNext();
+    if (discordRow) {
+      var region = discordRow.offset(0, 3).getValue().trim();
+      if (region === "East") eastPlayers.push(playerName);
+      else if (region === "West") westPlayers.push(playerName);
+      else mixedPlayers.push(playerName);
+    } else {
+      mixedPlayers.push(playerName);
+    }
+  });
+
+  logToSheet(`East: ${eastPlayers.length}, West: ${westPlayers.length}, Mixed: ${mixedPlayers.length}`);
+
+  var teamIndex = getLastTeamIndex();
+  var startRow = 2;
+  
+  // This function assigns teams to players
+  function assignTeams(players) {
+    var teamList = [];
+    for (var i = 0; i < players.length; i += 3) {
+      var team = players.slice(i, i + 3);
+      while (team.length < 3) team.push("Filler");
+      teamList.push(team);
+      var teamLabel = "Team " + getTeamLabel(teamIndex);
+      sheet.getRange(startRow, 2).setValue(teamLabel);
+      sheet.getRange(startRow, nextColumn).setValue(teamLabel);
+      team.forEach((player, j) => {
+        sheet.getRange(startRow + j + 1, 2).setValue(player);
+        sheet.getRange(startRow + j + 1, nextColumn).setValue(player);
+        assignedPlayers.add(player);
+      });
+      startRow += 5;
+      teamIndex = (teamIndex + 1) % 52;
+      logToSheet(`Assigned ${teamLabel} to: ${team.join(', ')}`);
+    }
+    return teamList;
+  }
+
+  var allTeams = [];
+  allTeams.push(...assignTeams(eastPlayers));
+  allTeams.push(...assignTeams(westPlayers));
+  allTeams.push(...assignTeams(mixedPlayers));
+
+  sendTeamsToDiscord(allTeams);
+
+  storeLastTeamIndex(teamIndex);
+  storeLastTeamSetNumber(teamSetNumber);
+
+  logToSheet('Teams created successfully!');
+}
+
+// Custom label generator function for Discord (A-Z, AA, BB, CC, ...)
+function getCustomDiscordTeamLabel(index) {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  // For A-Z (index 0 to 25)
+  if (index < 26) {
+    return letters.charAt(index); // A-Z
+  }
+
+  // For AA, BB, CC, ... (index 26 and beyond)
+  const letterIndex = index - 26;
+  const firstLetter = letters.charAt(Math.floor(letterIndex / 26)); // A-Z
+  const secondLetter = letters.charAt(letterIndex % 26); // A-Z
+  
+  return firstLetter + secondLetter; // AA, BB, CC, ...
+}
+
+// Helper function to generate team labels (AA, BB, CC, ..., ZZ)
+function getCustomTeamLabel(index) {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  // Calculate the label index in a repeating cycle of A-Z, AA-ZZ
+  const labelIndex = index % 702;  // 702 is the total number of labels (A-Z + AA-ZZ)
+
+  if (labelIndex < 26) {
+    return letters.charAt(labelIndex); // A-Z
+  }
+
+  // For labels AA-ZZ
+  const letterIndex = labelIndex - 26;
+  const firstLetter = letters.charAt(Math.floor(letterIndex / 26)); // First letter of AA, AB, ...
+  const secondLetter = letters.charAt(letterIndex % 26); // Second letter of AA, AB, ...
+
+  return firstLetter + secondLetter; // AA, AB, ..., ZZ
+}
+
+function sendTeamsToDiscord(teams) {
+  var teamChannelPostingId = PropertiesService.getScriptProperties().getProperty('TeamChannelPostingID');
+  var renderUrl = 'https://hoedown-showdown-discord-bot.onrender.com/sendmessage';
+
+  let teamSetNumber = getLastTeamSetNumber() + 1;  // Increment the team set number before using it
+  let teamSetNumberWithSuffix = teamSetNumber + getOrdinalSuffix(teamSetNumber); // Add the ordinal suffix
+  let message = `${teamSetNumberWithSuffix} Team Set\n\n`;  // Add the team set number with suffix above the teams
+  message += 'Here are the teams:\n\n';
+
+  let teamIndex = getLastTeamIndex();  // Get the last team index for the first team label
+
+  // Dynamically build the message for each team
+  teams.forEach((team, index) => {
+    let teamLabel = getTeamLabel(teamIndex % 52);  // Use modulo to reset after 52 teams
+    message += `${teamLabel}:\n${team.join("\n")}\n\n`;
+    teamIndex++; // Increment for the next team
+  });
+
+  var payload = JSON.stringify({ channelId: teamChannelPostingId, message: message });
+  var options = { method: 'POST', contentType: 'application/json', payload: payload };
+
+  try {
+    var response = UrlFetchApp.fetch(renderUrl, options);
+    if (response.getResponseCode() !== 200) throw new Error(response.getContentText());
+    logToSheet('Successfully sent team list to Discord.');
+  } catch (error) {
+    logToSheet('Error sending team list: ' + error.message);
+  }
+
+  // Store the new team index for the next set
+  storeLastTeamIndex(teamIndex);
+  storeLastTeamSetNumber(teamSetNumber);  // Store the updated team set number
+}
+
+// Helper function to generate team labels (A, B, ..., Z, AA, AB, ..., ZZ)
+function generateTeamLabels() {
+  let labels = [];
+  let letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  for (let i = 0; i < 26; i++) {
+    labels.push(letters[i]);
+  }
+  for (let i = 0; i < 26; i++) {
+    for (let j = 0; j < 26; j++) {
+      labels.push(letters[i] + letters[j]);
+    }
+  }
+  return labels;
+}
+
+function getTeamLabel(index) {
+  if (index < 26) {
+    return String.fromCharCode(65 + index); // A-Z
+  } else {
+    let letter = String.fromCharCode(65 + (index - 26)); // AA, AB, etc.
+    return letter + letter;
+  }
+}
+
+function logToSheet(message) {
+  var logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Logs');
+  if (!logSheet) {
+    logSheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet('Logs');
+    logSheet.appendRow(['Timestamp', 'Message']);
+  }
+  logSheet.appendRow([new Date(), message]);
+}
+
+// Function to find the next empty column after a given start column
+function findNextEmptyColumn(sheet, startColumn) {
+  var lastRow = sheet.getLastRow();
+  for (var col = startColumn; col <= sheet.getLastColumn(); col++) {
+    var values = sheet.getRange(1, col, lastRow).getValues().flat();
+    if (values.every(value => value === "")) {
+      return col; // Found an empty column
+    }
+  }
+  return sheet.getLastColumn() + 1; // If no empty column, move to the next
+}
+
+// Function to get the last used team index
+function getLastTeamIndex() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Important Values');
+  var cell = sheet.getRange('A1'); // Store last team index in cell A1
+  var lastIndex = cell.getValue();
+  return lastIndex || 0; // If no value, start from 0 (Team A)
+}
+
+// Function to store the last team index in "Important Values"
+function storeLastTeamIndex(index) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Important Values');
+  var cell = sheet.getRange('A1');
+  cell.setValue(index);
+}
+
+// Function to get the last team set number
+function getLastTeamSetNumber() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Important Values');
+  var cell = sheet.getRange('B1'); // Store last team set number in cell B1
+  var lastSetNumber = cell.getValue();
+  return lastSetNumber || 0; // If no value, start from 0
+}
+
+// Function to store the last team set number in "Important Values"
+function storeLastTeamSetNumber(setNumber) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Important Values');
+  var cell = sheet.getRange('B1');
+  cell.setValue(setNumber);
+}
+
+// Function to get the ordinal suffix (e.g., 1st, 2nd, 3rd)
+function getOrdinalSuffix(number) {
+  if (number % 100 >= 11 && number % 100 <= 13) {
+    return "th";
+  }
+  switch (number % 10) {
+    case 1: return "st";
+    case 2: return "nd";
+    case 3: return "rd";
+    default: return "th";
+  }
+}
+
+// Function to shuffle an array (Fisher-Yates shuffle)
+function shuffle(array) {
+  for (var i = array.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+// Function to handle HTTP POST requests (for automation)
+function doPost(e) {
+  try {
+    Logger.log("Full Event Object: " + JSON.stringify(e));
+
+    if (!e.postData || !e.postData.contents) {
+      throw new Error("No post data received or data is empty.");
+    }
+
+    var data = JSON.parse(e.postData.contents);
+    Logger.log("Parsed data: " + JSON.stringify(data));
+
+    var names = data.names;
+    if (!names || names.length === 0) {
+      return ContentService.createTextOutput('No names received.').setMimeType(ContentService.MimeType.TEXT);
+    }
+
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Players That Reacted');
+    
+    for (var i = 0; i < names.length; i++) {
+      sheet.getRange(i + 2, 1).setValue(names[i]);
+    }
+
+    createTeams();
+    
+    return ContentService.createTextOutput('Teams created successfully!').setMimeType(ContentService.MimeType.TEXT);
+    
+  } catch (error) {
+    Logger.log("Error: " + error.message);
+    return ContentService.createTextOutput('Error: ' + error.message).setMimeType(ContentService.MimeType.TEXT);
+  }
+}
