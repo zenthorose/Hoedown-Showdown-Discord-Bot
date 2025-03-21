@@ -27,7 +27,8 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        await interaction.reply("✅ Reaction user list update started! This may take a few seconds...");
+        // Acknowledge the interaction with deferReply if the process will take a while
+        await interaction.deferReply({ ephemeral: false });
 
         const messageId = interaction.options.getString('messageid');
 
@@ -48,12 +49,12 @@ module.exports = {
                 }
 
                 if (!targetMessage) {
-                    return interaction.followUp({ content: `❌ Message with ID ${messageId} not found.`, ephemeral: true });
+                    return interaction.editReply({ content: `❌ Message with ID ${messageId} not found.`, ephemeral: true });
                 }
 
                 const reactions = targetMessage.reactions.cache;
                 if (reactions.size === 0) {
-                    return interaction.followUp({ content: `⚠ No reactions found for message ID ${messageId}.`, ephemeral: true });
+                    return interaction.editReply({ content: `⚠ No reactions found for message ID ${messageId}.`, ephemeral: true });
                 }
 
                 const uniqueUsers = new Set();
@@ -75,11 +76,13 @@ module.exports = {
 
                 const sheets = google.sheets({ version: "v4", auth });
 
+                // Clear existing data in the specified range (C column)
                 await sheets.spreadsheets.values.clear({
                     spreadsheetId: SPREADSHEET_ID,
                     range: `${SHEET_REACTIONS}!C:C`,
                 });
 
+                // Update the sheet with the new list of users
                 await sheets.spreadsheets.values.update({
                     spreadsheetId: SPREADSHEET_ID,
                     range: `${SHEET_REACTIONS}!A1`,
@@ -87,16 +90,18 @@ module.exports = {
                     resource: { values: [["Reacted Users"], ...sortedUserList] }
                 });
 
+                // Trigger the Google Apps Script (you can replace this URL with your own if needed)
                 const triggerUrl = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/exec';
                 await axios.post(triggerUrl, {});
 
                 console.log("✅ Reaction user list updated and team generation triggered!");
 
-                await interaction.followUp("✅ Reaction user list updated in Google Sheets and team generation triggered!");
-
+                // Final response once everything is complete
+                await interaction.editReply("✅ Reaction user list updated in Google Sheets and team generation triggered!");
+                
             } catch (error) {
                 console.error("❌ Error updating Google Sheets:", error);
-                await interaction.followUp("❌ Failed to upload reaction user list to Google Sheets.");
+                await interaction.editReply("❌ Failed to upload reaction user list to Google Sheets.");
             }
         }, 1000); // Small delay to avoid blocking execution
     },
