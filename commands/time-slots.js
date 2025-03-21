@@ -4,7 +4,7 @@ const config = require('../config.json'); // Load config
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('timeslots')  // Changed the command name here
+        .setName('time-slots')  // Changed the command name here
         .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),  // Updated description
     
     async execute(interaction, reactionPostsManager) {

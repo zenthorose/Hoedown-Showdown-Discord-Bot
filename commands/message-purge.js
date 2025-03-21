@@ -2,7 +2,7 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('purgebot')
+        .setName('message-purge')
         .setDescription('Deletes all messages in this channel sent by the bot.')
         .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
