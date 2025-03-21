@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { google } = require('googleapis');
-const axios = require('axios'); // Import axios for HTTP requests
-const { SPREADSHEET_ID, SHEET_REACTIONS } = require('../config.json'); // Load spreadsheet details
+const axios = require('axios');
+const { SPREADSHEET_ID, SHEET_REACTIONS } = require('../config.json');
 
 const credentials = {
     type: "service_account",
@@ -27,88 +27,77 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply(); // ✅ Defer reply to prevent interaction timeout
+        await interaction.reply("✅ Reaction user list update started! This may take a few seconds...");
 
         const messageId = interaction.options.getString('messageid');
 
-        try {
-            let targetMessage = null;
+        // Process the reaction retrieval and Google Sheets update in the background
+        setTimeout(async () => {
+            try {
+                let targetMessage = null;
 
-            // Search for the message in all accessible text channels
-            for (const [channelId, channel] of interaction.guild.channels.cache) {
-                if (channel.isTextBased()) {
-                    try {
-                        targetMessage = await channel.messages.fetch(messageId);
-                        if (targetMessage) break; // Stop searching once found
-                    } catch (err) {
-                        continue; // Ignore errors and move to the next channel
+                for (const [channelId, channel] of interaction.guild.channels.cache) {
+                    if (channel.isTextBased()) {
+                        try {
+                            targetMessage = await channel.messages.fetch(messageId);
+                            if (targetMessage) break;
+                        } catch (err) {
+                            continue;
+                        }
                     }
                 }
-            }
 
-            if (!targetMessage) {
-                return await interaction.editReply({ content: `Message with ID ${messageId} not found.`, flags: 64 });
-            }
+                if (!targetMessage) {
+                    return interaction.followUp({ content: `❌ Message with ID ${messageId} not found.`, ephemeral: true });
+                }
 
-            const reactions = targetMessage.reactions.cache;
-            if (reactions.size === 0) {
-                return await interaction.editReply({ content: `No reactions found for message ID ${messageId}.`, flags: 64 });
-            }
+                const reactions = targetMessage.reactions.cache;
+                if (reactions.size === 0) {
+                    return interaction.followUp({ content: `⚠ No reactions found for message ID ${messageId}.`, ephemeral: true });
+                }
 
-            const uniqueUsers = new Set(); // To prevent duplicate usernames
+                const uniqueUsers = new Set();
+                for (const reaction of reactions.values()) {
+                    const users = await reaction.users.fetch();
+                    users.forEach(user => {
+                        if (!user.bot) uniqueUsers.add(user.username);
+                    });
+                }
 
-            for (const reaction of reactions.values()) {
-                const users = await reaction.users.fetch();
-                users.forEach(user => {
-                    if (!user.bot) uniqueUsers.add(user.username);
+                const sortedUserList = Array.from(uniqueUsers)
+                    .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+                    .map(username => [username]);
+
+                const auth = new google.auth.GoogleAuth({
+                    credentials,
+                    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
                 });
+
+                const sheets = google.sheets({ version: "v4", auth });
+
+                await sheets.spreadsheets.values.clear({
+                    spreadsheetId: SPREADSHEET_ID,
+                    range: `${SHEET_REACTIONS}!C:C`,
+                });
+
+                await sheets.spreadsheets.values.update({
+                    spreadsheetId: SPREADSHEET_ID,
+                    range: `${SHEET_REACTIONS}!A1`,
+                    valueInputOption: "RAW",
+                    resource: { values: [["Reacted Users"], ...sortedUserList] }
+                });
+
+                const triggerUrl = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/exec';
+                await axios.post(triggerUrl, {});
+
+                console.log("✅ Reaction user list updated and team generation triggered!");
+
+                await interaction.followUp("✅ Reaction user list updated in Google Sheets and team generation triggered!");
+
+            } catch (error) {
+                console.error("❌ Error updating Google Sheets:", error);
+                await interaction.followUp("❌ Failed to upload reaction user list to Google Sheets.");
             }
-
-            // Convert Set to sorted list
-            const sortedUserList = Array.from(uniqueUsers).sort((a, b) =>
-                a.localeCompare(b, 'en', { sensitivity: 'base' })
-            ).map(username => [username]); // Format for Sheets (one name per row)
-
-            // Authenticate with Google Sheets API
-            const auth = new google.auth.GoogleAuth({
-                credentials,
-                scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-            });
-
-            const sheets = google.sheets({ version: "v4", auth });
-
-            // 🔴 Step 1: Clear column C before updating
-            await sheets.spreadsheets.values.clear({
-                spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_REACTIONS}!C:C`, // Clears column C
-            });
-
-            console.log("🧹 Cleared column C before updating.");
-
-            // 🟢 Step 2: Upload new reactions user list to Column C
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_REACTIONS}!A1`, // Start at A1
-                valueInputOption: "RAW",
-                resource: { values: [["Reacted Users"], ...sortedUserList] } // Header + Data
-            });
-
-            console.log("✅ Reaction user list successfully uploaded to Google Sheets!");
-
-            // 🟣 Step 3: Trigger team generation (call the Google Apps Script Web App)
-            const triggerUrl = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/exec'; // Replace with your actual Google Apps Script Web App URL
-            await axios.post(triggerUrl, {
-                // Send any necessary parameters if needed, like:
-                // sheetId: SPREADSHEET_ID
-            });
-
-            console.log("✅ Triggered team generation via Google Apps Script!");
-
-            await interaction.editReply("✅ Reaction user list updated in Google Sheets and team generation triggered!");
-
-        } catch (error) {
-            console.error("❌ Error updating Google Sheets:", error);
-            await interaction.editReply("❌ Failed to upload reaction user list to Google Sheets.");
-        }
+        }, 1000); // Small delay to avoid blocking execution
     },
 };
