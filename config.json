@@ -1,8 +1,15 @@
 ﻿{
   "Hoedown_New_banner": "<:Hoedown_New_banner:1349945673386295338>",
+
+  "allowedRoles": ["Host", "Ghost's Left Hand", "Assistant"],
+  "allowedUserIds": ["144747826981765120"],
+  
+
   "statusChannelId": "1352403198895198258",
   "TeamChannelPostingID": "1352403783631634504",
+
   "SPREADSHEET_ID": "1TtFXWGpdbcVBEcj8HSkWWp2Ik0iJ4y_xU_70wrkLIdw",
+
   "SHEET_REACTIONS": "Players That Reacted",
   "SHEET_MEMBERS": "Discord Member List",
   "testGroup": [

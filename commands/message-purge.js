@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
+const config = require('../config.json'); // Import the config file
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -7,6 +8,26 @@ module.exports = {
         .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
     async execute(interaction) {
+        // Fetch the allowed roles and user IDs from the config file
+        const allowedRoles = config.allowedRoles;
+        const allowedUserIds = config.allowedUserIds;
+
+        // Check if the user has the required role or the specific Discord ID
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+
+        // Check if the user has any of the allowed roles
+        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
+        
+        // Check if the user's Discord ID is in the allowed list
+        const isAllowedUser = allowedUserIds.includes(interaction.user.id);
+
+        if (!hasRequiredRole && !isAllowedUser) {
+            return interaction.reply({
+                content: '❌ You do not have permission to use this command!',
+                ephemeral: true
+            });
+        }
+
         // Ensure the bot has permissions to delete messages
         if (!interaction.channel.permissionsFor(interaction.client.user).has("ManageMessages")) {
             return interaction.reply({ content: "❌ I don't have permission to delete messages in this channel.", ephemeral: true });

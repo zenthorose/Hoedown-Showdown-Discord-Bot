@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { google } = require('googleapis');
 const axios = require('axios');
-const { SPREADSHEET_ID, SHEET_REACTIONS } = require('../config.json');
+const config = require('../config.json'); // Import the config file
 
 const credentials = {
     type: "service_account",
@@ -18,7 +18,7 @@ const credentials = {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('grab-reactions')  // Changed the command name here
+        .setName('grab-reactions')  // Command name
         .setDescription('Fetches reactions from a specific message and uploads users to Google Sheets.')
         .addStringOption(option =>
             option.setName('messageid')
@@ -27,6 +27,26 @@ module.exports = {
         ),
 
     async execute(interaction) {
+        // Fetch the allowed roles and user IDs from the config file
+        const allowedRoles = config.allowedRoles;
+        const allowedUserIds = config.allowedUserIds;
+
+        // Check if the user has the required role or the specific Discord ID
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+
+        // Check if the user has any of the allowed roles
+        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
+        
+        // Check if the user's Discord ID is in the allowed list
+        const isAllowedUser = allowedUserIds.includes(interaction.user.id);
+
+        if (!hasRequiredRole && !isAllowedUser) {
+            return interaction.reply({
+                content: '❌ You do not have permission to use this command!',
+                ephemeral: true
+            });
+        }
+
         // Acknowledge the interaction with deferReply if the process will take a while
         await interaction.deferReply();
 
@@ -78,14 +98,14 @@ module.exports = {
 
                 // Clear existing data in the specified range (C column)
                 await sheets.spreadsheets.values.clear({
-                    spreadsheetId: SPREADSHEET_ID,
-                    range: `${SHEET_REACTIONS}!A:A`,
+                    spreadsheetId: config.SPREADSHEET_ID,
+                    range: `${config.SHEET_REACTIONS}!A:A`,
                 });
 
                 // Update the sheet with the new list of users
                 await sheets.spreadsheets.values.update({
-                    spreadsheetId: SPREADSHEET_ID,
-                    range: `${SHEET_REACTIONS}!A1`,
+                    spreadsheetId: config.SPREADSHEET_ID,
+                    range: `${config.SHEET_REACTIONS}!A1`,
                     valueInputOption: "RAW",
                     resource: { values: [["Reacted Users"], ...sortedUserList] }
                 });

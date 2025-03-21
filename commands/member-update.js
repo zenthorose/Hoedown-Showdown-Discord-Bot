@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { google } = require('googleapis');
-const { SPREADSHEET_ID, SHEET_MEMBERS } = require('../config.json');
+const config = require('../config.json'); // Import the config file
 
 const credentials = {
     type: "service_account",
@@ -20,6 +20,26 @@ module.exports = {
         .setName('member-update')
         .setDescription('Fetches a list of all server members and uploads them to Google Sheets.'),
     async execute(interaction) {
+        // Fetch the allowed roles and user IDs from the config file
+        const allowedRoles = config.allowedRoles;
+        const allowedUserIds = config.allowedUserIds;
+
+        // Check if the user has the required role or the specific Discord ID
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+
+        // Check if the user has any of the allowed roles
+        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
+        
+        // Check if the user's Discord ID is in the allowed list
+        const isAllowedUser = allowedUserIds.includes(interaction.user.id);
+
+        if (!hasRequiredRole && !isAllowedUser) {
+            return interaction.reply({
+                content: '❌ You do not have permission to use this command!',
+                ephemeral: true
+            });
+        }
+
         try {
             await interaction.guild.members.fetch();
 
@@ -37,16 +57,16 @@ module.exports = {
 
             // 🔴 Step 1: Clear columns A & B before updating
             await sheets.spreadsheets.values.clear({
-                spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_MEMBERS}!A:B`,// Clears column A & B
+                spreadsheetId: config.SPREADSHEET_ID,
+                range: `${config.SHEET_MEMBERS}!A:B`, // Clears column A & B
             });
 
             console.log("🧹 Cleared columns A & B before updating.");
 
             // 🟢 Step 2: Upload new member list
             await sheets.spreadsheets.values.update({
-                spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_MEMBERS}!A1`, // Start at A1
+                spreadsheetId: config.SPREADSHEET_ID,
+                range: `${config.SHEET_MEMBERS}!A1`, // Start at A1
                 valueInputOption: "RAW",
                 resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
             });

@@ -4,10 +4,21 @@ const config = require('../config.json'); // Load config
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('time-slots')  // Changed the command name here
-        .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),  // Updated description
+        .setName('time-slots')  // Command name
+        .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),  // Description
     
     async execute(interaction, reactionPostsManager) {
+        // Check if the user has the required role or ID
+        const member = interaction.guild.members.cache.get(interaction.user.id);
+
+        // Check if the member has any of the allowed roles or matching ID
+        const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.id));
+        const isAllowedUser = config.allowedIds.includes(interaction.user.id);
+
+        if (!hasRequiredRole && !isAllowedUser) {
+            return interaction.reply({ content: "❌ You don't have the required role or ID to use this command.", ephemeral: true });
+        }
+
         try {
             const targetChannel = interaction.channel; // Use the current channel
 
