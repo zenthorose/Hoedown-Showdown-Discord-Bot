@@ -79,7 +79,7 @@ module.exports = {
                 // Clear existing data in the specified range (C column)
                 await sheets.spreadsheets.values.clear({
                     spreadsheetId: SPREADSHEET_ID,
-                    range: `${SHEET_REACTIONS}!C:C`,
+                    range: `${SHEET_REACTIONS}!A:A`,
                 });
 
                 // Update the sheet with the new list of users
