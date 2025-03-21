@@ -91,7 +91,7 @@ module.exports = {
                 });
 
                 // Trigger the Google Apps Script (you can replace this URL with your own if needed)
-                const triggerUrl = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/exec';
+                const triggerUrl = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/dev';
                 await axios.post(triggerUrl, {});
 
                 console.log("✅ Reaction user list updated and team generation triggered!");
