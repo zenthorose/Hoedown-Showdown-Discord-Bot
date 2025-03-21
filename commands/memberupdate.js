@@ -17,7 +17,7 @@ const credentials = {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('members')
+        .setName('memberupdate')
         .setDescription('Fetches a list of all server members and uploads them to Google Sheets.'),
     async execute(interaction) {
         try {

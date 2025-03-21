@@ -18,7 +18,7 @@ const credentials = {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('reactions')
+        .setName('grabreactions')  // Changed the command name here
         .setDescription('Fetches reactions from a specific message and uploads users to Google Sheets.')
         .addStringOption(option =>
             option.setName('messageid')

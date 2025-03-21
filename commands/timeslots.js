@@ -4,8 +4,8 @@ const config = require('../config.json'); // Load config
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('reactionrole')
-        .setDescription('Send an announcement followed by multiple reaction role messages!'),
+        .setName('timeslots')  // Changed the command name here
+        .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),  // Updated description
     
     async execute(interaction, reactionPostsManager) {
         try {
@@ -18,7 +18,7 @@ module.exports = {
 
             // Acknowledge command first
             const responseMessage = await interaction.reply({ 
-                content: "Posting reaction role messages...", 
+                content: "Posting time slot sign-up messages...", 
                 ephemeral: true 
             });
 
@@ -44,7 +44,7 @@ module.exports = {
                 const message = await targetChannel.send({ embeds: [exampleEmbed] });
                 reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
 
-                console.log(`Posted reaction role for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
+                console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
 
                 await message.react(emoji); // React with corresponding emoji
 
@@ -56,7 +56,7 @@ module.exports = {
             await responseMessage.delete();
 
         } catch (error) {
-            console.error("Error executing reactionrole command:", error);
+            console.error("Error executing timeslots command:", error);
             await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
         }
     }
