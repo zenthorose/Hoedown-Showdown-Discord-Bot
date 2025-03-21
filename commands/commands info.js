@@ -2,7 +2,7 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('info')
+        .setName('commands info')
         .setDescription('Shows a list of available commands'),
 
     async execute(interaction) {
