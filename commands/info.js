@@ -2,13 +2,12 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('commands')
+        .setName('info')
         .setDescription('Shows a list of available commands'),
 
     async execute(interaction) {
         const commands = [
             { name: '/info', description: 'Provides bot information' },
-            { name: '/commands', description: 'Shows this list of commands' },
             { name: '/members', description: 'Gathers a list of all members of the discord before sending it to the Google Sheets.' },
             { name: '/purgebot', description: 'Deletes all previous messages from the bot in whatever channel the command was entered in.' },
             { name: '/reactions', description: 'Sends the list of reactions from the selected message to the Google Sheets to begin the team creation.' },
