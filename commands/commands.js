@@ -18,7 +18,7 @@ client.once('ready', () => {
 
 // Define commands
 const commands = [
-    { name: '/help', description: 'Shows this list of commands' },
+    { name: '/commands', description: 'Shows this list of commands' },
     { name: '/ping', description: 'Checks bot latency' },
     { name: '/info', description: 'Provides bot information' }
 ];
@@ -26,7 +26,7 @@ const commands = [
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === 'help') {
+    if (interaction.commandName === 'commands') {
         let commandList = commands.map(cmd => `**${cmd.name}** - ${cmd.description}`).join('\n');
 
         await interaction.reply({ content: `Here are my commands:\n\n${commandList}`, ephemeral: true });
