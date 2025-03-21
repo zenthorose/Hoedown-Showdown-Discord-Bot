@@ -28,7 +28,7 @@ module.exports = {
 
     async execute(interaction) {
         // Acknowledge the interaction with deferReply if the process will take a while
-        await interaction.deferReply({ ephemeral: false });
+        await interaction.deferReply();
 
         const messageId = interaction.options.getString('messageid');
 
@@ -49,12 +49,12 @@ module.exports = {
                 }
 
                 if (!targetMessage) {
-                    return interaction.editReply({ content: `❌ Message with ID ${messageId} not found.`, ephemeral: true });
+                    return interaction.editReply({ content: `❌ Message with ID ${messageId} not found.`, flags: 64 });
                 }
 
                 const reactions = targetMessage.reactions.cache;
                 if (reactions.size === 0) {
-                    return interaction.editReply({ content: `⚠ No reactions found for message ID ${messageId}.`, ephemeral: true });
+                    return interaction.editReply({ content: `⚠ No reactions found for message ID ${messageId}.`, flags: 64 });
                 }
 
                 const uniqueUsers = new Set();
@@ -97,11 +97,11 @@ module.exports = {
                 console.log("✅ Reaction user list updated and team generation triggered!");
 
                 // Final response once everything is complete
-                await interaction.editReply("✅ Reaction user list updated in Google Sheets and team generation triggered!");
-                
+                await interaction.editReply({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!", flags: 64 });
+
             } catch (error) {
                 console.error("❌ Error updating Google Sheets:", error);
-                await interaction.editReply("❌ Failed to upload reaction user list to Google Sheets.");
+                await interaction.editReply({ content: "❌ Failed to upload reaction user list to Google Sheets.", flags: 64 });
             }
         }, 1000); // Small delay to avoid blocking execution
     },
