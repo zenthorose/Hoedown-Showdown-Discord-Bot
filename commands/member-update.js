@@ -20,17 +20,12 @@ module.exports = {
         .setName('member-update')
         .setDescription('Fetches a list of all server members and uploads them to Google Sheets.'),
     async execute(interaction) {
-        // Fetch the allowed roles and user IDs from the config file
         const allowedRoles = config.allowedRoles;
         const allowedUserIds = config.allowedUserIds;
 
-        // Check if the user has the required role or the specific Discord ID
         const member = await interaction.guild.members.fetch(interaction.user.id);
 
-        // Check if the user has any of the allowed roles
         const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
-        
-        // Check if the user's Discord ID is in the allowed list
         const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
         if (!hasRequiredRole && !isAllowedUser) {
@@ -44,7 +39,11 @@ module.exports = {
             await interaction.guild.members.fetch();
 
             const sortedMembers = interaction.guild.members.cache
-                .map(member => [member.user.username, member.user.id])
+                .map(member => [
+                    member.nickname || member.user.username, // Nickname (or username if none)
+                    member.user.username, // Actual Discord username
+                    member.user.id // Discord ID
+                ])
                 .sort((a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' }));
 
             // Authenticate with Google Sheets API
@@ -55,20 +54,20 @@ module.exports = {
 
             const sheets = google.sheets({ version: "v4", auth });
 
-            // 🔴 Step 1: Clear columns A & B before updating
+            // 🔴 Step 1: Clear columns A to C before updating
             await sheets.spreadsheets.values.clear({
                 spreadsheetId: config.SPREADSHEET_ID,
-                range: `${config.SHEET_MEMBERS}!A:B`, // Clears column A & B
+                range: `${config.SHEET_MEMBERS}!A:C`, // Clears columns A, B, and C
             });
 
-            console.log("🧹 Cleared columns A & B before updating.");
+            console.log("🧹 Cleared columns A to C before updating.");
 
             // 🟢 Step 2: Upload new member list
             await sheets.spreadsheets.values.update({
                 spreadsheetId: config.SPREADSHEET_ID,
-                range: `${config.SHEET_MEMBERS}!A1`, // Start at A1
+                range: `${config.SHEET_MEMBERS}!A1`,
                 valueInputOption: "RAW",
-                resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
+                resource: { values: [["Nickname", "Username", "Discord ID"], ...sortedMembers] }
             });
 
             await interaction.reply("✅ Member list successfully uploaded to Google Sheets!");

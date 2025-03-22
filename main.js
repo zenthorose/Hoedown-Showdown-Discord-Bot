@@ -73,7 +73,7 @@ client.once('ready', async () => {
         console.log(`✅ Startup message sent at ${currentTime}`);
 
         // Auto-upload members to Google Sheets on startup
-        try {
+        /*try {
             await client.guilds.fetch();
             const guild = client.guilds.cache.first();
             if (!guild) return console.log("❌ No guilds found.");
@@ -112,7 +112,7 @@ client.once('ready', async () => {
         } catch (error) {
             console.error("❌ Error uploading member list:", error);
             channel.send("⚠️ Failed to upload member list to Google Sheets.");
-        }
+        }*/
     } else {
         console.error("❌ Failed to find the status channel. Check config.json.");
     }
