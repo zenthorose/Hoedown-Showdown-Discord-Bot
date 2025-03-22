@@ -20,8 +20,8 @@ module.exports = {
         .setName('member-update')
         .setDescription('Fetches a list of all server members and uploads them to Google Sheets.'),
     async execute(interaction) {
-        // Defer the reply immediately to prevent timeout issues
-        await interaction.deferReply({ ephemeral: true });
+        // Defer the reply immediately (visible to the user only)
+        await interaction.deferReply();
 
         const allowedRoles = config.allowedRoles;
         const allowedUserIds = config.allowedUserIds;
@@ -69,6 +69,7 @@ module.exports = {
                 resource: { values: [["Nickname", "Username", "Discord ID"], ...sortedMembers] }
             });
 
+            // ✅ Make success message visible to everyone
             await interaction.editReply("✅ Member list successfully uploaded to Google Sheets!");
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
