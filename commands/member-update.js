@@ -20,19 +20,18 @@ module.exports = {
         .setName('member-update')
         .setDescription('Fetches a list of all server members and uploads them to Google Sheets.'),
     async execute(interaction) {
+        // Defer the reply immediately to prevent timeout issues
+        await interaction.deferReply({ ephemeral: true });
+
         const allowedRoles = config.allowedRoles;
         const allowedUserIds = config.allowedUserIds;
 
         const member = await interaction.guild.members.fetch(interaction.user.id);
-
         const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
         const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
         if (!hasRequiredRole && !isAllowedUser) {
-            return interaction.reply({
-                content: '❌ You do not have permission to use this command!',
-                ephemeral: true
-            });
+            return interaction.editReply('❌ You do not have permission to use this command!');
         }
 
         try {
@@ -70,10 +69,10 @@ module.exports = {
                 resource: { values: [["Nickname", "Username", "Discord ID"], ...sortedMembers] }
             });
 
-            await interaction.reply("✅ Member list successfully uploaded to Google Sheets!");
+            await interaction.editReply("✅ Member list successfully uploaded to Google Sheets!");
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
-            await interaction.reply("❌ Failed to upload member list to Google Sheets.");
+            await interaction.editReply("❌ Failed to upload member list to Google Sheets.");
         }
     },
 };
