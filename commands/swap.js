@@ -1,3 +1,4 @@
+const { SlashCommandBuilder } = require('@discordjs/builders'); // Import SlashCommandBuilder
 // Array to hold multiple message IDs
 let messageIds = [];
 
