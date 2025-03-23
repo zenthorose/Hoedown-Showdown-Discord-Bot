@@ -17,7 +17,7 @@ module.exports = {
             option.setName('newplayer')
                 .setDescription('The player to be added')
                 .setRequired(true)),
-    
+
     async execute(interaction) {
         const teamName = interaction.options.getString('team');
         const oldPlayer = interaction.options.getString('oldplayer');
@@ -25,7 +25,9 @@ module.exports = {
 
         console.log(`Received swap command: team=${teamName}, oldPlayer=${oldPlayer}, newPlayer=${newPlayer}`);
 
-        // Send request to Google Apps Script
+        // Acknowledge the interaction with a deferReply
+        await interaction.deferReply();
+
         try {
             const response = await fetch('https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/dev', {
                 method: 'POST',
@@ -59,13 +61,13 @@ module.exports = {
             console.log(`Split response into ${messages.length} parts`);
 
             // Send messages in sequence
-            await interaction.reply(messages[0]); // Reply to interaction with first message
+            await interaction.editReply(messages[0]); // Edit the initial reply with first message
             for (let i = 1; i < messages.length; i++) {
                 await interaction.followUp(messages[i]); // Follow up with remaining parts
             }
         } catch (error) {
             console.error("Error sending request:", error);
-            await interaction.reply("An error occurred while processing the request.");
+            await interaction.editReply("An error occurred while processing the request.");
         }
     }
 };
