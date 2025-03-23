@@ -13,7 +13,7 @@ module.exports = {
             option.setName('newplayer')
                 .setDescription('The player to be added')
                 .setRequired(true)),
-    
+
     async execute(interaction) {
         const oldPlayer = interaction.options.getString('oldplayer');
         const newPlayer = interaction.options.getString('newplayer');
@@ -52,14 +52,27 @@ module.exports = {
             }
 
             const messages = splitMessage(responseText);
-
             console.log(`Split response into ${messages.length} parts`);
 
-            // Edit the initial deferred reply with updated message
-            await interaction.editReply(messages[0]); // Edit the initial reply with first message
+            // Send messages in sequence and store their message IDs for later editing
+            const sentMessages = [];  // Store the sent message IDs here
+            const firstMessage = await interaction.editReply(messages[0]);
+            sentMessages.push(firstMessage.id);  // Store the first message ID
+
             for (let i = 1; i < messages.length; i++) {
-                await interaction.followUp(messages[i]); // Follow up with remaining parts
+                const nextMessage = await interaction.followUp(messages[i]);
+                sentMessages.push(nextMessage.id);  // Store the message ID for subsequent messages
             }
+
+            // Here, you can update the stored messages after the swap
+            // Example: Edit all the messages based on the stored message IDs
+            setTimeout(async () => {
+                for (const messageId of sentMessages) {
+                    const messageToEdit = await interaction.channel.messages.fetch(messageId);
+                    await messageToEdit.edit("Updated message after swap!");
+                }
+            }, 5000); // Update after 5 seconds or any other delay you deem fit
+
         } catch (error) {
             console.error("Error sending request:", error);
             await interaction.editReply("An error occurred while processing the request.");
