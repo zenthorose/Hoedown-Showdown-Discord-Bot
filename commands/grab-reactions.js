@@ -96,7 +96,7 @@ module.exports = {
 
                 const sheets = google.sheets({ version: "v4", auth });
 
-                // Clear existing data in the specified range (C column)
+                // Clear existing data in the specified range (A column)
                 await sheets.spreadsheets.values.clear({
                     spreadsheetId: config.SPREADSHEET_ID,
                     range: `${config.SHEET_REACTIONS}!A:A`,
