@@ -36,6 +36,26 @@ module.exports = {
         });
 
         const responseText = await response.text();
-        await interaction.reply(responseText);
+
+        // Function to split long messages
+        function splitMessage(content, maxLength = 2000) {
+            const chunks = [];
+            while (content.length > maxLength) {
+                let splitIndex = content.lastIndexOf("\n", maxLength); // Try to split at a newline
+                if (splitIndex === -1) splitIndex = maxLength; // If no newline found, hard cut
+                chunks.push(content.slice(0, splitIndex));
+                content = content.slice(splitIndex);
+            }
+            chunks.push(content);
+            return chunks;
+        }
+
+        const messages = splitMessage(responseText);
+
+        // Send messages in sequence
+        await interaction.reply(messages[0]); // Reply to interaction with first message
+        for (let i = 1; i < messages.length; i++) {
+            await interaction.followUp(messages[i]); // Follow up with remaining parts
+        }
     }
 };
