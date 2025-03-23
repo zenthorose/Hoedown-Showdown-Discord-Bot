@@ -1,14 +1,41 @@
+const { SlashCommandBuilder } = require('discord.js');
 const fetch = require('node-fetch');
 
-async function swapPlayer(teamName, oldPlayer, newPlayer) {
-    const url = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/dev'; // Replace with your Google Apps Script URL
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('swap')
+        .setDescription('Swap a player in a team.')
+        .addStringOption(option =>
+            option.setName('team')
+                .setDescription('The team name')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('oldplayer')
+                .setDescription('The player to be removed')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('newplayer')
+                .setDescription('The player to be added')
+                .setRequired(true)),
+    
+    async execute(interaction) {
+        const teamName = interaction.options.getString('team');
+        const oldPlayer = interaction.options.getString('oldplayer');
+        const newPlayer = interaction.options.getString('newplayer');
 
-    const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: "swap", teamName, oldPlayer, newPlayer })
-    });
+        // Send request to Google Apps Script
+        const response = await fetch('https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/dev', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                command: 'swap',
+                teamName: teamName,
+                oldPlayer: oldPlayer,
+                newPlayer: newPlayer
+            })
+        });
 
-    const text = await response.text();
-    return text; // Send this message back to Discord
-}
+        const responseText = await response.text();
+        await interaction.reply(responseText);
+    }
+};
