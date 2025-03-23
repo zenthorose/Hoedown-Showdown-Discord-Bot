@@ -55,11 +55,8 @@ module.exports = {
 
             console.log(`Split response into ${messages.length} parts`);
 
-            // Delete the previous reply and resend the new list
-            await interaction.deleteReply();  // Delete the previous reply
-
-            // Send the updated list
-            await interaction.reply(messages[0]); // Reply to interaction with first message
+            // Edit the initial deferred reply with updated message
+            await interaction.editReply(messages[0]); // Edit the initial reply with first message
             for (let i = 1; i < messages.length; i++) {
                 await interaction.followUp(messages[i]); // Follow up with remaining parts
             }
