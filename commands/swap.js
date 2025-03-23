@@ -67,7 +67,7 @@ module.exports = {
             }
         } catch (error) {
             console.error("Error sending request:", error);
-            await interaction.editReply("An error occurred while processing the request.");
+            await interaction.editReply("❌ There was an error executing this command!"); // Ensure this is done with editReply()
         }
     }
 };
