@@ -89,6 +89,9 @@ module.exports = {
                     .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
                     .map(username => [username]);
 
+                // Log the payload to verify the data before sending
+                console.log("Sending payload to Apps Script:", { names: sortedUserList });
+
                 const auth = new google.auth.GoogleAuth({
                     credentials,
                     scopes: ["https://www.googleapis.com/auth/spreadsheets"]
@@ -112,7 +115,7 @@ module.exports = {
 
                 // Trigger the Google Apps Script (you can replace this URL with your own if needed)
                 const triggerUrl = 'https://script.google.com/macros/s/AKfycbzrk2JjgWUKpyWtnPOZzRf2wkjsg7lJBZs2b_4zWJOPt6VLju0u4SxcOlvHfi083yHw/dev';
-                await axios.post(triggerUrl, {});
+                await axios.post(triggerUrl, { names: sortedUserList });  // Send the payload with 'names'
 
                 console.log("✅ Reaction user list updated and team generation triggered!");
 
