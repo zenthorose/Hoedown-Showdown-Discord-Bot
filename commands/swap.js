@@ -4,11 +4,7 @@ const fetch = require('node-fetch');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('swap')
-        .setDescription('Swap a player in a team.')
-        .addStringOption(option =>
-            option.setName('team')
-                .setDescription('The team name')
-                .setRequired(true))
+        .setDescription('Swap a player in the last column of the sheet.')
         .addStringOption(option =>
             option.setName('oldplayer')
                 .setDescription('The player to be removed')
@@ -17,24 +13,23 @@ module.exports = {
             option.setName('newplayer')
                 .setDescription('The player to be added')
                 .setRequired(true)),
-
+    
     async execute(interaction) {
-        const teamName = interaction.options.getString('team');
         const oldPlayer = interaction.options.getString('oldplayer');
         const newPlayer = interaction.options.getString('newplayer');
 
-        console.log(`Received swap command: team=${teamName}, oldPlayer=${oldPlayer}, newPlayer=${newPlayer}`);
+        console.log(`Received swap command: oldPlayer=${oldPlayer}, newPlayer=${newPlayer}`);
 
         // Acknowledge the interaction with a deferReply
         await interaction.deferReply();
 
         try {
+            // Send the request to the Google Apps Script
             const response = await fetch('https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/dev', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     command: 'swap',
-                    teamName: teamName,
                     oldPlayer: oldPlayer,
                     newPlayer: newPlayer
                 })
@@ -60,14 +55,17 @@ module.exports = {
 
             console.log(`Split response into ${messages.length} parts`);
 
-            // Send messages in sequence
-            await interaction.editReply(messages[0]); // Edit the initial reply with first message
+            // Delete the previous reply and resend the new list
+            await interaction.deleteReply();  // Delete the previous reply
+
+            // Send the updated list
+            await interaction.reply(messages[0]); // Reply to interaction with first message
             for (let i = 1; i < messages.length; i++) {
                 await interaction.followUp(messages[i]); // Follow up with remaining parts
             }
         } catch (error) {
             console.error("Error sending request:", error);
-            await interaction.editReply("❌ There was an error executing this command!"); // Ensure this is done with editReply()
+            await interaction.editReply("An error occurred while processing the request.");
         }
     }
 };
