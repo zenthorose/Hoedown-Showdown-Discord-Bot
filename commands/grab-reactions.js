@@ -43,7 +43,7 @@ module.exports = {
             const optInChannelId = config.OptInChannelID;
             const targetChannel = await interaction.guild.channels.fetch(optInChannelId);
 
-            if (!targetChannel || !targetChannel.isTextBased()) {
+            if (!targetChannel || !targetChannel.isText()) {
                 return interaction.followUp({ content: "⚠ Target channel is not a valid text channel.", ephemeral: true });
             }
 
