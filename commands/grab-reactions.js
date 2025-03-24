@@ -52,7 +52,7 @@ module.exports = {
                 });
             }
 
-            /*const messageId = interaction.options.getString('messageid');
+            const messageId = interaction.options.getString('messageid');
             console.log(`Received message ID: ${messageId}`);
             let targetMessage = null;
 
@@ -90,7 +90,7 @@ module.exports = {
                     content: `❌ Error fetching message with ID ${messageId} in the target channel.`,
                     ephemeral: true
                 });
-            } */
+            } 
 
             const uniqueUsers = new Set();
             for (const reaction of targetMessage.reactions.cache.values()) {
