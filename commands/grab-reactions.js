@@ -41,7 +41,8 @@ module.exports = {
                 });
             }
 
-            await interaction.deferReply();
+            await interaction.deferReply(); // Acknowledge the interaction early
+
             const messageId = interaction.options.getString('messageid');
             let targetMessage = null;
 
@@ -121,9 +122,14 @@ module.exports = {
             // Wait 3 seconds for the team message to be posted
             await new Promise(resolve => setTimeout(resolve, 3000));
 
+            // Ensure the interaction channel exists before proceeding (fix for 502 error)
+            if (!interaction.channel) {
+                console.error("❌ Error: Interaction channel not found.");
+                return;
+            }
+
             // Fetch the last message from the bot (assuming it was posted in the same channel)
-            const teamChannel = interaction.channel;
-            const fetchedMessages = await teamChannel.messages.fetch({ limit: 10 });
+            const fetchedMessages = await interaction.channel.messages.fetch({ limit: 10 });
             const botMessage = fetchedMessages.find(msg =>
                 msg.author.id === interaction.client.user.id && msg.content.includes("Here is your teams")
             );
@@ -136,7 +142,7 @@ module.exports = {
             const botMessageId = botMessage.id;
             console.log(`✅ Found the team message! Message ID: ${botMessageId}`);
 
-            // Store the message ID in column M:M
+            // Store the message ID properly
             await sheets.spreadsheets.values.update({
                 spreadsheetId: config.SPREADSHEET_ID,
                 range: `${config.SHEET_REACTIONS}!M1`,
@@ -146,18 +152,26 @@ module.exports = {
 
             console.log("✅ Bot message ID stored in Google Sheets!");
 
-            // Send a final update to confirm success
-            await interaction.followUp({
-                content: `✅ Team message posted! Message ID: **${botMessageId}**`,
-                ephemeral: false
-            });
+            // Ensure interaction isn't already acknowledged before replying again
+            if (interaction.replied || interaction.deferred) {
+                console.log("⚠ Interaction already acknowledged, skipping reply.");
+            } else {
+                await interaction.followUp({
+                    content: `✅ Team message posted! Message ID: **${botMessageId}**`,
+                    ephemeral: false
+                });
+            }
 
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
-            await interaction.editReply({
-                content: "❌ Failed to upload reaction user list to Google Sheets.",
-                ephemeral: true
-            });
+
+            // Ensure we don't send duplicate replies
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.editReply({
+                    content: "❌ Failed to upload reaction user list to Google Sheets.",
+                    ephemeral: true
+                });
+            }
         }
     },
 };
