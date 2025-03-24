@@ -47,10 +47,10 @@ module.exports = {
             });
         }
 
-        // Send an initial message acknowledging the command
+        // Send an initial message acknowledging the command and withResponse to retrieve the message
         const replyMessage = await interaction.reply({
             content: 'Grabbing reactions... Please wait.',
-            fetchReply: true
+            withResponse: true  // Using withResponse instead of fetchReply
         });
 
         const messageId = interaction.options.getString('messageid');
