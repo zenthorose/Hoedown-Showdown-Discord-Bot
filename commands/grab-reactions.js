@@ -30,6 +30,10 @@ module.exports = {
         try {
             console.log("Start executing the command.");
 
+            // Defer early to acknowledge the interaction
+            await interaction.deferReply({ ephemeral: true });
+            console.log("Interaction deferred.");
+
             const allowedRoles = config.allowedRoles;
             const allowedUserIds = config.allowedUserIds;
             const member = await interaction.guild.members.fetch(interaction.user.id);
@@ -42,14 +46,11 @@ module.exports = {
 
             if (!hasRequiredRole && !isAllowedUser) {
                 console.log("User does not have permission to use this command.");
-                return interaction.reply({
+                return interaction.editReply({
                     content: '❌ You do not have permission to use this command!',
                     ephemeral: true
                 });
             }
-
-            await interaction.deferReply(); // Acknowledge the interaction early
-            console.log("Interaction deferred.");
 
             const messageId = interaction.options.getString('messageid');
             console.log(`Received message ID: ${messageId}`);
