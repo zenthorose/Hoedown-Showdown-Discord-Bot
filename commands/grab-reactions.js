@@ -56,25 +56,38 @@ module.exports = {
             console.log(`Received message ID: ${messageId}`);
             let targetMessage = null;
 
-            // Search for the target message
-            console.log("Searching for the target message in all channels.");
-            for (const [, channel] of interaction.guild.channels.cache) {
-                if (channel.isTextBased()) {
-                    try {
-                        console.log(`Attempting to fetch message from channel: ${channel.id}`);
-                        targetMessage = await channel.messages.fetch(messageId);
-                        if (targetMessage) break;
-                    } catch (err) {
-                        console.error(`Error fetching message from channel ${channel.id}:`, err);
-                        continue;
-                    }
-                }
+            // Fetch the target channel using the ID from config
+            const targetChannelId = config.TeamChannelPostingID;
+            console.log(`Target channel ID: ${targetChannelId}`);
+
+            // Fetch the specific channel by its ID
+            const targetChannel = await interaction.guild.channels.fetch(targetChannelId);
+            console.log(`Fetched target channel: ${targetChannel ? targetChannel.id : 'Not Found'}`);
+
+            // Ensure the target channel is valid
+            if (!targetChannel || !targetChannel.isText()) {
+                console.log("Invalid target channel. Not a text channel.");
+                return interaction.followUp({
+                    content: "⚠ Target channel is not a valid text channel.",
+                    ephemeral: true
+                });
             }
 
-            if (!targetMessage) {
-                console.log(`Message with ID ${messageId} not found.`);
+            // Try fetching the message directly from the target channel
+            try {
+                targetMessage = await targetChannel.messages.fetch(messageId);
+                if (!targetMessage) {
+                    console.log(`Message with ID ${messageId} not found in target channel.`);
+                    return interaction.editReply({
+                        content: `❌ Message with ID ${messageId} not found in the target channel.`,
+                        ephemeral: true
+                    });
+                }
+                console.log(`Found message in the target channel: ${targetMessage.id}`);
+            } catch (err) {
+                console.error("Error fetching message from target channel:", err);
                 return interaction.editReply({
-                    content: `❌ Message with ID ${messageId} not found.`,
+                    content: `❌ Error fetching message with ID ${messageId} in the target channel.`,
                     ephemeral: true
                 });
             }
@@ -90,7 +103,10 @@ module.exports = {
 
             console.log(`Found ${uniqueUsers.size} unique users who reacted.`);
             if (uniqueUsers.size === 0) {
-                return console.log(`⚠ No reactions found for message ID ${messageId}.`);
+                return interaction.editReply({
+                    content: `⚠ No reactions found for message ID ${messageId}.`,
+                    ephemeral: true
+                });
             }
 
             const sortedUserList = Array.from(uniqueUsers)
@@ -130,7 +146,7 @@ module.exports = {
             console.log("✅ Reaction user list updated and team generation triggered!");
 
             // Send an initial response while we wait for the team message
-            await interaction.editReply({
+            await interaction.followUp({
                 content: "✅ Teams are being generated... The message ID will be logged soon.",
                 ephemeral: false
             });
@@ -138,19 +154,6 @@ module.exports = {
             // Wait 5-10 seconds for the team message to be posted
             console.log("Waiting 5 seconds before fetching the team message.");
             await new Promise(resolve => setTimeout(resolve, 5000));
-
-            // Get the target channel ID from the config
-            const targetChannelId = config.TeamChannelPostingID;
-            console.log(`Target channel ID: ${targetChannelId}`);
-
-            // Fetch the target channel using the ID
-            const targetChannel = await interaction.guild.channels.fetch(targetChannelId);
-            console.log(`Fetched target channel: ${targetChannel ? targetChannel.id : 'Not Found'}`);
-
-            if (!targetChannel || !targetChannel.isText()) {
-                console.log("Invalid target channel. Not a text channel.");
-                return console.log("⚠ Target channel is not a valid text channel.");
-            }
 
             // Fetch the last 10 messages from the specified channel
             console.log("Fetching last 10 messages from the target channel.");
@@ -176,15 +179,16 @@ module.exports = {
                 console.log("✅ Bot message ID stored in Google Sheets!");
 
                 // Ensure interaction isn't already acknowledged before replying again
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.followUp({
-                        content: `✅ Team message posted! Message ID: **${botMessageId}**`,
-                        ephemeral: false
-                    });
-                }
+                await interaction.followUp({
+                    content: `✅ Team message posted! Message ID: **${botMessageId}**`,
+                    ephemeral: false
+                });
             } else {
                 console.warn("⚠ Could not find the team message.");
-                console.log("⚠ Team message not found! Please check manually.");
+                await interaction.followUp({
+                    content: "⚠ Team message not found! Please check manually.",
+                    ephemeral: true
+                });
             }
 
         } catch (error) {
