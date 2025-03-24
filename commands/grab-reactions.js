@@ -65,7 +65,7 @@ module.exports = {
             console.log(`Fetched target channel: ${targetChannel ? targetChannel.id : 'Not Found'}`);
 
             // Ensure the target channel is valid
-            if (!targetChannel || !targetChannel.isText()) {
+            if (!targetChannel || !targetChannel.isTextBased()) {
                 console.log("Invalid target channel. Not a text channel.");
                 return interaction.followUp({
                     content: "⚠ Target channel is not a valid text channel.",
