@@ -48,102 +48,106 @@ module.exports = {
         }
 
         // Send an initial message acknowledging the command
-        await interaction.reply({
-            content: 'Grabbing reactions... Please wait.',
-            ephemeral: false // Send it as a normal message
-        });
+        let replyMessage;
+        try {
+            replyMessage = await interaction.reply({
+                content: 'Grabbing reactions... Please wait.',
+                fetchReply: true  // This ensures that we get the actual Message object
+            });
 
-        // Now fetch the reply message that we just sent
-        const replyMessage = await interaction.fetchReply();
+            const messageId = interaction.options.getString('messageid');
 
-        const messageId = interaction.options.getString('messageid');
+            // Process the reaction retrieval and Google Sheets update in the background
+            setTimeout(async () => {
+                try {
+                    let targetMessage = null;
 
-        // Process the reaction retrieval and Google Sheets update in the background
-        setTimeout(async () => {
-            try {
-                let targetMessage = null;
-
-                // Search for the message in the guild channels
-                for (const [channelId, channel] of interaction.guild.channels.cache) {
-                    if (channel.isTextBased()) {
-                        try {
-                            targetMessage = await channel.messages.fetch(messageId);
-                            if (targetMessage) break;
-                        } catch (err) {
-                            continue;
+                    // Search for the message in the guild channels
+                    for (const [channelId, channel] of interaction.guild.channels.cache) {
+                        if (channel.isTextBased()) {
+                            try {
+                                targetMessage = await channel.messages.fetch(messageId);
+                                if (targetMessage) break;
+                            } catch (err) {
+                                continue;
+                            }
                         }
                     }
-                }
 
-                if (!targetMessage) {
-                    const logMessage = `❌ Message with ID ${messageId} not found.`;
-                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
-                    await replyMessage.delete(); // Clean up the initial reply if task fails
-                    return;
-                }
+                    if (!targetMessage) {
+                        const logMessage = `❌ Message with ID ${messageId} not found.`;
+                        await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+                        if (replyMessage) await replyMessage.delete(); // Clean up the initial reply if task fails
+                        return;
+                    }
 
-                const reactions = targetMessage.reactions.cache;
-                if (reactions.size === 0) {
-                    const logMessage = `⚠ No reactions found for message ID ${messageId}.`;
-                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
-                    await replyMessage.delete(); // Clean up the initial reply if task fails
-                    return;
-                }
+                    const reactions = targetMessage.reactions.cache;
+                    if (reactions.size === 0) {
+                        const logMessage = `⚠ No reactions found for message ID ${messageId}.`;
+                        await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+                        if (replyMessage) await replyMessage.delete(); // Clean up the initial reply if task fails
+                        return;
+                    }
 
-                const uniqueUsers = new Set();
-                for (const reaction of reactions.values()) {
-                    const users = await reaction.users.fetch();
-                    users.forEach(user => {
-                        if (!user.bot) uniqueUsers.add(user.username);
+                    const uniqueUsers = new Set();
+                    for (const reaction of reactions.values()) {
+                        const users = await reaction.users.fetch();
+                        users.forEach(user => {
+                            if (!user.bot) uniqueUsers.add(user.username);
+                        });
+                    }
+
+                    const sortedUserList = Array.from(uniqueUsers)
+                        .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+                        .map(username => [username]);
+
+                    const auth = new google.auth.GoogleAuth({
+                        credentials,
+                        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
                     });
+
+                    const sheets = google.sheets({ version: "v4", auth });
+
+                    // Clear existing data in the specified range (C column)
+                    await sheets.spreadsheets.values.clear({
+                        spreadsheetId: config.SPREADSHEET_ID,
+                        range: `${config.SHEET_REACTIONS}!A:A`,
+                    });
+
+                    // Update the sheet with the new list of users
+                    await sheets.spreadsheets.values.update({
+                        spreadsheetId: config.SPREADSHEET_ID,
+                        range: `${config.SHEET_REACTIONS}!A1`,
+                        valueInputOption: "RAW",
+                        resource: { values: [["Reacted Users"], ...sortedUserList] }
+                    });
+
+                    // Trigger the Google Apps Script (you can replace this URL with your own if needed)
+                    const triggerUrl = 'https://script.google.com/macros/s/AKfycbzrk2JjgWUKpyWtnPOZzRf2wkjsg7lJBZs2b_4zWJOPt6VLju0u4SxcOlvHfi083yHw/dev';
+                    await axios.post(triggerUrl, {});
+
+                    const logMessage = "✅ Reaction user list updated and team generation triggered!";
+                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+
+                    // Send a normal message with the result to the command channel
+                    await interaction.channel.send({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!" });
+
+                    if (replyMessage) await replyMessage.delete(); // Clean up the initial reply
+
+                } catch (error) {
+                    const logMessage = `❌ Error updating Google Sheets: ${error.message}`;
+                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+
+                    // Send a failure message to the command channel
+                    await interaction.channel.send({ content: "❌ Failed to upload reaction user list to Google Sheets." });
+
+                    if (replyMessage) await replyMessage.delete(); // Clean up the initial reply
                 }
+            }, 1000); // Small delay to avoid blocking execution
 
-                const sortedUserList = Array.from(uniqueUsers)
-                    .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
-                    .map(username => [username]);
-
-                const auth = new google.auth.GoogleAuth({
-                    credentials,
-                    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-                });
-
-                const sheets = google.sheets({ version: "v4", auth });
-
-                // Clear existing data in the specified range (C column)
-                await sheets.spreadsheets.values.clear({
-                    spreadsheetId: config.SPREADSHEET_ID,
-                    range: `${config.SHEET_REACTIONS}!A:A`,
-                });
-
-                // Update the sheet with the new list of users
-                await sheets.spreadsheets.values.update({
-                    spreadsheetId: config.SPREADSHEET_ID,
-                    range: `${config.SHEET_REACTIONS}!A1`,
-                    valueInputOption: "RAW",
-                    resource: { values: [["Reacted Users"], ...sortedUserList] }
-                });
-
-                // Trigger the Google Apps Script (you can replace this URL with your own if needed)
-                const triggerUrl = 'https://script.google.com/macros/s/AKfycbzrk2JjgWUKpyWtnPOZzRf2wkjsg7lJBZs2b_4zWJOPt6VLju0u4SxcOlvHfi083yHw/dev';
-                await axios.post(triggerUrl, {});
-
-                const logMessage = "✅ Reaction user list updated and team generation triggered!";
-                await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
-
-                // Send a normal message with the result to the command channel
-                await interaction.channel.send({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!" });
-
-                await replyMessage.delete(); // Clean up the initial reply
-
-            } catch (error) {
-                const logMessage = `❌ Error updating Google Sheets: ${error.message}`;
-                await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
-
-                // Send a failure message to the command channel
-                await interaction.channel.send({ content: "❌ Failed to upload reaction user list to Google Sheets." });
-
-                await replyMessage.delete(); // Clean up the initial reply
-            }
-        }, 1000); // Small delay to avoid blocking execution
+        } catch (error) {
+            console.error("❌ Error sending initial reply:", error);
+            await interaction.channel.send({ content: "❌ Failed to send the initial reply." });
+        }
     },
 };
