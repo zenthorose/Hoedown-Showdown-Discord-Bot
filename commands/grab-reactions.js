@@ -119,7 +119,7 @@ module.exports = {
 
                 console.log("✅ Reaction user list updated and team generation triggered!");
 
-                // Now send the teams message
+                // Send the teams message here
                 const teamsMessage = await interaction.channel.send("Here are the teams: ..."); // Replace with your actual teams message
                 const teamsMessageId = teamsMessage.id; // Get the message ID of the teams message
 
