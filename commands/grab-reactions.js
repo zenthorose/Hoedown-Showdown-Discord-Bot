@@ -119,23 +119,29 @@ module.exports = {
                 ephemeral: false
             });
 
-            // Wait 3 seconds for the team message to be posted
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // Wait 5-10 seconds for the team message to be posted
+            await new Promise(resolve => setTimeout(resolve, 5000));
 
-            // Ensure the interaction channel exists before proceeding (fix for 502 error)
-            if (!interaction.channel) {
-                console.error("❌ Error: Interaction channel not found.");
-                return;
+            let botMessage = null;
+            let attempts = 3; // Try fetching the message up to 3 times
+
+            for (let i = 0; i < attempts; i++) {
+                const fetchedMessages = await interaction.channel.messages.fetch({ limit: 10 });
+
+                botMessage = fetchedMessages.find(msg =>
+                    msg.author.id === interaction.client.user.id && msg.content.includes("Here is your teams")
+                );
+
+                if (botMessage) break; // Exit loop if we find the message
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
             }
 
-            // Fetch the last message from the bot (assuming it was posted in the same channel)
-            const fetchedMessages = await interaction.channel.messages.fetch({ limit: 10 });
-            const botMessage = fetchedMessages.find(msg =>
-                msg.author.id === interaction.client.user.id && msg.content.includes("Here is your teams")
-            );
-
             if (!botMessage) {
-                console.warn("⚠ Could not find the team message!");
+                console.warn("⚠ Could not find the team message after multiple attempts.");
+                await interaction.followUp({
+                    content: "⚠ Team message not found! Please check manually.",
+                    ephemeral: true
+                });
                 return;
             }
 
@@ -153,9 +159,7 @@ module.exports = {
             console.log("✅ Bot message ID stored in Google Sheets!");
 
             // Ensure interaction isn't already acknowledged before replying again
-            if (interaction.replied || interaction.deferred) {
-                console.log("⚠ Interaction already acknowledged, skipping reply.");
-            } else {
+            if (!interaction.replied && !interaction.deferred) {
                 await interaction.followUp({
                     content: `✅ Team message posted! Message ID: **${botMessageId}**`,
                     ephemeral: false
