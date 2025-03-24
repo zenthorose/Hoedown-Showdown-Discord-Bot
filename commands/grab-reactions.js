@@ -119,16 +119,23 @@ module.exports = {
 
                 console.log("✅ Reaction user list updated and team generation triggered!");
 
-                // Save the message ID to the Google Sheet (e.g., column B)
-                await sheets.spreadsheets.values.update({
+                // Now send the teams message
+                const teamsMessage = await interaction.channel.send("Here are the teams: ..."); // Replace with your actual teams message
+                const teamsMessageId = teamsMessage.id; // Get the message ID of the teams message
+
+                // Save the teams message ID to the Google Sheet (Column M)
+                await sheets.spreadsheets.values.append({
                     spreadsheetId: config.SPREADSHEET_ID,
-                    range: `${config.SHEET_REACTIONS}!M:M`, // Assuming message IDs are stored in column B
-                    valueInputOption: "RAW",
-                    resource: { values: [["Message ID"], [messageId]] }
+                    range: `${config.SHEET_REACTIONS}!M:M`, // Column M in the MessageIDs sheet
+                    valueInputOption: 'RAW',
+                    resource: {
+                        values: [[teamsMessageId]], // Save the teams message ID
+                    },
                 });
+                console.log("✅ Teams message ID saved to Google Sheets!");
 
                 // Final response once everything is complete
-                await interaction.editReply({ content: "✅ Reaction user list updated in Google Sheets, team generation triggered, and message ID saved!", flags: 64 });
+                await interaction.editReply({ content: "✅ Reaction user list updated in Google Sheets, team generation triggered, and teams message ID saved!", flags: 64 });
 
             } catch (error) {
                 console.error("❌ Error updating Google Sheets:", error);
