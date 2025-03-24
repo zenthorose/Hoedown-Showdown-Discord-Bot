@@ -90,10 +90,7 @@ module.exports = {
 
             console.log(`Found ${uniqueUsers.size} unique users who reacted.`);
             if (uniqueUsers.size === 0) {
-                return interaction.editReply({
-                    content: `⚠ No reactions found for message ID ${messageId}.`,
-                    ephemeral: true
-                });
+                return console.log(`⚠ No reactions found for message ID ${messageId}.`);
             }
 
             const sortedUserList = Array.from(uniqueUsers)
@@ -152,10 +149,7 @@ module.exports = {
 
             if (!targetChannel || !targetChannel.isText()) {
                 console.log("Invalid target channel. Not a text channel.");
-                return interaction.followUp({
-                    content: "⚠ Target channel is not a valid text channel.",
-                    ephemeral: true
-                });
+                return console.log("⚠ Target channel is not a valid text channel.");
             }
 
             // Fetch the last 10 messages from the specified channel
@@ -190,10 +184,7 @@ module.exports = {
                 }
             } else {
                 console.warn("⚠ Could not find the team message.");
-                await interaction.followUp({
-                    content: "⚠ Team message not found! Please check manually.",
-                    ephemeral: true
-                });
+                console.log("⚠ Team message not found! Please check manually.");
             }
 
         } catch (error) {
