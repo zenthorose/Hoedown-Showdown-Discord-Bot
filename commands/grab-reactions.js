@@ -28,29 +28,24 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            // Fetch allowed roles and user IDs
             const allowedRoles = config.allowedRoles;
             const allowedUserIds = config.allowedUserIds;
-
-            // Check if user has required role or specific Discord ID
             const member = await interaction.guild.members.fetch(interaction.user.id);
             const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
             const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
             if (!hasRequiredRole && !isAllowedUser) {
-                return interaction.reply({ 
-                    content: '❌ You do not have permission to use this command!', 
-                    ephemeral: true 
+                return interaction.reply({
+                    content: '❌ You do not have permission to use this command!',
+                    ephemeral: true
                 });
             }
 
-            // Acknowledge the interaction immediately
-            await interaction.deferReply({ ephemeral: true });
-
+            await interaction.deferReply();
             const messageId = interaction.options.getString('messageid');
             let targetMessage = null;
 
-            // Find the message in all text-based channels
+            // Search for the target message
             for (const [, channel] of interaction.guild.channels.cache) {
                 if (channel.isTextBased()) {
                     try {
@@ -63,13 +58,12 @@ module.exports = {
             }
 
             if (!targetMessage) {
-                return interaction.editReply({ 
-                    content: `❌ Message with ID ${messageId} not found.`, 
-                    ephemeral: true 
+                return interaction.editReply({
+                    content: `❌ Message with ID ${messageId} not found.`,
+                    ephemeral: true
                 });
             }
 
-            // Collect unique users who reacted (excluding bots)
             const uniqueUsers = new Set();
             for (const reaction of targetMessage.reactions.cache.values()) {
                 const users = await reaction.users.fetch();
@@ -79,20 +73,18 @@ module.exports = {
             }
 
             if (uniqueUsers.size === 0) {
-                return interaction.editReply({ 
-                    content: `⚠ No reactions found for message ID ${messageId}.`, 
-                    ephemeral: true 
+                return interaction.editReply({
+                    content: `⚠ No reactions found for message ID ${messageId}.`,
+                    ephemeral: true
                 });
             }
 
-            // Sort usernames and prepare them for Google Sheets
             const sortedUserList = Array.from(uniqueUsers)
                 .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
                 .map(username => [username]);
 
             console.log("Sending payload to Apps Script:", { names: sortedUserList });
 
-            // Authenticate with Google Sheets API
             const auth = new google.auth.GoogleAuth({
                 credentials,
                 scopes: ["https://www.googleapis.com/auth/spreadsheets"]
@@ -100,13 +92,13 @@ module.exports = {
 
             const sheets = google.sheets({ version: "v4", auth });
 
-            // Clear existing data in the specified range (A column)
+            // Clear existing reactions list
             await sheets.spreadsheets.values.clear({
                 spreadsheetId: config.SPREADSHEET_ID,
                 range: `${config.SHEET_REACTIONS}!A:A`,
             });
 
-            // Update the sheet with the new list of users
+            // Upload users to Google Sheets
             await sheets.spreadsheets.values.update({
                 spreadsheetId: config.SPREADSHEET_ID,
                 range: `${config.SHEET_REACTIONS}!A1`,
@@ -114,24 +106,37 @@ module.exports = {
                 resource: { values: [["Reacted Users"], ...sortedUserList] }
             });
 
-            // Trigger the Google Apps Script to generate teams
+            // Trigger the Apps Script to generate teams
             const triggerUrl = 'https://script.google.com/macros/s/AKfycbzrk2JjgWUKpyWtnPOZzRf2wkjsg7lJBZs2b_4zWJOPt6VLju0u4SxcOlvHfi083yHw/dev';
             await axios.post(triggerUrl, { names: sortedUserList });
 
             console.log("✅ Reaction user list updated and team generation triggered!");
 
-            // Send a follow-up message containing the confirmation
-            const botMessage = await interaction.followUp({ 
-                content: "✅ Reaction user list updated in Google Sheets and team generation triggered!", 
-                ephemeral: false 
+            // Send an initial response while we wait for the team message
+            await interaction.editReply({
+                content: "✅ Teams are being generated... The message ID will be logged soon.",
+                ephemeral: true
             });
 
-            // Get the message ID of the bot’s response
+            // Wait 3 seconds for the team message to be posted
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Fetch the last message from the bot (assuming it was posted in the same channel)
+            const teamChannel = interaction.channel;
+            const fetchedMessages = await teamChannel.messages.fetch({ limit: 10 });
+            const botMessage = fetchedMessages.find(msg =>
+                msg.author.id === interaction.client.user.id && msg.content.includes("Here is your teams")
+            );
+
+            if (!botMessage) {
+                console.warn("⚠ Could not find the team message!");
+                return;
+            }
+
             const botMessageId = botMessage.id;
+            console.log(`✅ Found the team message! Message ID: ${botMessageId}`);
 
-            console.log(`✅ Bot message ID: ${botMessageId}`);
-
-            // Store the bot message ID in column M:M
+            // Store the message ID in column M:M
             await sheets.spreadsheets.values.update({
                 spreadsheetId: config.SPREADSHEET_ID,
                 range: `${config.SHEET_REACTIONS}!M1`,
@@ -141,11 +146,17 @@ module.exports = {
 
             console.log("✅ Bot message ID stored in Google Sheets!");
 
+            // Send a final update to confirm success
+            await interaction.followUp({
+                content: `✅ Team message posted! Message ID: **${botMessageId}**`,
+                ephemeral: false
+            });
+
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
-            await interaction.editReply({ 
-                content: "❌ Failed to upload reaction user list to Google Sheets.", 
-                ephemeral: true 
+            await interaction.editReply({
+                content: "❌ Failed to upload reaction user list to Google Sheets.",
+                ephemeral: true
             });
         }
     },
