@@ -122,7 +122,7 @@ module.exports = {
                 // Save the message ID to the Google Sheet (e.g., column B)
                 await sheets.spreadsheets.values.update({
                     spreadsheetId: config.SPREADSHEET_ID,
-                    range: `${config.SHEET_REACTIONS}!B1`, // Assuming message IDs are stored in column B
+                    range: `${config.SHEET_REACTIONS}!M:M`, // Assuming message IDs are stored in column B
                     valueInputOption: "RAW",
                     resource: { values: [["Message ID"], [messageId]] }
                 });
