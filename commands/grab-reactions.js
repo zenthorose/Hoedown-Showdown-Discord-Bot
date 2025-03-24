@@ -129,7 +129,7 @@ module.exports = {
                 const fetchedMessages = await interaction.channel.messages.fetch({ limit: 10 });
 
                 botMessage = fetchedMessages.find(msg =>
-                    msg.author.id === interaction.client.user.id && msg.content.includes("Here is your teams")
+                    msg.author.id === interaction.client.user.id && msg.content.includes("Here are the teams")
                 );
 
                 if (botMessage) break; // Exit loop if we find the message
