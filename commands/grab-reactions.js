@@ -122,54 +122,55 @@ module.exports = {
             // Wait 5-10 seconds for the team message to be posted
             await new Promise(resolve => setTimeout(resolve, 5000));
 
-            /** 
-             * Start of section to comment out for testing
-             * 
-             * let botMessage = null;
-             * let attempts = 3; // Try fetching the message up to 3 times
-             *
-             * for (let i = 0; i < attempts; i++) {
-             *     const fetchedMessages = await interaction.channel.messages.fetch({ limit: 10 });
-             *     botMessage = fetchedMessages.find(msg =>
-             *         msg.author.id === interaction.client.user.id && msg.content.includes("Here are the teams")
-             *     );
-             *
-             *     if (botMessage) break; // Exit loop if we find the message
-             *     await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
-             * }
-             *
-             * if (!botMessage) {
-             *     console.warn("⚠ Could not find the team message after multiple attempts.");
-             *     await interaction.followUp({
-             *         content: "⚠ Team message not found! Please check manually.",
-             *         ephemeral: true
-             *     });
-             *     return;
-             * }
-             *
-             * const botMessageId = botMessage.id;
-             * console.log(`✅ Found the team message! Message ID: ${botMessageId}`);
-             *
-             * // Store the message ID properly
-             * await sheets.spreadsheets.values.update({
-             *     spreadsheetId: config.SPREADSHEET_ID,
-             *     range: `${config.SHEET_REACTIONS}!M1`,
-             *     valueInputOption: "RAW",
-             *     resource: { values: [[botMessageId]] }
-             * });
-             *
-             * console.log("✅ Bot message ID stored in Google Sheets!");
-             *
-             * Ensure interaction isn't already acknowledged before replying again
-             * if (!interaction.replied && !interaction.deferred) {
-             *     await interaction.followUp({
-             *         content: `✅ Team message posted! Message ID: **${botMessageId}**`,
-             *         ephemeral: false
-             *     });
-             * }
-             * 
-             * End of section to comment out for testing
-             */
+            // Get the target channel ID from the config
+            const targetChannelId = config.TeamChannelPostingID; 
+
+            // Fetch the target channel using the ID
+            const targetChannel = await interaction.guild.channels.fetch(targetChannelId);
+
+            if (!targetChannel || !targetChannel.isText()) {
+                return interaction.followUp({
+                    content: "⚠ Target channel is not a valid text channel.",
+                    ephemeral: true
+                });
+            }
+
+            // Fetch the last 10 messages from the specified channel
+            const fetchedMessages = await targetChannel.messages.fetch({ limit: 10 });
+
+            let botMessage = fetchedMessages.find(msg =>
+                msg.author.id === interaction.client.user.id && msg.content.includes("Here are the teams")
+            );
+
+            if (botMessage) {
+                // Handle the message found, just like you did earlier
+                const botMessageId = botMessage.id;
+                console.log(`✅ Found the team message! Message ID: ${botMessageId}`);
+
+                // Store the message ID properly
+                await sheets.spreadsheets.values.update({
+                    spreadsheetId: config.SPREADSHEET_ID,
+                    range: `${config.SHEET_REACTIONS}!M1`,
+                    valueInputOption: "RAW",
+                    resource: { values: [[botMessageId]] }
+                });
+
+                console.log("✅ Bot message ID stored in Google Sheets!");
+
+                // Ensure interaction isn't already acknowledged before replying again
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.followUp({
+                        content: `✅ Team message posted! Message ID: **${botMessageId}**`,
+                        ephemeral: false
+                    });
+                }
+            } else {
+                console.warn("⚠ Could not find the team message.");
+                await interaction.followUp({
+                    content: "⚠ Team message not found! Please check manually.",
+                    ephemeral: true
+                });
+            }
 
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
