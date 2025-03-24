@@ -1,21 +1,3 @@
-const { SlashCommandBuilder } = require('@discordjs/builders');
-const { google } = require('googleapis');
-const axios = require('axios');
-const config = require('../config.json'); // Import the config file
-
-const credentials = {
-    type: "service_account",
-    project_id: process.env.GOOGLE_PROJECT_ID,
-    private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    auth_uri: process.env.GOOGLE_AUTH_URI,
-    token_uri: process.env.GOOGLE_TOKEN_URI,
-    auth_provider_x509_cert_url: process.env.GOOGLE_AUTH_PROVIDER_CERT,
-    client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT
-};
-
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('grab-reactions')
@@ -52,7 +34,7 @@ module.exports = {
                 });
             }
 
-            const messageId = interaction.options.getString('messageid');
+            /*const messageId = interaction.options.getString('messageid');
             console.log(`Received message ID: ${messageId}`);
             let targetMessage = null;
 
@@ -73,8 +55,8 @@ module.exports = {
                 });
             }
 
-            // Try fetching the message directly from the target channel
-            try {
+            // Commented out the code for fetching the message again
+                 try {
                 targetMessage = await targetChannel.messages.fetch(messageId);
                 if (!targetMessage) {
                     console.log(`Message with ID ${messageId} not found in target channel.`);
@@ -90,7 +72,7 @@ module.exports = {
                     content: `❌ Error fetching message with ID ${messageId} in the target channel.`,
                     ephemeral: true
                 });
-            }
+            } */
 
             const uniqueUsers = new Set();
             for (const reaction of targetMessage.reactions.cache.values()) {
@@ -151,7 +133,7 @@ module.exports = {
                 ephemeral: false
             });
 
-            // Wait 5-10 seconds for the team message to be posted
+            /*// Wait 5-10 seconds for the team message to be posted
             console.log("Waiting 5 seconds before fetching the team message.");
             await new Promise(resolve => setTimeout(resolve, 5000));
 
@@ -179,17 +161,21 @@ module.exports = {
                 console.log("✅ Bot message ID stored in Google Sheets!");
 
                 // Ensure interaction isn't already acknowledged before replying again
-                await interaction.followUp({
-                    content: `✅ Team message posted! Message ID: **${botMessageId}**`,
-                    ephemeral: false
-                });
+                if (!interaction.replied) {
+                    await interaction.followUp({
+                        content: `✅ Team message posted! Message ID: **${botMessageId}**`,
+                        ephemeral: false
+                    });
+                }
             } else {
                 console.warn("⚠ Could not find the team message.");
-                await interaction.followUp({
-                    content: "⚠ Team message not found! Please check manually.",
-                    ephemeral: true
-                });
-            }
+                if (!interaction.replied) {
+                    await interaction.followUp({
+                        content: "⚠ Team message not found! Please check manually.",
+                        ephemeral: true
+                    });
+                }
+            }*/
 
         } catch (error) {
             console.error("❌ Error during execution:", error);
