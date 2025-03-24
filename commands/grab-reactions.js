@@ -115,7 +115,7 @@ module.exports = {
             // Send an initial response while we wait for the team message
             await interaction.editReply({
                 content: "✅ Teams are being generated... The message ID will be logged soon.",
-                ephemeral: true
+                ephemeral: false
             });
 
             // Wait 3 seconds for the team message to be posted
