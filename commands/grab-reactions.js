@@ -119,8 +119,16 @@ module.exports = {
 
                 console.log("✅ Reaction user list updated and team generation triggered!");
 
+                // Save the message ID to the Google Sheet (e.g., column B)
+                await sheets.spreadsheets.values.update({
+                    spreadsheetId: config.SPREADSHEET_ID,
+                    range: `${config.SHEET_REACTIONS}!B1`, // Assuming message IDs are stored in column B
+                    valueInputOption: "RAW",
+                    resource: { values: [["Message ID"], [messageId]] }
+                });
+
                 // Final response once everything is complete
-                await interaction.editReply({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!", flags: 64 });
+                await interaction.editReply({ content: "✅ Reaction user list updated in Google Sheets, team generation triggered, and message ID saved!", flags: 64 });
 
             } catch (error) {
                 console.error("❌ Error updating Google Sheets:", error);
