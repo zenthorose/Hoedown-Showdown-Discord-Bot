@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { google } = require('googleapis');
 const axios = require('axios');
-const config = require('../config.json');
+const config = require('../config.json'); // Import the config file
 
 const credentials = {
     type: "service_account",
@@ -18,7 +18,7 @@ const credentials = {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('grab-reactions')
+        .setName('grab-reactions')  // Command name
         .setDescription('Fetches reactions from a specific message and uploads users to Google Sheets.')
         .addStringOption(option =>
             option.setName('messageid')
@@ -27,88 +27,102 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        try {
-            await interaction.deferReply({ ephemeral: true });
-            
-            const allowedRoles = config.allowedRoles;
-            const allowedUserIds = config.allowedUserIds;
-            const member = await interaction.guild.members.fetch(interaction.user.id);
+        // Fetch the allowed roles and user IDs from the config file
+        const allowedRoles = config.allowedRoles;
+        const allowedUserIds = config.allowedUserIds;
 
-            if (!member.roles.cache.some(role => allowedRoles.includes(role.name)) && 
-                !allowedUserIds.includes(interaction.user.id)) {
-                return interaction.editReply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
-            }
+        // Check if the user has the required role or the specific Discord ID
+        const member = await interaction.guild.members.fetch(interaction.user.id);
 
-            const messageId = interaction.options.getString('messageid');
-            const optInChannelId = config.OptInChannelID;
-            const targetChannel = await interaction.guild.channels.fetch(optInChannelId);
+        // Check if the user has any of the allowed roles
+        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
+        
+        // Check if the user's Discord ID is in the allowed list
+        const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
-            if (!targetChannel || !targetChannel.isText()) {
-                return interaction.followUp({ content: "⚠ Target channel is not a valid text channel.", ephemeral: true });
-            }
+        if (!hasRequiredRole && !isAllowedUser) {
+            return interaction.reply({
+                content: '❌ You do not have permission to use this command!',
+                ephemeral: true
+            });
+        }
 
-            const targetMessage = await targetChannel.messages.fetch(messageId);
-            if (!targetMessage) {
-                return interaction.editReply({ content: `❌ Message with ID ${messageId} not found.`, ephemeral: true });
-            }
+        // Acknowledge the interaction with deferReply if the process will take a while
+        await interaction.deferReply();
 
-            const uniqueUsers = new Set();
-            for (const reaction of targetMessage.reactions.cache.values()) {
-                const users = await reaction.users.fetch();
-                users.forEach(user => {
-                    if (!user.bot) uniqueUsers.add(user.username);
+        const messageId = interaction.options.getString('messageid');
+
+        // Process the reaction retrieval and Google Sheets update in the background
+        setTimeout(async () => {
+            try {
+                let targetMessage = null;
+
+                for (const [channelId, channel] of interaction.guild.channels.cache) {
+                    if (channel.isTextBased()) {
+                        try {
+                            targetMessage = await channel.messages.fetch(messageId);
+                            if (targetMessage) break;
+                        } catch (err) {
+                            continue;
+                        }
+                    }
+                }
+
+                if (!targetMessage) {
+                    return interaction.editReply({ content: `❌ Message with ID ${messageId} not found.`, flags: 64 });
+                }
+
+                const reactions = targetMessage.reactions.cache;
+                if (reactions.size === 0) {
+                    return interaction.editReply({ content: `⚠ No reactions found for message ID ${messageId}.`, flags: 64 });
+                }
+
+                const uniqueUsers = new Set();
+                for (const reaction of reactions.values()) {
+                    const users = await reaction.users.fetch();
+                    users.forEach(user => {
+                        if (!user.bot) uniqueUsers.add(user.username);
+                    });
+                }
+
+                const sortedUserList = Array.from(uniqueUsers)
+                    .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+                    .map(username => [username]);
+
+                const auth = new google.auth.GoogleAuth({
+                    credentials,
+                    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
                 });
-            }
 
-            if (uniqueUsers.size === 0) {
-                return interaction.editReply({ content: `⚠ No reactions found for message ID ${messageId}.`, ephemeral: true });
-            }
+                const sheets = google.sheets({ version: "v4", auth });
 
-            const sortedUserList = Array.from(uniqueUsers).sort().map(username => [username]);
-            const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
-            const sheets = google.sheets({ version: "v4", auth });
+                // Clear existing data in the specified range (C column)
+                await sheets.spreadsheets.values.clear({
+                    spreadsheetId: config.SPREADSHEET_ID,
+                    range: `${config.SHEET_REACTIONS}!A:A`,
+                });
 
-            await sheets.spreadsheets.values.clear({
-                spreadsheetId: config.SPREADSHEET_ID,
-                range: `${config.SHEET_REACTIONS}!A:A`,
-            });
-
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: config.SPREADSHEET_ID,
-                range: `${config.SHEET_REACTIONS}!A1`,
-                valueInputOption: "RAW",
-                resource: { values: [["Reacted Users"], ...sortedUserList] }
-            });
-
-            await axios.post(config.APPS_SCRIPT_URL, { names: sortedUserList });
-            
-            await interaction.followUp({ content: "✅ Teams are being generated...", ephemeral: false });
-
-            await new Promise(resolve => setTimeout(resolve, 5000));
-
-            const teamChannel = await interaction.guild.channels.fetch(config.TeamChannelPostingID);
-            const fetchedMessages = await teamChannel.messages.fetch({ limit: 10 });
-
-            const botMessage = fetchedMessages.find(msg =>
-                msg.author.id === interaction.client.user.id && msg.content.includes("Here are the teams")
-            );
-
-            if (botMessage) {
+                // Update the sheet with the new list of users
                 await sheets.spreadsheets.values.update({
                     spreadsheetId: config.SPREADSHEET_ID,
-                    range: `${config.SHEET_REACTIONS}!M1`,
+                    range: `${config.SHEET_REACTIONS}!A1`,
                     valueInputOption: "RAW",
-                    resource: { values: [[botMessage.id]] }
+                    resource: { values: [["Reacted Users"], ...sortedUserList] }
                 });
-                await interaction.followUp({ content: `✅ Team message posted! Message ID: **${botMessage.id}**`, ephemeral: false });
-            } else {
-                await interaction.followUp({ content: "⚠ Team message not found! Please check manually.", ephemeral: true });
+
+                // Trigger the Google Apps Script (you can replace this URL with your own if needed)
+                const triggerUrl = 'https://script.google.com/macros/s/AKfycbzA23TVLxEhPBVNiL6Fk7R7jjQ1fo5TKKcOX2jnn9AWqFDPxTUzRT_4AAiwV4JN-DJE/dev';
+                await axios.post(triggerUrl, {});
+
+                console.log("✅ Reaction user list updated and team generation triggered!");
+
+                // Final response once everything is complete
+                await interaction.editReply({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!", flags: 64 });
+
+            } catch (error) {
+                console.error("❌ Error updating Google Sheets:", error);
+                await interaction.editReply({ content: "❌ Failed to upload reaction user list to Google Sheets.", flags: 64 });
             }
-        } catch (error) {
-            console.error("❌ Error during execution:", error);
-            if (!interaction.replied && !interaction.deferred) {
-                await interaction.editReply({ content: "❌ Failed to execute the command.", ephemeral: true });
-            }
-        }
+        }, 1000); // Small delay to avoid blocking execution
     },
 };
