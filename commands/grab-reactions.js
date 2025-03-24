@@ -47,11 +47,14 @@ module.exports = {
             });
         }
 
-        // Send an initial message acknowledging the command and withResponse to retrieve the message
-        const replyMessage = await interaction.reply({
+        // Send an initial message acknowledging the command
+        await interaction.reply({
             content: 'Grabbing reactions... Please wait.',
-            withResponse: true  // Using withResponse instead of fetchReply
+            ephemeral: false // Send it as a normal message
         });
+
+        // Now fetch the reply message that we just sent
+        const replyMessage = await interaction.fetchReply();
 
         const messageId = interaction.options.getString('messageid');
 
