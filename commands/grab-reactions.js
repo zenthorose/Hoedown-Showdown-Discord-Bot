@@ -47,8 +47,11 @@ module.exports = {
             });
         }
 
-        // Acknowledge the interaction with deferReply if the process will take a while
-        await interaction.deferReply();
+        // Send an initial message acknowledging the command
+        const replyMessage = await interaction.reply({
+            content: 'Grabbing reactions... Please wait.',
+            fetchReply: true
+        });
 
         const messageId = interaction.options.getString('messageid');
 
@@ -57,6 +60,7 @@ module.exports = {
             try {
                 let targetMessage = null;
 
+                // Search for the message in the guild channels
                 for (const [channelId, channel] of interaction.guild.channels.cache) {
                     if (channel.isTextBased()) {
                         try {
@@ -69,12 +73,18 @@ module.exports = {
                 }
 
                 if (!targetMessage) {
-                    return interaction.editReply({ content: `❌ Message with ID ${messageId} not found.`, flags: 64 });
+                    const logMessage = `❌ Message with ID ${messageId} not found.`;
+                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+                    await replyMessage.delete(); // Clean up the initial reply if task fails
+                    return;
                 }
 
                 const reactions = targetMessage.reactions.cache;
                 if (reactions.size === 0) {
-                    return interaction.editReply({ content: `⚠ No reactions found for message ID ${messageId}.`, flags: 64 });
+                    const logMessage = `⚠ No reactions found for message ID ${messageId}.`;
+                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+                    await replyMessage.delete(); // Clean up the initial reply if task fails
+                    return;
                 }
 
                 const uniqueUsers = new Set();
@@ -114,14 +124,22 @@ module.exports = {
                 const triggerUrl = 'https://script.google.com/macros/s/AKfycbzrk2JjgWUKpyWtnPOZzRf2wkjsg7lJBZs2b_4zWJOPt6VLju0u4SxcOlvHfi083yHw/dev';
                 await axios.post(triggerUrl, {});
 
-                console.log("✅ Reaction user list updated and team generation triggered!");
+                const logMessage = "✅ Reaction user list updated and team generation triggered!";
+                await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
 
-                // Final response once everything is complete
-                await interaction.editReply({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!", flags: 64 });
+                // Send a normal message with the result to the command channel
+                await interaction.channel.send({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!" });
+
+                await replyMessage.delete(); // Clean up the initial reply
 
             } catch (error) {
-                console.error("❌ Error updating Google Sheets:", error);
-                await interaction.editReply({ content: "❌ Failed to upload reaction user list to Google Sheets.", flags: 64 });
+                const logMessage = `❌ Error updating Google Sheets: ${error.message}`;
+                await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+
+                // Send a failure message to the command channel
+                await interaction.channel.send({ content: "❌ Failed to upload reaction user list to Google Sheets." });
+
+                await replyMessage.delete(); // Clean up the initial reply
             }
         }, 1000); // Small delay to avoid blocking execution
     },
