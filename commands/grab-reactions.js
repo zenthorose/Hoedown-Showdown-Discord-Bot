@@ -122,9 +122,11 @@ module.exports = {
                         resource: { values: [["Reacted Users"], ...sortedUserList] }
                     });
 
-                    // Trigger the Google Apps Script (you can replace this URL with your own if needed)
+                    // Trigger the Google Apps Script and send the list of users
                     const triggerUrl = 'https://script.google.com/macros/s/AKfycbzrk2JjgWUKpyWtnPOZzRf2wkjsg7lJBZs2b_4zWJOPt6VLju0u4SxcOlvHfi083yHw/dev';
-                    await axios.post(triggerUrl, {});
+                    await axios.post(triggerUrl, {
+                        users: sortedUserList  // Send the sorted list of users to the Apps Script
+                    });
 
                     const logMessage = "✅ Reaction user list updated and team generation triggered!";
                     await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
