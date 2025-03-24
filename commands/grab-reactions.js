@@ -122,49 +122,54 @@ module.exports = {
             // Wait 5-10 seconds for the team message to be posted
             await new Promise(resolve => setTimeout(resolve, 5000));
 
-            let botMessage = null;
-            let attempts = 3; // Try fetching the message up to 3 times
-
-            for (let i = 0; i < attempts; i++) {
-                const fetchedMessages = await interaction.channel.messages.fetch({ limit: 10 });
-
-                botMessage = fetchedMessages.find(msg =>
-                    msg.author.id === interaction.client.user.id && msg.content.includes("Here are the teams")
-                );
-
-                if (botMessage) break; // Exit loop if we find the message
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
-            }
-
-            if (!botMessage) {
-                console.warn("⚠ Could not find the team message after multiple attempts.");
-                await interaction.followUp({
-                    content: "⚠ Team message not found! Please check manually.",
-                    ephemeral: true
-                });
-                return;
-            }
-
-            const botMessageId = botMessage.id;
-            console.log(`✅ Found the team message! Message ID: ${botMessageId}`);
-
-            // Store the message ID properly
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: config.SPREADSHEET_ID,
-                range: `${config.SHEET_REACTIONS}!M1`,
-                valueInputOption: "RAW",
-                resource: { values: [[botMessageId]] }
-            });
-
-            console.log("✅ Bot message ID stored in Google Sheets!");
-
-            // Ensure interaction isn't already acknowledged before replying again
-            if (!interaction.replied && !interaction.deferred) {
-                await interaction.followUp({
-                    content: `✅ Team message posted! Message ID: **${botMessageId}**`,
-                    ephemeral: false
-                });
-            }
+            /** 
+             * Start of section to comment out for testing
+             * 
+             * let botMessage = null;
+             * let attempts = 3; // Try fetching the message up to 3 times
+             *
+             * for (let i = 0; i < attempts; i++) {
+             *     const fetchedMessages = await interaction.channel.messages.fetch({ limit: 10 });
+             *     botMessage = fetchedMessages.find(msg =>
+             *         msg.author.id === interaction.client.user.id && msg.content.includes("Here are the teams")
+             *     );
+             *
+             *     if (botMessage) break; // Exit loop if we find the message
+             *     await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
+             * }
+             *
+             * if (!botMessage) {
+             *     console.warn("⚠ Could not find the team message after multiple attempts.");
+             *     await interaction.followUp({
+             *         content: "⚠ Team message not found! Please check manually.",
+             *         ephemeral: true
+             *     });
+             *     return;
+             * }
+             *
+             * const botMessageId = botMessage.id;
+             * console.log(`✅ Found the team message! Message ID: ${botMessageId}`);
+             *
+             * // Store the message ID properly
+             * await sheets.spreadsheets.values.update({
+             *     spreadsheetId: config.SPREADSHEET_ID,
+             *     range: `${config.SHEET_REACTIONS}!M1`,
+             *     valueInputOption: "RAW",
+             *     resource: { values: [[botMessageId]] }
+             * });
+             *
+             * console.log("✅ Bot message ID stored in Google Sheets!");
+             *
+             * Ensure interaction isn't already acknowledged before replying again
+             * if (!interaction.replied && !interaction.deferred) {
+             *     await interaction.followUp({
+             *         content: `✅ Team message posted! Message ID: **${botMessageId}**`,
+             *         ephemeral: false
+             *     });
+             * }
+             * 
+             * End of section to comment out for testing
+             */
 
         } catch (error) {
             console.error("❌ Error updating Google Sheets:", error);
