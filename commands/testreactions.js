@@ -55,7 +55,7 @@ module.exports = {
             console.log("✅ Test user list successfully uploaded to Google Sheets!");
 
             // 🟣 Step 3: Trigger team generation (call the Google Apps Script Web App)
-            const triggerUrl = 'https://script.google.com/macros/s/AKfycbzhCZQe6u0SC26DwcKDT5-bhg_thMm7mDvYLJMx5vKQmYmqEa0VRuS_bmzslhmhEazj/dev'; // Replace with your actual Google Apps Script Web App URL
+            const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec'; // Replace with your actual Google Apps Script Web App URL
             await axios.post(triggerUrl, {});
 
             console.log("✅ Triggered team generation via Google Apps Script!");

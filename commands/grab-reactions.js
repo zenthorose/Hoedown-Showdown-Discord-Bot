@@ -46,13 +46,9 @@ module.exports = {
                 ephemeral: true
             });
         }
-
-        // Trigger the Google Apps Script and send the list of users
-        const triggerUrl = 'https://script.google.com/macros/s/AKfycbwnJn72Yhf1JHFlf_1Nx947bdoSseOSX080yPOlU7k/dev';
-        await axios.post(triggerUrl);
         
         // Send an initial message acknowledging the command
-        /*let replyMessage;
+        let replyMessage;
         try {
             replyMessage = await interaction.reply({
                 content: 'Grabbing reactions... Please wait.',
@@ -127,7 +123,7 @@ module.exports = {
                     });
 
                     // Trigger the Google Apps Script and send the list of users
-                    const triggerUrl = 'https://script.google.com/macros/s/AKfycbwnJn72Yhf1JHFlf_1Nx947bdoSseOSX080yPOlU7k/dev';
+                    const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
                     await axios.post(triggerUrl);
 
                     const logMessage = "✅ Reaction user list updated and team generation triggered!";
@@ -152,6 +148,6 @@ module.exports = {
         } catch (error) {
             console.error("❌ Error sending initial reply:", error);
             await interaction.channel.send({ content: "❌ Failed to send the initial reply." });
-        }*/
+        }
     },
 };
