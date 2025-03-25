@@ -12,8 +12,8 @@ module.exports = {
         const member = interaction.guild.members.cache.get(interaction.user.id);
 
         // Check if the member has any of the allowed roles or matching ID
-        const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.id));
-        const isAllowedUser = config.allowedIds.includes(interaction.user.id);
+        const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.name)); // Changed to role.name
+        const isAllowedUser = config.allowedUserIds.includes(interaction.user.id); // Changed to allowedUserIds
 
         if (!hasRequiredRole && !isAllowedUser) {
             return interaction.reply({ content: "❌ You don't have the required role or ID to use this command.", ephemeral: true });
