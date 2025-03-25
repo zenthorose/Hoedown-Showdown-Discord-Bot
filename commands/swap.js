@@ -30,7 +30,7 @@ module.exports = {
         await interaction.deferReply();
 
         try {
-            const response = await fetch('https://script.google.com/macros/s/AKfycbzrk2JjgWUKpyWtnPOZzRf2wkjsg7lJBZs2b_4zWJOPt6VLju0u4SxcOlvHfi083yHw/dev', {
+            const response = await fetch('https://script.google.com/macros/s/AKfycbzhCZQe6u0SC26DwcKDT5-bhg_thMm7mDvYLJMx5vKQmYmqEa0VRuS_bmzslhmhEazj/dev', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
