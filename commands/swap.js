@@ -20,41 +20,72 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction) {
-        const teamSet = interaction.options.getString('teamset');
-        const removePlayer = interaction.options.getString('removeplayer');
-        const addPlayer = interaction.options.getString('addplayer');
+        // Fetch the allowed roles and user IDs from the config file
+        const allowedRoles = config.allowedRoles;
+        const allowedUserIds = config.allowedUserIds;
 
-        console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
-
-        // Initial response to avoid interaction timeout
-        await interaction.reply({ content: `🔄 Processing swap...`, ephemeral: true });
+        // Check if the command is run inside a guild
+        if (!interaction.guild) {
+            return interaction.reply({ content: "❌ This command can't be used in DMs.", ephemeral: true });
+        }
 
         try {
-            const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
-            await axios.post(triggerUrl, {
-                command: "swap",
-                teamSet: teamSet,
-                removePlayer: removePlayer,
-                addPlayer: addPlayer
-            });
+            // Fetch the member data
+            const member = await interaction.guild.members.fetch(interaction.user.id);
 
-            console.log("Swap data sent to Google Apps Script.");
+            // Check if the user has any of the allowed roles
+            const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
 
-            // Fetch log channel and send update
-            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-            await logChannel.send(`✅ Player "${removePlayer}" has been removed from team "${teamSet}", and "${addPlayer}" has been added.`);
+            // Check if the user's Discord ID is in the allowed list
+            const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
-            // Follow up with success response
-            await interaction.followUp({ content: `✅ Swap completed successfully.`, ephemeral: true });
+            if (!hasRequiredRole && !isAllowedUser) {
+                return interaction.reply({
+                    content: '❌ You do not have permission to use this command!',
+                    ephemeral: true
+                });
+            }
+
+            const teamSet = interaction.options.getString('teamset');
+            const removePlayer = interaction.options.getString('removeplayer');
+            const addPlayer = interaction.options.getString('addplayer');
+
+            console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
+
+            // Initial response to avoid interaction timeout
+            await interaction.reply({ content: `🔄 Processing swap...`, ephemeral: true });
+
+            try {
+                const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
+                await axios.post(triggerUrl, {
+                    command: "swap",
+                    teamSet: teamSet,
+                    removePlayer: removePlayer,
+                    addPlayer: addPlayer
+                });
+
+                console.log("Swap data sent to Google Apps Script.");
+
+                // Fetch log channel and send update
+                const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+                await logChannel.send(`✅ Player "${removePlayer}" has been removed from team "${teamSet}", and "${addPlayer}" has been added.`);
+
+                // Follow up with success response
+                await interaction.followUp({ content: `✅ Swap completed successfully.`, ephemeral: true });
+
+            } catch (error) {
+                console.error("Error with Google Apps Script:", error);
+
+                await interaction.followUp({ content: "❌ There was an error triggering the Apps Script.", ephemeral: true });
+
+                // Log error to Discord channel
+                const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+                await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+            }
 
         } catch (error) {
-            console.error("Error with Google Apps Script:", error);
-
-            await interaction.followUp({ content: "❌ There was an error triggering the Apps Script.", ephemeral: true });
-
-            // Log error to Discord channel
-            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-            await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+            console.error("❌ Error checking permissions:", error);
+            return interaction.reply({ content: "❌ Error checking permissions.", ephemeral: true });
         }
     }
 };
