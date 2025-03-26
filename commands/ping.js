@@ -17,7 +17,7 @@ module.exports = {
         }
 
         // Check if the user has any of the allowed roles
-        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
+        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
 
         // Check if the user is in the allowed user list
         const isAllowedUser = allowedIds.includes(interaction.user.id);
