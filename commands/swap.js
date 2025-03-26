@@ -40,40 +40,6 @@ module.exports = {
 
         console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
 
-        // Simulate a team data structure (you can replace this with an actual database or file if needed)
-        const teams = {
-            "teamA": ["Alice", "Bob", "Charlie"],
-            "teamB": ["David", "Eve", "Frank"]
-        };
-
-        // Check if the team exists
-        if (!teams[teamSet]) {
-            return interaction.reply({
-                content: `❌ Team "${teamSet}" not found.`,
-                ephemeral: true
-            });
-        }
-
-        // Check if the player to remove is in the team
-        if (!teams[teamSet].includes(removePlayer)) {
-            return interaction.reply({
-                content: `❌ Player "${removePlayer}" is not in team "${teamSet}".`,
-                ephemeral: true
-            });
-        }
-
-        // Check if the player to add is already in the team
-        if (teams[teamSet].includes(addPlayer)) {
-            return interaction.reply({
-                content: `❌ Player "${addPlayer}" is already in team "${teamSet}".`,
-                ephemeral: true
-            });
-        }
-
-        // Perform the swap
-        const index = teams[teamSet].indexOf(removePlayer);
-        teams[teamSet][index] = addPlayer;
-
         // Send swap data to Google Sheets
         try {
             const auth = new google.auth.GoogleAuth({
@@ -107,21 +73,26 @@ module.exports = {
 
             console.log("Swap data sent to Google Sheets and Apps Script triggered.");
 
+            // Log swap to Discord channel
+            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+            await logChannel.send(`✅ Player "${removePlayer}" has been removed from team "${teamSet}", and "${addPlayer}" has been added.`);
+
         } catch (error) {
             console.error("Error with Google Sheets or Apps Script:", error);
             await interaction.reply({
                 content: "❌ There was an error updating Google Sheets or triggering the Apps Script.",
                 ephemeral: true
             });
+
+            // Log error to Discord channel
+            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+            await logChannel.send(`❌ Error with Google Sheets or Apps Script: ${error.message}`);
         }
 
-        // Respond with the updated team
+        // Respond with the updated swap information
         await interaction.reply({
             content: `✅ Player "${removePlayer}" has been removed from team "${teamSet}", and "${addPlayer}" has been added.`,
             ephemeral: true
         });
-
-        // Optionally, log or do something with the updated team data
-        console.log(`Updated team "${teamSet}": ${teams[teamSet].join(', ')}`);
     }
 };
