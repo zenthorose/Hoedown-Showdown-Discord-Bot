@@ -18,27 +18,27 @@ const credentials = {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('swap')
+        .setName('swap')  // Keeping the command name as 'swap'
         .setDescription('Swap a player in a team.')
         .addStringOption(option =>
-            option.setName('TeamSet')
+            option.setName('teamset')  // Changed to lowercase
                 .setDescription('The team name')
                 .setRequired(true))
         .addStringOption(option =>
-            option.setName('RemovePlayer')
+            option.setName('removeplayer')  // Changed to lowercase
                 .setDescription('The player to be removed')
                 .setRequired(true))
         .addStringOption(option =>
-            option.setName('AddPlayer')
+            option.setName('addplayer')  // Changed to lowercase
                 .setDescription('The player to be added')
                 .setRequired(true)),
 
     async execute(interaction) {
-        const TeamSet = interaction.options.getString('TeamSet');
-        const RemovePlayer = interaction.options.getString('RemovePlayer');
-        const AddPlayer = interaction.options.getString('AddPlayer');
+        const teamSet = interaction.options.getString('teamset');  // Changed to lowercase
+        const removePlayer = interaction.options.getString('removeplayer');  // Changed to lowercase
+        const addPlayer = interaction.options.getString('addplayer');  // Changed to lowercase
 
-        console.log(`Received swap command: TeamSet=${TeamSet}, RemovePlayer=${RemovePlayer}, AddPlayer=${AddPlayer}`);
+        console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
 
         // Simulate a team data structure (you can replace this with an actual database or file if needed)
         const teams = {
@@ -47,32 +47,32 @@ module.exports = {
         };
 
         // Check if the team exists
-        if (!teams[TeamSet]) {
+        if (!teams[teamSet]) {
             return interaction.reply({
-                content: `❌ Team "${TeamSet}" not found.`,
+                content: `❌ Team "${teamSet}" not found.`,
                 ephemeral: true
             });
         }
 
         // Check if the player to remove is in the team
-        if (!teams[TeamSet].includes(RemovePlayer)) {
+        if (!teams[teamSet].includes(removePlayer)) {
             return interaction.reply({
-                content: `❌ Player "${RemovePlayer}" is not in team "${TeamSet}".`,
+                content: `❌ Player "${removePlayer}" is not in team "${teamSet}".`,
                 ephemeral: true
             });
         }
 
         // Check if the player to add is already in the team
-        if (teams[TeamSet].includes(AddPlayer)) {
+        if (teams[teamSet].includes(addPlayer)) {
             return interaction.reply({
-                content: `❌ Player "${AddPlayer}" is already in team "${TeamSet}".`,
+                content: `❌ Player "${addPlayer}" is already in team "${teamSet}".`,
                 ephemeral: true
             });
         }
 
         // Perform the swap
-        const index = teams[TeamSet].indexOf(RemovePlayer);
-        teams[TeamSet][index] = AddPlayer;
+        const index = teams[teamSet].indexOf(removePlayer);
+        teams[teamSet][index] = addPlayer;
 
         // Send swap data to Google Sheets
         try {
@@ -84,7 +84,7 @@ module.exports = {
             const sheets = google.sheets({ version: "v4", auth });
 
             const swapData = [
-                [TeamSet, RemovePlayer, AddPlayer, new Date().toISOString()]
+                [teamSet, removePlayer, addPlayer, new Date().toISOString()]
             ];
 
             // Append the swap information to the sheet
@@ -100,9 +100,9 @@ module.exports = {
             // Trigger the Google Apps Script for further processing
             const triggerUrl = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
             await axios.post(triggerUrl, {
-                TeamSet: TeamSet,
-                RemovePlayer: RemovePlayer,
-                AddPlayer: AddPlayer
+                teamSet: teamSet,
+                removePlayer: removePlayer,
+                addPlayer: addPlayer
             });
 
             console.log("Swap data sent to Google Sheets and Apps Script triggered.");
@@ -117,11 +117,11 @@ module.exports = {
 
         // Respond with the updated team
         await interaction.reply({
-            content: `✅ Player "${RemovePlayer}" has been removed from team "${TeamSet}", and "${AddPlayer}" has been added.`,
+            content: `✅ Player "${removePlayer}" has been removed from team "${teamSet}", and "${addPlayer}" has been added.`,
             ephemeral: true
         });
 
         // Optionally, log or do something with the updated team data
-        console.log(`Updated team "${TeamSet}": ${teams[TeamSet].join(', ')}`);
+        console.log(`Updated team "${teamSet}": ${teams[teamSet].join(', ')}`);
     }
 };
