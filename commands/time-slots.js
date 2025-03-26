@@ -46,7 +46,7 @@ module.exports = {
             for (let i = 0; i < config.timeSlots.length; i++) {
                 const timeSlot = config.timeSlots[i];
                 const emoji = config.emojis[i]; // Pick matching emoji for this time slot
-                
+
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
                     .setTitle(`React to the emoji below to join the ${timeSlot} time slot!`)
@@ -55,7 +55,7 @@ module.exports = {
                 const message = await targetChannel.send({ embeds: [exampleEmbed] });
                 reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
 
-                console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji :${emojiName}:`);
+                console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
 
                 await message.react(emoji); // React with corresponding emoji
 
