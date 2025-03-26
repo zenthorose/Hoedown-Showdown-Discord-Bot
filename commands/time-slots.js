@@ -46,13 +46,10 @@ module.exports = {
             for (let i = 0; i < config.timeSlots.length; i++) {
                 const timeSlot = config.timeSlots[i];
                 const emoji = config.emojis[i]; // Pick matching emoji for this time slot
-
-                // Extract emoji name from the format <EmojiName:ID>
-                const emojiName = emoji.split(':')[0].slice(1);  // Remove "<" and ">" to get the emoji name
-
+                
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
-                    .setTitle(`React to :${emojiName}: to join the ${timeSlot} time slot!`)
+                    .setTitle(`React to the emoji below to join the ${timeSlot} time slot!`)
                     .setTimestamp(); 
 
                 const message = await targetChannel.send({ embeds: [exampleEmbed] });
