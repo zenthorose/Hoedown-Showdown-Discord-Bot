@@ -1,16 +1,25 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { allowedRoles, allowedIds } = require('../config.json'); // Assuming roles and IDs are in config.json
+const { allowedRoles, allowedIds } = require('../config.json'); // Load allowed roles & IDs
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ping')
         .setDescription('Replies with Pong!'),
     async execute(interaction) {
-        // Check if the user has the required role or ID
-        const member = interaction.guild.members.cache.get(interaction.user.id);
+        // Ensure the command is run in a server (not DM)
+        if (!interaction.guild) {
+            return interaction.reply({ content: "❌ This command can't be used in DMs.", ephemeral: true });
+        }
 
-        // Check if the member has any of the allowed roles or matching ID
-        const hasRequiredRole = member && member.roles.cache.some(role => allowedRoles.includes(role.id));
+        const member = interaction.guild.members.cache.get(interaction.user.id);
+        if (!member) {
+            return interaction.reply({ content: "❌ Unable to retrieve member data.", ephemeral: true });
+        }
+
+        // Check if the user has any of the allowed roles
+        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
+
+        // Check if the user is in the allowed user list
         const isAllowedUser = allowedIds.includes(interaction.user.id);
 
         if (!hasRequiredRole && !isAllowedUser) {
