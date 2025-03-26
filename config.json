@@ -4,7 +4,6 @@
   "allowedRoles": ["Host", "Ghost's Left Hand", "Assistant"],
   "allowedUserIds": ["144747826981765120"],
   
-
   "statusChannelId": "1352403198895198258",
   "TeamChannelPostingID": "1352403783631634504",
   "LOG_CHANNEL_ID":"1353830509125304431",
@@ -13,26 +12,22 @@
 
   "SHEET_REACTIONS": "Players That Reacted",
   "SHEET_MEMBERS": "Discord Member List",
-  "testGroup": [
-    "Alice", "Bob", "Charlie", "David", "Emma", "Frank", "Grace", "Henry", "Isabella", "Jack",
-    "Katherine", "Liam", "Mia", "Noah", "Olivia", "Paul", "Zane", "Rachel", "Samuel", "Tina",
-    "Ulysses", "Violet", "William", "Yasmine", "Zachary", "Amber", "Brian", "Caitlyn", "Derek",
-    "Eleanor", "Felix", "Georgia", "Harvey", "Ivy", "James", "Kelly", "Lucas", "Madeline", "Nathan",
-    "Oscar", "Penelope", "Quincy", "Rebecca", "Steven", "Trinity", "Umar", "Valerie", "Walter", "Xenia",
-    "Yusuf", "Zoe", "Adam", "Bethany", "Caleb", "Diana", "Ethan", "Fiona", "Gavin", "Hannah",
-    "Isaac", "Jasmine", "Kyle", "Lydia", "Mason", "Natalie", "Owen", "Paige", "Raymond", "Sophia",
-    "Travis", "Uma", "Victor", "Wendy", "Xavier", "Yara", "Zane", "Arthur", "Bianca", "Connor",
-    "Delilah", "Emmett", "Farah", "Gregory", "Hazel", "Ian", "Julian", "Kara", "Leon", "Melanie",
-    "Nolan", "Ophelia", "Preston", "Riley", "Seth", "Tessa", "Uriel", "Vera", "Wesley", "Daniel", "Erica"
-  ],
+
   "timeSlots": [
     "<t:1742040000:t>", "<t:1742045400:t>", "<t:1742050800:t>", "<t:1742056200:t>",
     "<t:1742061600:t>", "<t:1742067000:t>", "<t:1742072400:t>", "<t:1742077800:t>",
     "<t:1742083200:t>", "<t:1742088600:t>", "<t:1742094000:t>", "<t:1742099400:t>",
     "<t:1742104800:t>", "<t:1742110200:t>", "<t:1742115600:t>", "<t:1742121000:t>"
   ],
+
   "emojis": [
-    "🔥", "🌟", "⚡", "💥", "🎉", "🚀", "🕒", "⏰",
-    "🌙", "☀️", "🎶", "🏆", "📅", "✅", "🎭", "👑","👍"
+    "<GalaxyHat:1354246774012907530>","<IceHat:1354246731126018048>",
+    "<JellyHat:1354246686435835965>","<MagmaHat:1354246607360626899>",
+    "<LavaLampHat:1354246553988108308>","<WaterHat:1354246473344090194>",
+    "<CowboyHatYellow:1354246113510821998>","<CowboyHatBlack:1354245659292733502>",
+    "<CowboyHatTeal:1354246028219383899>","<CowboyHatRed:1354245985840402595>",
+    "<CowboyHatRainbow:1354245945478615110>","<CowboyHatPurple:1354245905959878677>",
+    "<CowboyHatPink:1354245864276623533>","<CowboyHatOrange:1354245808064696431>",
+    "<CowboyHatGreen:1354245774418120915>","<CowboyHatBlue:1354245718419701821>"
   ]
 }
