@@ -2,6 +2,21 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config.json'); // Load config
 
+// Function to convert custom emoji to the correct format for Discord embeds
+function convertEmojiToFormat(emoji) {
+    // This regex will match the format <:emojiName:emojiID>
+    const regex = /<:(\w+):\d+>/;
+    const match = emoji.match(regex);
+    
+    if (match) {
+        // If it's a match, return the emoji in the correct format
+        return `:${match[1]}:`;  // Return just :emojiName:
+    }
+    
+    // If it's not a custom emoji, return it as is (likely a unicode emoji)
+    return emoji;
+}
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('time-slots')  // Command name
@@ -47,17 +62,23 @@ module.exports = {
                 const timeSlot = config.timeSlots[i];
                 const emoji = config.emojis[i]; // Pick matching emoji for this time slot
 
+                // Convert the emoji to the correct format (e.g., :CowboyHatPink:)
+                const formattedEmoji = convertEmojiToFormat(emoji);
+
+                // Embed with formatted emoji
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
-                    .setTitle(`React to ${emoji} to join the ${timeSlot} time slot!`)
+                    .setTitle(`React to ${formattedEmoji} to join the ${timeSlot} time slot!`)
                     .setTimestamp(); 
 
+                // Send the embed message
                 const message = await targetChannel.send({ embeds: [exampleEmbed] });
                 reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
 
-                console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
+                console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${formattedEmoji}`);
 
-                await message.react(emoji); // React with corresponding emoji
+                // React with the corresponding emoji
+                await message.react(emoji);
 
                 // ⏳ Add a small delay (1 second) before posting the next message
                 await new Promise(resolve => setTimeout(resolve, 1000));
