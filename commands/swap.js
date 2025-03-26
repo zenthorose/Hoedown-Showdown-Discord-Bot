@@ -40,53 +40,32 @@ module.exports = {
 
         console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
 
-        // Send swap data to Google Sheets
+        // Trigger the Google Apps Script for further processing
         try {
-            const auth = new google.auth.GoogleAuth({
-                credentials,
-                scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-            });
-
-            const sheets = google.sheets({ version: "v4", auth });
-
-            const swapData = [
-                [teamSet, removePlayer, addPlayer, new Date().toISOString()]
-            ];
-
-            // Append the swap information to the sheet
-            await sheets.spreadsheets.values.append({
-                spreadsheetId: config.SPREADSHEET_ID,
-                range: `${config.SHEET_REACTIONS}!A:D`,
-                valueInputOption: "RAW",
-                resource: {
-                    values: swapData
-                }
-            });
-
-            // Trigger the Google Apps Script for further processing
             const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
             await axios.post(triggerUrl, {
+                command: "swap",
                 teamSet: teamSet,
                 removePlayer: removePlayer,
                 addPlayer: addPlayer
             });
 
-            console.log("Swap data sent to Google Sheets and Apps Script triggered.");
+            console.log("Swap data sent to Google Apps Script.");
 
             // Log swap to Discord channel
             const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
             await logChannel.send(`✅ Player "${removePlayer}" has been removed from team "${teamSet}", and "${addPlayer}" has been added.`);
 
         } catch (error) {
-            console.error("Error with Google Sheets or Apps Script:", error);
+            console.error("Error with Google Apps Script:", error);
             await interaction.reply({
-                content: "❌ There was an error updating Google Sheets or triggering the Apps Script.",
+                content: "❌ There was an error triggering the Apps Script.",
                 ephemeral: true
             });
 
             // Log error to Discord channel
             const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-            await logChannel.send(`❌ Error with Google Sheets or Apps Script: ${error.message}`);
+            await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
         }
 
         // Respond with the updated swap information
