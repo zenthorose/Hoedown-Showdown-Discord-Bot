@@ -124,7 +124,9 @@ module.exports = {
 
                     // Trigger the Google Apps Script and send the list of users
                     const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
-                    await axios.post(triggerUrl);
+                    await axios.post(triggerUrl, {
+                        command: 'grab-reactions'  // This will trigger the createTeams function in the Google Apps Script
+                    });
 
                     const logMessage = "✅ Reaction user list updated and team generation triggered!";
                     await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel

@@ -1,6 +1,20 @@
-const { SlashCommandBuilder } = require('@discordjs/builders'); // Import SlashCommandBuilder
-// Array to hold multiple message IDs
-let messageIds = [];
+const { SlashCommandBuilder } = require('@discordjs/builders');
+const { google } = require('googleapis');
+const axios = require('axios');
+const config = require('../config.json'); // Ensure config contains Google Sheets API credentials and Apps Script URL
+
+const credentials = {
+    type: "service_account",
+    project_id: process.env.GOOGLE_PROJECT_ID,
+    private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    auth_uri: process.env.GOOGLE_AUTH_URI,
+    token_uri: process.env.GOOGLE_TOKEN_URI,
+    auth_provider_x509_cert_url: process.env.GOOGLE_AUTH_PROVIDER_CERT,
+    client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT
+};
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -11,93 +25,104 @@ module.exports = {
                 .setDescription('The team name')
                 .setRequired(true))
         .addStringOption(option =>
-            option.setName('oldplayer')
+            option.setName('removeplayer')
                 .setDescription('The player to be removed')
                 .setRequired(true))
         .addStringOption(option =>
-            option.setName('newplayer')
+            option.setName('addplayer')
                 .setDescription('The player to be added')
                 .setRequired(true)),
 
     async execute(interaction) {
         const teamName = interaction.options.getString('team');
-        const oldPlayer = interaction.options.getString('oldplayer');
-        const newPlayer = interaction.options.getString('newplayer');
+        const removePlayer = interaction.options.getString('removeplayer');
+        const addPlayer = interaction.options.getString('addplayer');
 
-        console.log(`Received swap command: team=${teamName}, oldPlayer=${oldPlayer}, newPlayer=${newPlayer}`);
+        console.log(`Received swap command: team=${teamName}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
 
-        // Acknowledge the interaction with a deferReply
-        await interaction.deferReply();
+        // Simulate a team data structure (you can replace this with an actual database or file if needed)
+        const teams = {
+            "teamA": ["Alice", "Bob", "Charlie"],
+            "teamB": ["David", "Eve", "Frank"]
+        };
 
+        // Check if the team exists
+        if (!teams[teamName]) {
+            return interaction.reply({
+                content: `❌ Team "${teamName}" not found.`,
+                ephemeral: true
+            });
+        }
+
+        // Check if the player to remove is in the team
+        if (!teams[teamName].includes(removePlayer)) {
+            return interaction.reply({
+                content: `❌ Player "${removePlayer}" is not in team "${teamName}".`,
+                ephemeral: true
+            });
+        }
+
+        // Check if the player to add is already in the team
+        if (teams[teamName].includes(addPlayer)) {
+            return interaction.reply({
+                content: `❌ Player "${addPlayer}" is already in team "${teamName}".`,
+                ephemeral: true
+            });
+        }
+
+        // Perform the swap
+        const index = teams[teamName].indexOf(removePlayer);
+        teams[teamName][index] = addPlayer;
+
+        // Send swap data to Google Sheets
         try {
-            const response = await fetch('https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    command: 'swap',
-                    teamName: teamName,
-                    oldPlayer: oldPlayer,
-                    newPlayer: newPlayer
-                })
+            const auth = new google.auth.GoogleAuth({
+                credentials,
+                scopes: ["https://www.googleapis.com/auth/spreadsheets"]
             });
 
-            const responseText = await response.text();
-            console.log(`Response from Google Apps Script: ${responseText}`);
+            const sheets = google.sheets({ version: "v4", auth });
 
-            // Function to split long messages
-            function splitMessage(content, maxLength = 2000) {
-                const chunks = [];
-                while (content.length > maxLength) {
-                    let splitIndex = content.lastIndexOf("\n", maxLength); // Try to split at a newline
-                    if (splitIndex === -1) splitIndex = maxLength; // If no newline found, hard cut
-                    chunks.push(content.slice(0, splitIndex));
-                    content = content.slice(splitIndex);
+            const swapData = [
+                [teamName, removePlayer, addPlayer, new Date().toISOString()]
+            ];
+
+            // Append the swap information to the sheet
+            await sheets.spreadsheets.values.append({
+                spreadsheetId: config.SPREADSHEET_ID,
+                range: `${config.SHEET_REACTIONS}!A:D`,
+                valueInputOption: "RAW",
+                resource: {
+                    values: swapData
                 }
-                chunks.push(content);
-                return chunks;
-            }
+            });
 
-            const messages = splitMessage(responseText);
+            // Trigger the Google Apps Script for further processing
+            const triggerUrl = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
+            await axios.post(triggerUrl, {
+                command: 'swap',  // This indicates that it's a swap action
+                teamName: teamName,
+                removePlayer: removePlayer,
+                addPlayer: addPlayer
+            });
 
-            console.log(`Split response into ${messages.length} parts`);
-
-            // Send the initial reply and store the message ID
-            const initialReply = await interaction.editReply(messages[0]); // Edit the initial reply with first message
-            messageIds.push(initialReply.id);  // Store the message ID
-
-            // Follow up with remaining parts and store their message IDs
-            for (let i = 1; i < messages.length; i++) {
-                const followUp = await interaction.followUp(messages[i]);
-                messageIds.push(followUp.id);  // Store each subsequent message ID
-            }
+            console.log("Swap data sent to Google Sheets and Apps Script triggered.");
 
         } catch (error) {
-            console.error("Error sending request:", error);
-            await interaction.editReply("An error occurred while processing the request.");
+            console.error("Error with Google Sheets or Apps Script:", error);
+            await interaction.reply({
+                content: "❌ There was an error updating Google Sheets or triggering the Apps Script.",
+                ephemeral: true
+            });
         }
-    },
 
-    // Function to edit all messages later
-    async editAllMessages(newContent) {
-        for (const messageId of messageIds) {
-            try {
-                const message = await interaction.channel.messages.fetch(messageId);
-                await message.edit(newContent);
-            } catch (error) {
-                console.error(`Error editing message ${messageId}:`, error);
-            }
-        }
-    },
+        // Respond with the updated team
+        await interaction.reply({
+            content: `✅ Player "${removePlayer}" has been removed from team "${teamName}", and "${addPlayer}" has been added.`,
+            ephemeral: true
+        });
 
-    // Function to delete all messages later
-    async deleteAllMessages() {
-        for (const messageId of messageIds) {
-            try {
-                const message = await interaction.channel.messages.fetch(messageId);
-                await message.delete();
-            } catch (error) {
-                console.error(`Error deleting message ${messageId}:`, error);
-            }
-        }
+        // Optionally, log or do something with the updated team data
+        console.log(`Updated team "${teamName}": ${teams[teamName].join(', ')}`);
     }
 };
