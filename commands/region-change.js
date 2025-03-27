@@ -21,7 +21,7 @@ module.exports = {
         const userId = interaction.user.id;
 
         // Google Apps Script URL
-        const triggerUrl = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec';
+        const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
 
         try {
             // Send the region change request to Google Apps Script

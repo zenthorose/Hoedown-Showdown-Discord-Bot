@@ -10,7 +10,7 @@ module.exports = {
         const userId = interaction.user.id;
 
         // Trigger the Google Apps Script
-        const triggerUrl = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
+        const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
         await axios.post(triggerUrl, {
             command: 'region-check',
             userId: userId
