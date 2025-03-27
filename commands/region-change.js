@@ -6,7 +6,7 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('region-change')
         .setDescription('Change your region selection')
-        .addStringOption(option => 
+        .addStringOption(option =>
             option.setName('region')
                 .setDescription('Choose a region: east, west, or both')
                 .setRequired(true)
@@ -15,10 +15,11 @@ module.exports = {
                     { name: 'West', value: 'west' },
                     { name: 'Both', value: 'both' }
                 )),
-    
+
     async execute(interaction) {
         const selectedRegion = interaction.options.getString('region');
         const userId = interaction.user.id;
+        const channelId = interaction.channel.id; // Capture the channel ID
 
         // Google Apps Script URL
         const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
@@ -28,7 +29,8 @@ module.exports = {
             await axios.post(triggerUrl, {
                 command: 'region-change',
                 userId: userId,
-                region: selectedRegion
+                region: selectedRegion,
+                channelId: channelId // Send the channel ID
             });
 
             await interaction.reply({ content: `Your region has been updated to **${selectedRegion}**.`, ephemeral: true });
