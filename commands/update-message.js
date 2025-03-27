@@ -31,9 +31,9 @@ module.exports = {
         if (!message.editable) return interaction.reply({ content: "I can't edit this message.", ephemeral: true });
 
         const newEmbed = new EmbedBuilder()
-            .setTitle("Updated Embed")
-            .setDescription(newContent)
-            .setColor('#444444');
+            .setTitle(newContent)
+            .setColor('#444444')
+            .setTimestamp();
 
         await message.edit({ embeds: [newEmbed] });
 
