@@ -8,18 +8,23 @@ module.exports = {
         .setDescription('Change your region selection')
         .addStringOption(option =>
             option.setName('region')
-                .setDescription('Choose a region: east, west, or both')
+                .setDescription('Choose a region: East, West, or Both')
                 .setRequired(true)
                 .addChoices(
-                    { name: 'East', value: 'east' },
-                    { name: 'West', value: 'west' },
-                    { name: 'Both', value: 'both' }
+                    { name: 'East', value: 'East' },
+                    { name: 'West', value: 'West' },
+                    { name: 'Both', value: 'Both' }
                 )),
 
     async execute(interaction) {
-        const selectedRegion = interaction.options.getString('region');
+        let selectedRegion = interaction.options.getString('region').toLowerCase();  // Ensure region is case-insensitive
         const userId = interaction.user.id;
         const channelId = interaction.channel.id;
+
+        // Validate the region
+        if (!['east', 'west', 'both'].includes(selectedRegion)) {
+            return await interaction.reply({ content: 'Invalid region selected. Please choose from "East", "West", or "Both".', ephemeral: true });
+        }
 
         // Google Apps Script URL
         const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';

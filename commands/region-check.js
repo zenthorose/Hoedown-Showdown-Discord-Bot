@@ -14,6 +14,9 @@ module.exports = {
         const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
 
         try {
+            // Acknowledge the interaction to prevent timeout
+            await interaction.deferReply({ ephemeral: true });
+
             // Send the region check request to Google Apps Script
             await axios.post(triggerUrl, {
                 command: 'region-check',
@@ -21,10 +24,11 @@ module.exports = {
                 channelId: channelId // Send the channel ID
             });
 
-            await interaction.reply({ content: 'The result will be back in a moment.', ephemeral: true });
+            // Edit the initial response once the request is completed
+            await interaction.editReply({ content: 'The result will be back in a moment.' });
         } catch (error) {
             console.error('Error sending request:', error);
-            await interaction.reply({ content: 'There was an error checking your region. Please try again later.', ephemeral: true });
+            await interaction.editReply({ content: 'There was an error checking your region. Please try again later.' });
         }
     }
 };
