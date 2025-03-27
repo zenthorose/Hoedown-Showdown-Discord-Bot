@@ -33,7 +33,7 @@ module.exports = {
         const newEmbed = new EmbedBuilder()
             .setTitle("Updated Embed")
             .setDescription(newContent)
-            .setColor('#ff0000');
+            .setColor('#444444');
 
         await message.edit({ embeds: [newEmbed] });
 
