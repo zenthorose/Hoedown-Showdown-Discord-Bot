@@ -19,24 +19,26 @@ module.exports = {
     async execute(interaction) {
         const selectedRegion = interaction.options.getString('region');
         const userId = interaction.user.id;
-        const channelId = interaction.channel.id; // Capture the channel ID
+        const channelId = interaction.channel.id;
 
         // Google Apps Script URL
         const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
 
         try {
+            // Acknowledge the interaction to prevent timeout
+            await interaction.deferReply({ ephemeral: true });
+
             // Send the region change request to Google Apps Script
             await axios.post(triggerUrl, {
                 command: 'region-change',
                 userId: userId,
                 region: selectedRegion,
-                channelId: channelId // Send the channel ID
+                channelId: channelId
             });
 
-            await interaction.reply({ content: `Your region has been updated to **${selectedRegion}**.`, ephemeral: true });
         } catch (error) {
             console.error('Error sending request:', error);
-            await interaction.reply({ content: 'There was an error updating your region. Please try again later.', ephemeral: true });
+            await interaction.editReply({ content: 'There was an error updating your region. Please try again later.' });
         }
     }
 };
