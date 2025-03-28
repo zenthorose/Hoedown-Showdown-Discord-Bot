@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { MessageActionRow, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../config.json');
 
 module.exports = {
@@ -25,16 +25,17 @@ module.exports = {
                 return;
             }
 
-            // Defer reply
+            // Defer reply to handle processing
             await interaction.deferReply({ ephemeral: true });
 
-            // Create the muffin button
+            // Create the muffin button using v14 syntax
             const muffinButton = new ButtonBuilder()
                 .setCustomId('muffin')
                 .setLabel('Muffin Button')
                 .setStyle(ButtonStyle.Primary);
 
-            const row = new MessageActionRow().addComponents(muffinButton);
+            // Use ActionRowBuilder for the row
+            const row = new ActionRowBuilder().addComponents(muffinButton);
 
             // Send the response
             await interaction.editReply({
@@ -44,7 +45,7 @@ module.exports = {
         } catch (error) {
             console.error(error);
 
-            // Avoid multiple responses if interaction already acknowledged
+            // Check if interaction was already acknowledged
             if (interaction.deferred || interaction.replied) {
                 await interaction.followUp({
                     content: '❌ There was an error executing this command.',
