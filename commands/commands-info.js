@@ -35,6 +35,8 @@ module.exports = {
             { name: '/grab-reactions', description: 'Sends the list of reactions from the selected message to the Google Sheets to begin the team creation.' },
             { name: '/swap', description: 'Used to replace members on teams before official list is posted. Enter Team Set # followed by the person you are replacing lastly who you are replacing them with.' },
             { name: '/approve-teams', description: 'Use this command after the team has been reviewed and everything is good to publish the official Team List to everyone.' },
+            { name: '/region-change', description: 'Changes your region to one of the tree options "East", "West", or "Both".' },
+            { name: '/region-check', description: 'Returns what regions you are currently selected for.' },
             { name: '/ping', description: 'This keeps the bot alive.' }
         ];
 
