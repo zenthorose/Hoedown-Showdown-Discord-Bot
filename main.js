@@ -83,13 +83,12 @@ client.on('messageCreate', async message => {
     }
 });
 
-// Handle button interactions (e.g., play sound on muffin button click)
+// Handle muffin button interactions
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
     if (interaction.customId === 'muffin') {
         // Handle the "muffin" button click here
-        // For example, respond with a sound file, or simply a message.
         await interaction.update({
             content: 'You clicked the muffin button! 🍩',
             components: [],
@@ -104,17 +103,18 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Watch for a specific word in messages and react
+// Watch for the word "muffin" in a specific channel
 client.on('messageCreate', async message => {
     if (message.author.bot) return; // Ignore bot messages
 
-    // Define the target word
+    // Define the target channel ID and word to watch for
+    const targetChannelId = '1355001958825463968'; // Replace with your actual channel ID
     const targetWord = 'muffin';
 
-    // Check if the message contains the target word (case-insensitive)
-    if (message.content.toLowerCase().includes(targetWord)) {
+    // Check if the message is from the target channel and contains the target word
+    if (message.channel.id === targetChannelId && message.content.toLowerCase().includes(targetWord)) {
         try {
-            // React to the message with an emoji (e.g., a donut emoji)
+            // React to the message with a donut emoji
             await message.react('🍩');
         } catch (error) {
             console.error('Error reacting to message:', error);
