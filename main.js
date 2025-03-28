@@ -83,25 +83,33 @@ client.on('messageCreate', async message => {
     }
 });
 
-// Handle muffin button interactions
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
     if (interaction.customId === 'muffin') {
-        // Handle the "muffin" button click here
-        await interaction.update({
-            content: 'You clicked the muffin button! :Muffin:',
-            components: [],
-        });
+        try {
+            await interaction.update({
+                content: 'You clicked the muffin button! Here is your muffin! :Muffin:',
+                components: []
+            });
 
-        // Play sound or send a sound file (Discord does not support playing sound directly in chat)
-        const audioUrl = 'https://example.com/sound.mp3';  // Replace with an actual URL or file path
-        await interaction.followUp({
-            content: 'Here is your muffin sound!',
-            files: [audioUrl], // Alternatively, upload a sound file as an attachment
-        });
+            // Delete the message after 3 seconds
+            setTimeout(() => {
+                interaction.message.delete().catch(console.error);
+            }, 3000);
+
+        } catch (error) {
+            console.error(error);
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({
+                    content: '❌ Something went wrong!',
+                    ephemeral: true
+                });
+            }
+        }
     }
 });
+
 
 // Watch for the word "muffin" in a specific channel
 client.on('messageCreate', async message => {

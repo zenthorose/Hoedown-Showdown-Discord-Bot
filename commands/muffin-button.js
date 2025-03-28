@@ -9,6 +9,7 @@ module.exports = {
 
     async execute(interaction) {
         try {
+            // Permission Checks
             const allowedRoles = config.allowedRoles;
             const allowedUserIds = config.allowedUserIds;
 
@@ -16,44 +17,32 @@ module.exports = {
             const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
             const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
-            // Check permissions
             if (!hasRequiredRole && !isAllowedUser) {
-                await interaction.reply({
+                return interaction.reply({
                     content: '❌ You do not have permission to use this command.',
                     ephemeral: true
                 });
-                return;
             }
 
-            // Defer reply to handle processing
-            await interaction.deferReply({ ephemeral: true });
-
-            // Create the muffin button using v14 syntax
+            // Create Muffin Button
             const muffinButton = new ButtonBuilder()
                 .setCustomId('muffin')
                 .setLabel('Muffin Button')
                 .setStyle(ButtonStyle.Primary);
 
-            // Use ActionRowBuilder for the row
             const row = new ActionRowBuilder().addComponents(muffinButton);
 
-            // Send the response
-            await interaction.editReply({
-                content: 'Muffin!',
-                components: [row],
+            // Send the message with the button
+            await interaction.reply({
+                content: 'Press the Muffin Button!',
+                components: [row]
             });
+
         } catch (error) {
             console.error(error);
-
-            // Check if interaction was already acknowledged
-            if (interaction.deferred || interaction.replied) {
-                await interaction.followUp({
-                    content: '❌ Deferred or replied.',
-                    ephemeral: true
-                });
-            } else {
+            if (!interaction.replied && !interaction.deferred) {
                 await interaction.reply({
-                    content: '❌ Not Deferred or replied.',
+                    content: '❌ Failed to send the muffin button!',
                     ephemeral: true
                 });
             }
