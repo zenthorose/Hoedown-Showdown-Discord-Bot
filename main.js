@@ -89,7 +89,7 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'muffin') {
         try {
             await interaction.update({
-                content: 'You clicked the muffin button! Here is your muffin! <:muffin:1355005309604593714>',
+                content: 'Howdy partner here is your muffin! <:muffin:1355005309604593714> https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642',
                 components: []
             });
 
