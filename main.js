@@ -115,7 +115,7 @@ client.on('messageCreate', async message => {
     if (message.channel.id === targetChannelId && message.content.toLowerCase().includes(targetWord)) {
         try {
             // React to the message with a donut emoji
-            await message.react('🍩');
+            await message.react(':Muffin:');
         } catch (error) {
             console.error('Error reacting to message:', error);
         }
