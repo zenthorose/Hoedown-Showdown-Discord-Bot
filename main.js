@@ -89,8 +89,13 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'muffin') {
         try {
             await interaction.update({
-                content: 'Howdy partner here is your muffin! <:muffin:1355005309604593714> https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642',
-                components: []
+                content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>', // This can still be a message
+                embeds: [{
+                    image: {
+                        url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' // The image link
+                    }
+                }],
+                components: [] // Remove button after interaction
             });
 
         } catch (error) {
@@ -104,8 +109,6 @@ client.on('interactionCreate', async interaction => {
         }
     }
 });
-
-
 
 // Watch for the word "muffin" in a specific channel
 client.on('messageCreate', async message => {
