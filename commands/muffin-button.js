@@ -48,12 +48,12 @@ module.exports = {
             // Check if interaction was already acknowledged
             if (interaction.deferred || interaction.replied) {
                 await interaction.followUp({
-                    content: '❌ There was an error executing this command.',
+                    content: '❌ Deferred or replied.',
                     ephemeral: true
                 });
             } else {
                 await interaction.reply({
-                    content: '❌ There was an error executing this command.',
+                    content: '❌ Not Deferred or replied.',
                     ephemeral: true
                 });
             }
