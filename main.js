@@ -90,7 +90,7 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'muffin') {
         // Handle the "muffin" button click here
         await interaction.update({
-            content: 'You clicked the muffin button! 🍩',
+            content: 'You clicked the muffin button! :Muffin:',
             components: [],
         });
 
@@ -114,8 +114,14 @@ client.on('messageCreate', async message => {
     // Check if the message is from the target channel and contains the target word
     if (message.channel.id === targetChannelId && message.content.toLowerCase().includes(targetWord)) {
         try {
-            // React to the message with a donut emoji
-            await message.react(':Muffin:');
+            // Replace 'muffinEmoji' with your custom emoji's name
+            const customEmoji = message.guild.emojis.cache.find(emoji => emoji.name === 'Muffin'); // Replace 'muffinEmoji' with your emoji's name
+            if (customEmoji) {
+                // React with the custom emoji
+                await message.react(customEmoji);
+            } else {
+                console.error('Custom emoji not found!');
+            }
         } catch (error) {
             console.error('Error reacting to message:', error);
         }
