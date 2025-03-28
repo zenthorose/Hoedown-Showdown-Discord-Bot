@@ -23,6 +23,9 @@ module.exports = {
                 }).then(msg => msg.delete({ timeout: 5000 }));
             }
 
+            // Defer the reply to avoid timeout issues
+            await interaction.deferReply();
+
             // Create Muffin Button
             const muffinButton = new ButtonBuilder()
                 .setCustomId('muffin')
@@ -31,13 +34,11 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(muffinButton);
 
-            // Ensure that we only send the message once
-            if (!interaction.replied && !interaction.deferred) {
-                const message = await interaction.channel.send({
-                    content: 'Press the Muffin Button!',
-                    components: [row]
-                });
-            }
+            // Send the muffin button message
+            await interaction.editReply({
+                content: 'Press the Muffin Button!',
+                components: [row]
+            });
 
         } catch (error) {
             console.error(error);
