@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { CommandInteraction } = require('discord.js');
 const axios = require('axios');
 
 module.exports = {
@@ -26,13 +25,13 @@ module.exports = {
             return await interaction.reply({ content: 'Invalid region selected. Please choose from "East", "West", or "Both".', ephemeral: true });
         }
 
+        // Reply instantly to acknowledge the request
+        await interaction.reply({ content: 'Your region is being updated and confirmation will be sent momentarily.', ephemeral: true });
+
         // Google Apps Script URL
         const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
 
         try {
-            // Acknowledge the interaction to prevent timeout
-            await interaction.deferReply({ ephemeral: true });
-
             // Send the region change request to Google Apps Script
             await axios.post(triggerUrl, {
                 command: 'region-change',
@@ -40,7 +39,6 @@ module.exports = {
                 region: selectedRegion,
                 channelId: channelId
             });
-
         } catch (error) {
             console.error('Error sending request:', error);
             await interaction.editReply({ content: 'There was an error updating your region. Please try again later.' });
