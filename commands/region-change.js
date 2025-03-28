@@ -21,7 +21,7 @@ module.exports = {
         const channelId = interaction.channel.id;
 
         // Validate the region
-        if (!['east', 'west', 'both'].includes(selectedRegion)) {
+        if (!['East', 'West', 'Both'].includes(selectedRegion)) {
             return await interaction.reply({ content: 'Invalid region selected. Please choose from "East", "West", or "Both".', ephemeral: true });
         }
 
