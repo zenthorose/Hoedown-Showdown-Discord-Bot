@@ -8,37 +8,54 @@ module.exports = {
         .setDescription('Sends a muffin button for users to click!'),
 
     async execute(interaction) {
-        const allowedRoles = config.allowedRoles;
-        const allowedUserIds = config.allowedUserIds;
+        try {
+            const allowedRoles = config.allowedRoles;
+            const allowedUserIds = config.allowedUserIds;
 
-        const member = await interaction.guild.members.fetch(interaction.user.id);
-        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
-        const isAllowedUser = allowedUserIds.includes(interaction.user.id);
+            const member = await interaction.guild.members.fetch(interaction.user.id);
+            const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
+            const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
-        // Check permissions
-        if (!hasRequiredRole && !isAllowedUser) {
-            await interaction.reply({
-                content: '❌ You do not have permission to use this command.',
-                ephemeral: true // Visible only to the user
+            // Check permissions
+            if (!hasRequiredRole && !isAllowedUser) {
+                await interaction.reply({
+                    content: '❌ You do not have permission to use this command.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            // Defer reply
+            await interaction.deferReply({ ephemeral: true });
+
+            // Create the muffin button
+            const muffinButton = new ButtonBuilder()
+                .setCustomId('muffin')
+                .setLabel('Muffin Button')
+                .setStyle(ButtonStyle.Primary);
+
+            const row = new MessageActionRow().addComponents(muffinButton);
+
+            // Send the response
+            await interaction.editReply({
+                content: 'Muffin!',
+                components: [row],
             });
-            return;
+        } catch (error) {
+            console.error(error);
+
+            // Avoid multiple responses if interaction already acknowledged
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp({
+                    content: '❌ There was an error executing this command.',
+                    ephemeral: true
+                });
+            } else {
+                await interaction.reply({
+                    content: '❌ There was an error executing this command.',
+                    ephemeral: true
+                });
+            }
         }
-
-        // Defer reply to avoid multiple responses
-        await interaction.deferReply({ ephemeral: true });
-
-        // Create the muffin button
-        const muffinButton = new ButtonBuilder()
-            .setCustomId('muffin')
-            .setLabel('Muffin Button')
-            .setStyle(ButtonStyle.Primary);
-
-        const row = new MessageActionRow().addComponents(muffinButton);
-
-        // Update the original reply
-        await interaction.editReply({
-            content: 'Muffin!',
-            components: [row],
-        });
     }
 };
