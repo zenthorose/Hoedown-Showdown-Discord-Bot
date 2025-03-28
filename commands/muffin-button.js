@@ -18,10 +18,9 @@ module.exports = {
             const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
             if (!hasRequiredRole && !isAllowedUser) {
-                return interaction.reply({
-                    content: '❌ You do not have permission to use this command.',
-                    ephemeral: true
-                });
+                return interaction.channel.send({
+                    content: '❌ You do not have permission to use this command.'
+                }).then(msg => msg.delete({ timeout: 5000 }));
             }
 
             // Create Muffin Button
@@ -32,20 +31,18 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(muffinButton);
 
-            // Send the message with the button
-            await interaction.reply({
+            // Send the muffin button message
+            const message = await interaction.channel.send({
                 content: 'Press the Muffin Button!',
                 components: [row]
             });
 
         } catch (error) {
             console.error(error);
-            if (!interaction.replied && !interaction.deferred) {
-                await interaction.reply({
-                    content: '❌ Failed to send the muffin button!',
-                    ephemeral: true
-                });
-            }
+            // Send an error message and delete it after 5 seconds
+            interaction.channel.send({
+                content: '❌ Failed to send the muffin button!'
+            }).then(msg => msg.delete({ timeout: 5000 }));
         }
     }
 };
