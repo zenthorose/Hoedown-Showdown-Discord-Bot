@@ -31,11 +31,13 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(muffinButton);
 
-            // Send the muffin button message
-            const message = await interaction.channel.send({
-                content: 'Press the Muffin Button!',
-                components: [row]
-            });
+            // Ensure that we only send the message once
+            if (!interaction.replied && !interaction.deferred) {
+                const message = await interaction.channel.send({
+                    content: 'Press the Muffin Button!',
+                    components: [row]
+                });
+            }
 
         } catch (error) {
             console.error(error);
