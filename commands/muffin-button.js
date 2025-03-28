@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageEmbed } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js'); // Use EmbedBuilder here
 const config = require('../config.json');
 
 module.exports = {
@@ -31,8 +31,8 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(muffinButton);
 
-            // Create the embed with the provided GIF
-            const embed = new MessageEmbed()
+            // Create the embed with the provided GIF using EmbedBuilder
+            const embed = new EmbedBuilder()
                 .setTitle('Press the Muffin Button!')
                 .setImage('https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/94aaf128-b928-4b05-a219-3ceb2e442f5a/d4fcns8-722041b1-8ce8-4e37-a658-72972ea5cdea.gif?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiJcL2ZcLzk0YWFmMTI4LWI5MjgtNGIwNS1hMjE5LTNjZWIyZTQ0MmY1YVwvZDRmY25zOC03MjIwNDFiMS04Y2U4LTRlMzctYTY1OC03Mjk3MmVhNWNkZWEuZ2lmIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.bd_CR7qSxv6UjSdNYTQXATodTpjtlD00ypcBAhqsVFM');
 
