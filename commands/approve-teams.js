@@ -47,7 +47,15 @@ module.exports = {
         await interaction.reply({ content: `🔄 Processing team approval...`, ephemeral: true });
 
         try {
-            const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
+            // Get the Google Apps Script URL from environment variables
+            const triggerUrl = process.env.Google_Apps_Script_URL;
+
+            // Make sure the environment variable is defined
+            if (!triggerUrl) {
+                await interaction.followUp({ content: '❌ Error: Google Apps Script URL is not defined.', ephemeral: true });
+                return;
+            }
+
             await axios.post(triggerUrl, {
                 command: "approve-teams",  // Command name
                 teamSet: teamSet           // Team set number

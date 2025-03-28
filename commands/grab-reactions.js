@@ -122,8 +122,16 @@ module.exports = {
                         resource: { values: [["Reacted Users"], ...sortedUserList] }
                     });
 
+                    // Get the Google Apps Script URL from environment variables
+                    const triggerUrl = process.env.Google_Apps_Script_URL;
+
+                    // Make sure the environment variable is defined
+                    if (!triggerUrl) {
+                        await interaction.channel.send({ content: 'Error: Google Apps Script URL is not defined.' });
+                        return;
+                    }
+
                     // Trigger the Google Apps Script and send the list of users
-                    const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
                     await axios.post(triggerUrl, {
                         command: 'grab-reactions'  // This will trigger the createTeams function in the Google Apps Script
                     });

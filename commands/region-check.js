@@ -13,8 +13,13 @@ module.exports = {
         // Reply instantly to acknowledge the command
         await interaction.reply({ content: 'The result will be back in a moment.', ephemeral: true });
 
-        // Google Apps Script URL
-        const triggerUrl = 'https://script.google.com/macros/s/AKfycbydZRdwzXzl-96Og3usrxCEKsDIAol0Yfukm1IGVUfScQ8N_DliIV-L40Hyk4BX00Ul/exec';
+        // Get the Google Apps Script URL from environment variables
+        const triggerUrl = process.env.Google_Apps_Script_URL;
+
+        // Make sure the environment variable is defined
+        if (!triggerUrl) {
+            return await interaction.editReply({ content: 'Error: Google Apps Script URL is not defined.' });
+        }
 
         try {
             // Send the region check request to Google Apps Script
