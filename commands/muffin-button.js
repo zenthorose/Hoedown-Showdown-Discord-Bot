@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const config = require('./config.json'); // Assuming the roles and user IDs are in a config file
+const config = require('../config.json'); // Assuming the roles and user IDs are in a config file
 
 module.exports = {
     data: new SlashCommandBuilder()
