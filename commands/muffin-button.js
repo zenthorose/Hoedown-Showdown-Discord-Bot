@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageEmbed } = require('discord.js');
 const config = require('../config.json');
 
 module.exports = {
@@ -23,9 +23,6 @@ module.exports = {
                 }).then(msg => msg.delete({ timeout: 5000 }));
             }
 
-            // Defer the reply to avoid timeout issues
-            await interaction.deferReply();
-
             // Create Muffin Button
             const muffinButton = new ButtonBuilder()
                 .setCustomId('muffin')
@@ -34,9 +31,14 @@ module.exports = {
 
             const row = new ActionRowBuilder().addComponents(muffinButton);
 
-            // Send the muffin button message
-            await interaction.editReply({
-                content: 'Press the Muffin Button!',
+            // Create the embed with the provided GIF
+            const embed = new MessageEmbed()
+                .setTitle('Press the Muffin Button!')
+                .setImage('https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/94aaf128-b928-4b05-a219-3ceb2e442f5a/d4fcns8-722041b1-8ce8-4e37-a658-72972ea5cdea.gif?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiJcL2ZcLzk0YWFmMTI4LWI5MjgtNGIwNS1hMjE5LTNjZWIyZTQ0MmY1YVwvZDRmY25zOC03MjIwNDFiMS04Y2U4LTRlMzctYTY1OC03Mjk3MmVhNWNkZWEuZ2lmIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.bd_CR7qSxv6UjSdNYTQXATodTpjtlD00ypcBAhqsVFM');
+
+            // Send the message with the button and the embed
+            await interaction.channel.send({
+                embeds: [embed],
                 components: [row]
             });
 
