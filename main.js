@@ -93,11 +93,6 @@ client.on('interactionCreate', async interaction => {
                 components: []
             });
 
-            // Delete the message after 3 seconds
-            setTimeout(() => {
-                interaction.message.delete().catch(console.error);
-            }, 3000);
-
         } catch (error) {
             console.error(error);
             if (!interaction.replied && !interaction.deferred) {
