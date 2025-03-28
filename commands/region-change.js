@@ -16,11 +16,16 @@ module.exports = {
                 )),
 
     async execute(interaction) {
-        let selectedRegion = interaction.options.getString('region').toLowerCase();  // Ensure region is case-insensitive
+        // Get the region and convert it to the proper capitalized format
+        let selectedRegion = interaction.options.getString('region');
+        
+        // Capitalize the first letter and make the rest lowercase
+        selectedRegion = selectedRegion.charAt(0).toUpperCase() + selectedRegion.slice(1).toLowerCase();
+        
         const userId = interaction.user.id;
         const channelId = interaction.channel.id;
 
-        // Validate the region
+        // Validate the region (case insensitive)
         if (!['East', 'West', 'Both'].includes(selectedRegion)) {
             return await interaction.reply({ content: 'Invalid region selected. Please choose from "East", "West", or "Both".', ephemeral: true });
         }
@@ -36,7 +41,7 @@ module.exports = {
             await axios.post(triggerUrl, {
                 command: 'region-change',
                 userId: userId,
-                region: selectedRegion,
+                region: selectedRegion, // Send the capitalized region
                 channelId: channelId
             });
         } catch (error) {
