@@ -71,53 +71,58 @@ client.once('ready', async () => {
         const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]"); // ✅ Corrected time format
         channel.send(`✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀\n🕒 Current Time: **${currentTime}**`);
         console.log(`✅ Startup message sent at ${currentTime}`);
-
-        // Auto-upload members to Google Sheets on startup
-        /*try {
-            await client.guilds.fetch();
-            const guild = client.guilds.cache.first();
-            if (!guild) return console.log("❌ No guilds found.");
-
-            await guild.members.fetch();
-            const sortedMembers = guild.members.cache
-                .map(member => [member.user.username, member.user.id])
-                .sort((a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' }));
-
-            // Authenticate with Google Sheets API
-            const auth = new google.auth.GoogleAuth({
-                credentials,
-                scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-            });
-
-            const sheets = google.sheets({ version: "v4", auth });
-
-            // 🔴 Step 1: Clear columns A & B before updating
-            await sheets.spreadsheets.values.clear({
-                spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_MEMBERS}!A:B`, // Clears columns A & B
-            });
-
-            console.log("🧹 Cleared columns A & B before updating.");
-
-            // 🟢 Step 2: Upload new member list
-            await sheets.spreadsheets.values.update({
-                spreadsheetId: SPREADSHEET_ID,
-                range: `${SHEET_MEMBERS}!A1`, // Start at A1 after clearing
-                valueInputOption: "RAW",
-                resource: { values: [["Full Discord List User Name", "Discord ID's"], ...sortedMembers] }
-            });
-
-            console.log("✅ Member list successfully uploaded to Google Sheets!");
-            channel.send("📊 Member list has been updated in Google Sheets!");
-        } catch (error) {
-            console.error("❌ Error uploading member list:", error);
-            channel.send("⚠️ Failed to upload member list to Google Sheets.");
-        }*/
     } else {
         console.error("❌ Failed to find the status channel. Check config.json.");
     }
 });
 
+// ✅ Add back the ping command to keep the bot awake
+client.on('messageCreate', async message => {
+    if (message.content === '!ping') {
+        message.channel.send('Pong!');
+    }
+});
+
+// Handle button interactions (e.g., play sound on muffin button click)
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+
+    if (interaction.customId === 'muffin') {
+        // Handle the "muffin" button click here
+        // For example, respond with a sound file, or simply a message.
+        await interaction.update({
+            content: 'You clicked the muffin button! 🍩',
+            components: [],
+        });
+
+        // Play sound or send a sound file (Discord does not support playing sound directly in chat)
+        const audioUrl = 'https://example.com/sound.mp3';  // Replace with an actual URL or file path
+        await interaction.followUp({
+            content: 'Here is your muffin sound!',
+            files: [audioUrl], // Alternatively, upload a sound file as an attachment
+        });
+    }
+});
+
+// Watch for a specific word in messages and react
+client.on('messageCreate', async message => {
+    if (message.author.bot) return; // Ignore bot messages
+
+    // Define the target word
+    const targetWord = 'muffin';
+
+    // Check if the message contains the target word (case-insensitive)
+    if (message.content.toLowerCase().includes(targetWord)) {
+        try {
+            // React to the message with an emoji (e.g., a donut emoji)
+            await message.react('🍩');
+        } catch (error) {
+            console.error('Error reacting to message:', error);
+        }
+    }
+});
+
+// Handle command interactions (existing functionality)
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
@@ -129,12 +134,6 @@ client.on('interactionCreate', async interaction => {
     } catch (error) {
         console.error(error);
         await interaction.reply({ content: '❌ There was an error executing this command!', ephemeral: true });
-    }
-});
-
-client.on('messageCreate', async message => {
-    if (message.content === '!ping') {
-        message.channel.send('Pong!');
     }
 });
 
@@ -174,4 +173,3 @@ app.listen(port, () => {
     console.log(`🌐 Server is running on port ${port}`);
     client.login(botToken);
 });
-
