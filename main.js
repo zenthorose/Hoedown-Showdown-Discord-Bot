@@ -115,7 +115,7 @@ client.on('messageCreate', async message => {
     if (message.author.bot) return; // Ignore bot messages
 
     // Define the target channel ID and word to watch for
-    const targetChannelId = '1355001958825463968'; // Replace with your actual channel ID
+    const targetChannelId = '1052393482699948132'; // Replace with your actual channel ID
     const targetWord = 'muffin';
 
     // Check if the message is from the target channel and contains the target word
