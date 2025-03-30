@@ -1,8 +1,25 @@
+//Works and Posts Teams as it should with Bolded and underlined team names.
+
+const SCRIPT_VERSION = "Dev Version 26 Roll Back";
+
+function setUpScriptProperties() {
+  var scriptProperties = PropertiesService.getScriptProperties();
+  var existingId = scriptProperties.getProperty('SPREADSHEET_ID');
+  
+  if (!existingId) { // Only set it if it doesn't exist
+    var SPREADSHEET_ID = 'your_spreadsheet_id_here'; // Replace with your actual Spreadsheet ID
+    scriptProperties.setProperty('SPREADSHEET_ID', SPREADSHEET_ID);
+  }
+}
+
 function createTeams() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Players That Reacted');
-  var discordSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Discord Member List');
+  var scriptProperties = PropertiesService.getScriptProperties();
+  var SPREADSHEET_ID = scriptProperties.getProperty('SPREADSHEET_ID');
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Players That Reacted');
+  var discordSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Discord Member List');
   var names = sheet.getRange('A2:A' + sheet.getLastRow()).getValues().flat().filter(name => name.trim() !== '');
 
+  logToSheet(`Starting createTeams function - Version: ${SCRIPT_VERSION}`);
   logToSheet('Starting team creation process...');
 
   if (names.length === 0) {
@@ -10,50 +27,64 @@ function createTeams() {
     return;
   }
 
-  var nextColumn = findNextEmptyColumn(sheet, 3);
-  var teamSetNumber = getLastTeamSetNumber() + 1;
-  var setLabel = teamSetNumber + getOrdinalSuffix(teamSetNumber) + " Team Set";
-  sheet.getRange(1, nextColumn).setValue(setLabel);
-  sheet.getRange('B2:B' + sheet.getLastRow()).clearContent();
+  sheet.getRange('B2:B' + sheet.getLastRow()).clearContent(); // Clear previous team assignments
 
   names = shuffle(names);
   var eastPlayers = [];
   var westPlayers = [];
   var mixedPlayers = [];
-  var assignedPlayers = new Set();
 
   names.forEach(playerName => {
-    var discordRow = discordSheet.createTextFinder(playerName).findNext();
-    if (discordRow) {
-      var region = discordRow.offset(0, 3).getValue().trim();
+    var discordRows = discordSheet.getRange('B2:B' + discordSheet.getLastRow()).getValues().flat();
+    var rowIndex = discordRows.indexOf(playerName);
+
+    if (rowIndex !== -1) {
+      var region = discordSheet.getRange(rowIndex + 2, 4).getValue().trim(); // Column C (Region)
+      logToSheet(`Found player: ${playerName} in region: ${region}`);
       if (region === "East") eastPlayers.push(playerName);
       else if (region === "West") westPlayers.push(playerName);
       else mixedPlayers.push(playerName);
     } else {
-      mixedPlayers.push(playerName);
+      logToSheet(`Player not found in Discord Member List: ${playerName}`);
+      mixedPlayers.push(playerName); // Default to Mixed if not found
     }
   });
 
-  logToSheet(`East: ${eastPlayers.length}, West: ${westPlayers.length}, Mixed: ${mixedPlayers.length}`);
+  // Evenly split mixed players between East and West
+  mixedPlayers.forEach((player, index) => {
+    if (index % 2 === 0) {
+      eastPlayers.push(player);
+    } else {
+      westPlayers.push(player);
+    }
+  });
+
+  logToSheet(`East: ${eastPlayers.length}, West: ${westPlayers.length}`);
 
   var teamIndex = getLastTeamIndex();
   var startRow = 2;
-  
-  // This function assigns teams to players
+  var fillerCount = 1; // Counter for numbering fillers
+
   function assignTeams(players) {
     var teamList = [];
     for (var i = 0; i < players.length; i += 3) {
       var team = players.slice(i, i + 3);
-      while (team.length < 3) team.push("Filler");
+      
+      // Add fillers with incrementing numbers
+      while (team.length < 3) {
+        team.push(`Filler #${fillerCount}`);
+        fillerCount++;
+      }
+
       teamList.push(team);
       var teamLabel = "Team " + getTeamLabel(teamIndex);
+      
+      // Assigning the team label and players to column B
       sheet.getRange(startRow, 2).setValue(teamLabel);
-      sheet.getRange(startRow, nextColumn).setValue(teamLabel);
       team.forEach((player, j) => {
         sheet.getRange(startRow + j + 1, 2).setValue(player);
-        sheet.getRange(startRow + j + 1, nextColumn).setValue(player);
-        assignedPlayers.add(player);
       });
+
       startRow += 5;
       teamIndex = (teamIndex + 1) % 52;
       logToSheet(`Assigned ${teamLabel} to: ${team.join(', ')}`);
@@ -64,9 +95,28 @@ function createTeams() {
   var allTeams = [];
   allTeams.push(...assignTeams(eastPlayers));
   allTeams.push(...assignTeams(westPlayers));
-  allTeams.push(...assignTeams(mixedPlayers));
 
-  sendTeamsToDiscord(allTeams);
+  // Copy Column B values to the next available column
+  var nextColumn = findNextEmptyColumn(sheet, 4);
+  if (nextColumn !== null) {
+    var teamSetNumber = getLastTeamSetNumber() + 1;
+    var setLabel = teamSetNumber + getOrdinalSuffix(teamSetNumber) + " Team Set";
+    sheet.getRange(1, nextColumn).setValue(setLabel);
+
+    var teamData = sheet.getRange('B2:B' + sheet.getLastRow()).getValues();
+    sheet.getRange(2, nextColumn, teamData.length, 1).setValues(teamData);
+
+    logToSheet('Finished copying teams. Preparing to send to Discord...');
+  } else {
+    logToSheet('Error: Could not find the next empty column');
+  }
+
+  // **Flush the data to make sure it's written before sending**
+  SpreadsheetApp.flush();
+  
+  // **Delay before sending to Discord to ensure data is fully written**
+  Utilities.sleep(3000); // Increase wait time to 3 seconds
+  sendTeamsToDiscord();
 
   storeLastTeamIndex(teamIndex);
   storeLastTeamSetNumber(teamSetNumber);
@@ -110,25 +160,106 @@ function getCustomTeamLabel(index) {
   return firstLetter + secondLetter; // AA, AB, ..., ZZ
 }
 
-function sendTeamsToDiscord(teams) {
-  var teamChannelPostingId = PropertiesService.getScriptProperties().getProperty('TeamChannelPostingID');
+// Modified sendTeamsToDiscord function
+function sendTeamsToDiscord() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Players That Reacted');
+  var lastColumn = sheet.getLastColumn();
+  var lastRow = sheet.getLastRow();
+
+  logToSheet(`Fetching team data from Column: ${lastColumn}, Rows: ${lastRow}`);
+
+  var teamData = sheet.getRange(2, lastColumn, lastRow - 1, 1).getValues();
+  logToSheet(`Raw team data before processing: ${JSON.stringify(teamData)}`);
+
+  // Add bold + underline formatting to any instance of "Team" followed by a letter
+  teamData = teamData.map(row => [row[0].replace(/\b(Team [A-Z]+)\b/g, '__**$1**__')]);
+
+  logToSheet(`Processed team data (with bold + underlined teams): ${JSON.stringify(teamData)}`);
+
+  if (teamData.length === 0) {
+    logToSheet("No team data found in the last column.");
+    return;
+  }
+
+  var TeamCheckChannelID = PropertiesService.getScriptProperties().getProperty('TeamCheckChannelID');
   var renderUrl = 'https://hoedown-showdown-discord-bot.onrender.com/sendmessage';
 
-  let teamSetNumber = getLastTeamSetNumber() + 1;  // Increment the team set number before using it
-  let teamSetNumberWithSuffix = teamSetNumber + getOrdinalSuffix(teamSetNumber); // Add the ordinal suffix
-  let message = `${teamSetNumberWithSuffix} Team Set\n\n`;  // Add the team set number with suffix above the teams
-  message += 'Here are the teams:\n\n';
+  var message = `Here are the teams:\n\n`;
 
-  let teamIndex = getLastTeamIndex();  // Get the last team index for the first team label
+  // Grab the first row value from the last column (this will be the header or label for the first team)
+  var teamLabel = sheet.getRange(1, lastColumn).getValue();
+  message += `${teamLabel}\n\n`;
 
-  // Dynamically build the message for each team
-  teams.forEach((team, index) => {
-    let teamLabel = getTeamLabel(teamIndex % 52);  // Use modulo to reset after 52 teams
-    message += `${teamLabel}:\n${team.join("\n")}\n\n`;
-    teamIndex++; // Increment for the next team
+  // Initialize team data processing
+  var teamNames = getTeamNameList();  // Ensure this function returns the correct list of team names
+  var currentTeam = '';
+  var teamSet = [];
+  var teamSetNumber = 0;
+
+  // Iterate through the teams and players, grouping players by team
+  teamData.forEach((team, index) => {
+    var teamName = teamNames[teamSetNumber];  // Get the team name for this group
+
+    // If we are on a new team, push the previous team's info to the message
+    if (teamName !== currentTeam) {
+      if (currentTeam !== '') {
+        message += teamSet.join('\n') + '\n\n';  // Add players to the current team
+      }
+      
+      // Now update the current team name and reset the team set for the new team
+      currentTeam = teamName;
+      teamSet = [team];  // Start a new set with the first player of this team
+    } else {
+      // If we're on the same team, just add the player to the current set
+      teamSet.push(team);
+    }
+
+    // If this is the last iteration, we need to add the final team to the message
+    if (index === teamData.length - 1) {
+      message += teamSet.join('\n') + '\n\n';  // Add players to the final team set
+    }
   });
 
-  var payload = JSON.stringify({ channelId: teamChannelPostingId, message: message });
+  logToSheet(`Final message to be sent to Discord: ${message}`);
+
+  // Ensure the message does not exceed Discord's message length limit
+  while (message.length > 2000) {
+    let breakIndex = message.lastIndexOf('\n', 2000);
+    let partMessage = message.substring(0, breakIndex);
+    message = message.substring(breakIndex + 1);  
+
+    sendDiscordMessage(partMessage, TeamCheckChannelID, renderUrl);
+  }
+
+  if (message.length > 0) {
+    sendDiscordMessage(message, TeamCheckChannelID, renderUrl);
+  }
+}
+
+// Function to generate the team names list
+function getTeamNameList() {
+  var teamNames = [];
+  var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  
+  // Add A-Z first
+  for (var i = 0; i < alphabet.length; i++) {
+    teamNames.push(alphabet[i]);
+  }
+
+  // Then AA, BB, CC... and so on
+  for (var i = 0; i < alphabet.length; i++) {
+    for (var j = 0; j < alphabet.length; j++) {
+      teamNames.push(alphabet[i] + alphabet[j]);
+    }
+  }
+
+  return teamNames;
+}
+
+function sendDiscordMessage(message, channelId, renderUrl) {
+  logToSheet(`Sending Discord message: ${message}`);
+
+  var payload = JSON.stringify({ channelId: channelId, message: message });
   var options = { method: 'POST', contentType: 'application/json', payload: payload };
 
   try {
@@ -138,25 +269,6 @@ function sendTeamsToDiscord(teams) {
   } catch (error) {
     logToSheet('Error sending team list: ' + error.message);
   }
-
-  // Store the new team index for the next set
-  storeLastTeamIndex(teamIndex);
-  storeLastTeamSetNumber(teamSetNumber);  // Store the updated team set number
-}
-
-// Helper function to generate team labels (A, B, ..., Z, AA, AB, ..., ZZ)
-function generateTeamLabels() {
-  let labels = [];
-  let letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  for (let i = 0; i < 26; i++) {
-    labels.push(letters[i]);
-  }
-  for (let i = 0; i < 26; i++) {
-    for (let j = 0; j < 26; j++) {
-      labels.push(letters[i] + letters[j]);
-    }
-  }
-  return labels;
 }
 
 function getTeamLabel(index) {
@@ -168,25 +280,31 @@ function getTeamLabel(index) {
   }
 }
 
-function logToSheet(message) {
-  var logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Logs');
-  if (!logSheet) {
-    logSheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet('Logs');
-    logSheet.appendRow(['Timestamp', 'Message']);
-  }
-  logSheet.appendRow([new Date(), message]);
-}
-
 // Function to find the next empty column after a given start column
 function findNextEmptyColumn(sheet, startColumn) {
   var lastRow = sheet.getLastRow();
-  for (var col = startColumn; col <= sheet.getLastColumn(); col++) {
-    var values = sheet.getRange(1, col, lastRow).getValues().flat();
-    if (values.every(value => value === "")) {
-      return col; // Found an empty column
+  var lastColumn = sheet.getLastColumn(); // Get the last used column
+
+  logToSheet(`Checking for next empty column starting from column ${startColumn}...`);
+
+  for (var col = startColumn; col <= lastColumn; col++) {
+    var values = sheet.getRange(1, col, lastRow || 1).getValues().flat(); // Ensure at least row 1 is checked
+
+    // Check if all values in the column are truly empty (no spaces, formulas, etc.)
+    var isEmpty = values.every(value => value === "" || value === null || value === undefined);
+
+    logToSheet(`Checking column ${col}, values: ${JSON.stringify(values)}, isEmpty: ${isEmpty}`);
+
+    if (isEmpty) {
+      logToSheet(`Found empty column at ${col}`);
+      return col; // Return the first empty column found
     }
   }
-  return sheet.getLastColumn() + 1; // If no empty column, move to the next
+
+  var nextColumn = lastColumn + 1;
+  logToSheet(`No empty column found, using next available column: ${nextColumn}`);
+  
+  return nextColumn; // If no empty column, return the next column after the last one.
 }
 
 // Function to get the last used team index
@@ -241,35 +359,253 @@ function shuffle(array) {
   return array;
 }
 
-// Function to handle HTTP POST requests (for automation)
-function doPost(e) {
-  try {
-    Logger.log("Full Event Object: " + JSON.stringify(e));
+function swapPlayers(teamSet, removePlayer, addPlayer) {
+  logToSheet(`Starting swapPlayers function for Team Set ${teamSet} | Removing: ${removePlayer} | Adding: ${addPlayer}`);
 
-    if (!e.postData || !e.postData.contents) {
-      throw new Error("No post data received or data is empty.");
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Players That Reacted');
+  var lastColumn = sheet.getLastColumn();
+  var lastRow = sheet.getLastRow();
+
+  logToSheet(`Sheet Data: Last Column = ${lastColumn}, Last Row = ${lastRow}`);
+
+  var header = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  var teamColumn = -1;
+
+  for (var i = 0; i < header.length; i++) {
+    var headerText = header[i].toLowerCase();
+    var extractedNumber = headerText.replace(/\D/g, '');
+
+    if (extractedNumber === String(teamSet)) {
+      teamColumn = i + 1;
+      logToSheet(`Matched column for Team Set ${teamSet}: Column ${teamColumn}`);
+      break;
+    } else {
+      logToSheet(`No match for Team Set ${teamSet} in column ${i + 1}: ${header[i]}`);
     }
-
-    var data = JSON.parse(e.postData.contents);
-    Logger.log("Parsed data: " + JSON.stringify(data));
-
-    var names = data.names;
-    if (!names || names.length === 0) {
-      return ContentService.createTextOutput('No names received.').setMimeType(ContentService.MimeType.TEXT);
-    }
-
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Players That Reacted');
-    
-    for (var i = 0; i < names.length; i++) {
-      sheet.getRange(i + 2, 1).setValue(names[i]);
-    }
-
-    createTeams();
-    
-    return ContentService.createTextOutput('Teams created successfully!').setMimeType(ContentService.MimeType.TEXT);
-    
-  } catch (error) {
-    Logger.log("Error: " + error.message);
-    return ContentService.createTextOutput('Error: ' + error.message).setMimeType(ContentService.MimeType.TEXT);
   }
+
+  if (teamColumn === -1) {
+    logToSheet(`Swap failed: Could not find a matching column for Team Set ${teamSet}`);
+    return;
+  }
+
+  var teamData = sheet.getRange(2, teamColumn, lastRow - 1, 1).getValues();
+  logToSheet(`Retrieved ${teamData.length} rows of data for Team Set ${teamSet}`);
+
+  var swapped = false;
+
+  for (var i = 0; i < teamData.length; i++) {
+    var playerList = teamData[i][0].split("\n");
+    logToSheet(`Checking row ${i + 2}: Players - ${playerList.join(", ")}`);
+
+    var removeIndex = playerList.indexOf(removePlayer);
+    var addIndex = playerList.indexOf(addPlayer);
+
+    if (removeIndex !== -1 && addIndex === -1) {
+      playerList[removeIndex] = addPlayer;
+      teamData[i][0] = playerList.join("\n");
+      swapped = true;
+      logToSheet(`Swapped ${removePlayer} with ${addPlayer} in Team ${teamSet} at row ${i + 2}`);
+      break;
+    } else if (removeIndex === -1) {
+      logToSheet(`RemovePlayer "${removePlayer}" not found in row ${i + 2}`);
+    } else if (addIndex !== -1) {
+      logToSheet(`AddPlayer "${addPlayer}" is already in row ${i + 2}`);
+    }
+  }
+
+  if (swapped) {
+    sheet.getRange(2, teamColumn, teamData.length, 1).setValues(teamData);
+    logToSheet(`Successfully updated Team Set ${teamSet} in Google Sheet.`);
+
+    // Repost teams after successful swap
+    logToSheet(`Reposting updated teams to Discord...`);
+    sendTeamsToDiscord();
+  } else {
+    logToSheet(`Swap failed: Could not find "${removePlayer}" or "${addPlayer}" already exists in Team ${teamSet}`);
+  }
+}
+
+// Optional: log to Google Sheet
+function logToSheet(message) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Logs");
+  sheet.appendRow([new Date(), message]);
+}
+
+function approveTeams(teamSet) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Players That Reacted');
+  if (!sheet) {
+    logToSheet('Error: Sheet "Players That Reacted" not found!');
+    return;
+  }
+
+  var lastColumn = sheet.getLastColumn();
+  var lastRow = sheet.getLastRow();
+  logToSheet(`Sheet Data: Last Column = ${lastColumn}, Last Row = ${lastRow}`);
+
+  var header = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  var teamColumn = -1;
+
+  // Find the column for the team set
+  for (var i = 0; i < header.length; i++) {
+    var headerText = header[i].toLowerCase();
+    var extractedNumber = headerText.replace(/\D/g, ''); // Remove non-digit characters
+    if (extractedNumber === String(teamSet)) {
+      teamColumn = i + 1; // Spreadsheet column index is 1-based
+      logToSheet(`Matched column for Team Set ${teamSet}: Column ${teamColumn}`);
+      break;
+    }
+  }
+
+  if (teamColumn === -1) {
+    logToSheet(`Error: Could not find a matching column for Team Set ${teamSet}`);
+    return;
+  }
+
+  var teamData = sheet.getRange(2, teamColumn, lastRow - 1, 1).getValues();
+  logToSheet(`Retrieved ${teamData.length} rows of data for Team Set ${teamSet}`);
+
+  var teamMembers = [];
+  for (var i = 0; i < teamData.length; i++) {
+    var playerList = teamData[i][0].split("\n");  // Assuming players are stored line by line
+    logToSheet(`Checking row ${i + 2}: Players - ${playerList.join(", ")}`);
+    teamMembers = teamMembers.concat(playerList);  // Add players to the teamMembers array
+  }
+
+  if (teamMembers.length === 0) {
+    logToSheet(`Error: No players found in Team Set ${teamSet}`);
+    return;
+  }
+
+  // Get Discord IDs from another sheet (assumed "Discord Member List")
+  var discordSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Discord Member List');
+  if (!discordSheet) {
+    logToSheet('Error: Sheet "Discord Member List" not found!');
+    return;
+  }
+
+  var discordData = discordSheet.getRange(2, 2, discordSheet.getLastRow() - 1, 2).getValues();
+  var discordMembersMap = {};
+
+  discordData.forEach(function(row) {
+    var discordName = row[0];  // Discord username
+    var discordID = row[1];    // Discord ID
+    discordMembersMap[discordName] = discordID;
+  });
+
+  var teamMentions = teamMembers.map(function(player) {
+    var discordID = discordMembersMap[player.trim()];
+    if (discordID) {
+      return `<@${discordID}>`;  // Mention the player in Discord
+    } else {
+      return player;  // If no Discord ID found, just use the player's name
+    }
+  });
+
+  var message = `**Team Set ${teamSet}**\n` + teamMentions.join("\n");
+
+  // Get the TeamPostChannelID based on teamSet from script properties
+  var teamPostChannelID = PropertiesService.getScriptProperties().getProperty(`TeamSet_${teamSet}_ChannelID`);
+  if (!teamPostChannelID) {
+    logToSheet(`Error: TeamSet_${teamSet}_ChannelID not found in script properties!`);
+    return;
+  }
+
+  var renderUrl = 'https://hoedown-showdown-discord-bot.onrender.com/sendmessage';
+
+  logToSheet(`Final message to be sent to Discord: ${message}`);
+
+  // Ensure the message does not exceed Discord's message length limit
+  while (message.length > 2000) {
+    let breakIndex = message.lastIndexOf('\n', 2000);
+    let partMessage = message.substring(0, breakIndex);
+    message = message.substring(breakIndex + 1);  
+
+    sendDiscordMessage(partMessage, teamPostChannelID, renderUrl);
+  }
+
+  if (message.length > 0) {
+    sendDiscordMessage(message, teamPostChannelID, renderUrl);
+  }
+}
+
+function testApproveTeams() {
+  var teamSetNumber = 7;  // Set the team set number here, e.g., team #1 from Discord
+  approveTeams(teamSetNumber);  // Call the approveTeams function with the chosen team set number
+}
+
+function logToSheet(message) {
+  var logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Logs');
+  logSheet.appendRow([new Date(), message]);
+}
+
+function regionChange(userId, region, channelId) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Discord Member List");
+  var data = sheet.getRange(2, 3, sheet.getLastRow() - 1, 2).getValues(); // Read columns C (userId) and D (region)
+  var renderUrl = 'https://hoedown-showdown-discord-bot.onrender.com/sendmessage';
+
+  var userFound = false;
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] === userId) {
+      sheet.getRange(i + 2, 4).setValue(region); // Update column D with region
+      userFound = true;
+      break;
+    }
+  }
+
+  if (userFound) {
+    sendDiscordMessage(`Your region has been updated to ${region}.`, channelId, renderUrl);
+  } else {
+    sendDiscordMessage("User ID not found. Unable to update region.", channelId, renderUrl);
+  }
+}
+
+function regionCheck(userId, channelId) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Discord Member List");
+  var data = sheet.getRange(2, 3, sheet.getLastRow() - 1, 2).getValues(); // Read columns C (userId) and D (region)
+  var renderUrl = 'https://hoedown-showdown-discord-bot.onrender.com/sendmessage';
+
+  var userFound = false;
+  var region = "";
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] === userId) {
+      region = data[i][1]; // Get region from column D
+      userFound = true;
+      break;
+    }
+  }
+
+  if (userFound) {
+    sendDiscordMessage(`Your current region is set to ${region}.`, channelId, renderUrl);
+  } else {
+    sendDiscordMessage("User ID not found. Unable to retrieve region.", channelId, renderUrl);
+  }
+}
+
+function doPost(e) {
+  var params = JSON.parse(e.postData.contents); // Assuming JSON payload
+
+  // Check for the command in the incoming request
+  if (params.command === "grab-reactions") {
+    logToSheet('Starting CreateTeams Function');
+    createTeams();
+  } else if (params.command === "swap") {
+    logToSheet('Starting Swap Function');
+    swapPlayers(params.teamSet, params.removePlayer, params.addPlayer);
+  } else if (params.command === "approve-teams") {
+    logToSheet('Starting ApproveTeams');
+    approveTeams(params.teamSet);
+  } else if (params.command === "region-check") {
+    logToSheet('Starting RegionCheck');
+    regionCheck(params.userId, params.channelId);
+  } else if (params.command === "region-change") {
+    logToSheet('Starting RegionChange');
+    regionChange(params.userId, params.region, params.channelId);
+  } else {
+    logToSheet('Unknown command received: ' + params.command);
+  }
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput("Yes this is updating live.");
 }
