@@ -1,20 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { google } = require('googleapis');
 const axios = require('axios');
 const config = require('../config.json'); // Import the config file
-
-const credentials = {
-    type: "service_account",
-    project_id: process.env.GOOGLE_PROJECT_ID,
-    private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    auth_uri: process.env.GOOGLE_AUTH_URI,
-    token_uri: process.env.GOOGLE_TOKEN_URI,
-    auth_provider_x509_cert_url: process.env.GOOGLE_AUTH_PROVIDER_CERT,
-    client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT
-};
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -46,112 +32,48 @@ module.exports = {
                 ephemeral: true
             });
         }
-        
+
         // Send an initial message acknowledging the command
         let replyMessage;
         try {
             replyMessage = await interaction.reply({
                 content: 'Grabbing reactions... Please wait.',
-                fetchReply: true  // This ensures that we get the actual Message object
+                fetchReply: true
             });
 
             const messageId = interaction.options.getString('messageid');
-
-            // Process the reaction retrieval and Google Sheets update in the background
+            
+            // Trigger the Google Apps Script to process the reactions
             setTimeout(async () => {
                 try {
-                    let targetMessage = null;
-
-                    // Search for the message in the guild channels
-                    for (const [channelId, channel] of interaction.guild.channels.cache) {
-                        if (channel.isTextBased()) {
-                            try {
-                                targetMessage = await channel.messages.fetch(messageId);
-                                if (targetMessage) break;
-                            } catch (err) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    if (!targetMessage) {
-                        const logMessage = `❌ Message with ID ${messageId} not found.`;
-                        await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
-                        if (replyMessage) await replyMessage.delete(); // Clean up the initial reply if task fails
-                        return;
-                    }
-
-                    const reactions = targetMessage.reactions.cache;
-                    if (reactions.size === 0) {
-                        const logMessage = `⚠ No reactions found for message ID ${messageId}.`;
-                        await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
-                        if (replyMessage) await replyMessage.delete(); // Clean up the initial reply if task fails
-                        return;
-                    }
-
-                    const uniqueUsers = new Set();
-                    for (const reaction of reactions.values()) {
-                        const users = await reaction.users.fetch();
-                        users.forEach(user => {
-                            if (!user.bot) uniqueUsers.add(user.username);
-                        });
-                    }
-
-                    const sortedUserList = Array.from(uniqueUsers)
-                        .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
-                        .map(username => [username]);
-
-                    const auth = new google.auth.GoogleAuth({
-                        credentials,
-                        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-                    });
-
-                    const sheets = google.sheets({ version: "v4", auth });
-
-                    // Clear existing data in the specified range (C column)
-                    await sheets.spreadsheets.values.clear({
-                        spreadsheetId: config.SPREADSHEET_ID,
-                        range: `${config.SHEET_REACTIONS}!A:A`,
-                    });
-
-                    // Update the sheet with the new list of users
-                    await sheets.spreadsheets.values.update({
-                        spreadsheetId: config.SPREADSHEET_ID,
-                        range: `${config.SHEET_REACTIONS}!A1`,
-                        valueInputOption: "RAW",
-                        resource: { values: [["Reacted Users"], ...sortedUserList] }
-                    });
-
                     // Get the Google Apps Script URL from environment variables
                     const triggerUrl = process.env.Google_Apps_Script_URL;
-
-                    // Make sure the environment variable is defined
+                    
                     if (!triggerUrl) {
                         await interaction.channel.send({ content: 'Error: Google Apps Script URL is not defined.' });
                         return;
                     }
 
-                    // Trigger the Google Apps Script and send the list of users
+                    // Send the message ID to the Google Apps Script for processing
                     await axios.post(triggerUrl, {
-                        command: 'grab-reactions'  // This will trigger the createTeams function in the Google Apps Script
+                        command: 'grab-reactions',
+                        messageId: messageId  // Sending the message ID to the script
                     });
 
-                    const logMessage = "✅ Reaction user list updated and team generation triggered!";
-                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+                    const logMessage = "✅ Reaction user list update triggered!";
+                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage);
 
-                    // Send a normal message with the result to the command channel
-                    await interaction.channel.send({ content: "✅ Reaction user list updated in Google Sheets and team generation triggered!" });
+                    await interaction.channel.send({ content: "✅ Reaction user list update triggered in Google Sheets!" });
 
-                    if (replyMessage) await replyMessage.delete(); // Clean up the initial reply
+                    if (replyMessage) await replyMessage.delete();  // Clean up the initial reply
 
                 } catch (error) {
-                    const logMessage = `❌ Error updating Google Sheets: ${error.message}`;
-                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage); // Send to log channel
+                    const logMessage = `❌ Error sending to Google Apps Script: ${error.message}`;
+                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage);
 
-                    // Send a failure message to the command channel
-                    await interaction.channel.send({ content: "❌ Failed to upload reaction user list to Google Sheets." });
+                    await interaction.channel.send({ content: "❌ Failed to trigger Google Apps Script." });
 
-                    if (replyMessage) await replyMessage.delete(); // Clean up the initial reply
+                    if (replyMessage) await replyMessage.delete();
                 }
             }, 1000); // Small delay to avoid blocking execution
 

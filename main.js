@@ -114,17 +114,13 @@ client.on('interactionCreate', async interaction => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return; // Ignore bot messages
 
-    // Define the target channel ID and word to watch for
     const targetChannelId = '1052393482699948132'; // Replace with your actual channel ID
     const targetWord = 'muffin';
 
-    // Check if the message is from the target channel and contains the target word
     if (message.channel.id === targetChannelId && message.content.toLowerCase().includes(targetWord)) {
         try {
-            // Replace 'muffinEmoji' with your custom emoji's name
-            const customEmoji = message.guild.emojis.cache.find(emoji => emoji.name === 'Muffin'); // Replace 'muffinEmoji' with your emoji's name
+            const customEmoji = message.guild.emojis.cache.find(emoji => emoji.name === 'Muffin');
             if (customEmoji) {
-                // React with the custom emoji
                 await message.react(customEmoji);
             } else {
                 console.error('Custom emoji not found!');
@@ -169,12 +165,8 @@ app.post('/sendmessage', async (req, res) => {
     }
 
     try {
-        // Get the channel object
         const channel = await client.channels.fetch(channelId);
-        
-        // Send the message to the channel
         await channel.send(message);
-        
         res.status(200).json({ success: `Message sent to channel ${channelId}` });
     } catch (error) {
         console.error('Error sending message to Discord:', error);

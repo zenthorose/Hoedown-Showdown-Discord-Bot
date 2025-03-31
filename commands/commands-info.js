@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const config = require('../config.json');  // Import the config file
+const { checkPermissions } = require('../permissions');  // Import the checkPermissions function
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -7,20 +8,10 @@ module.exports = {
         .setDescription('Shows a list of available commands'),
 
     async execute(interaction) {
-        // Fetch the allowed roles and user IDs from the config file
-        const allowedRoles = config.allowedRoles;
-        const allowedUserIds = config.allowedUserIds;
+        // Check if the user has the required permissions (role or user ID)
+        const hasPermission = await checkPermissions(interaction);
 
-        // Check if the user has the required role or the specific Discord ID
-        const member = await interaction.guild.members.fetch(interaction.user.id);
-        
-        // Check if the user has any of the allowed roles
-        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
-        
-        // Check if the user's Discord ID is in the allowed list
-        const isAllowedUser = allowedUserIds.includes(interaction.user.id);
-
-        if (!hasRequiredRole && !isAllowedUser) {
+        if (!hasPermission) {
             return interaction.reply({
                 content: '❌ You do not have permission to use this command!',
                 ephemeral: true

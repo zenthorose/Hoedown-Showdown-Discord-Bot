@@ -65,6 +65,7 @@ module.exports = {
                     return;
                 }
 
+                // Send the swap data to Google Apps Script
                 await axios.post(triggerUrl, {
                     command: "swap",
                     teamSet: teamSet,

@@ -18,9 +18,10 @@ module.exports = {
             const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
             if (!hasRequiredRole && !isAllowedUser) {
-                return interaction.channel.send({
-                    content: '❌ You do not have permission to use this command.'
-                }).then(msg => msg.delete({ timeout: 5000 }));
+                return interaction.reply({
+                    content: '❌ You do not have permission to use this command.',
+                    ephemeral: true  // Make this message visible only to the user
+                });
             }
 
             // Create Muffin Button

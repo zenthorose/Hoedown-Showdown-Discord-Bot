@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { checkPermissions } = require('../permissions'); // Import the permissions check function
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -18,6 +19,16 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction) {
+        // Check permissions using the function from permissions.js
+        const hasPermission = await checkPermissions(interaction);
+
+        if (!hasPermission) {
+            return interaction.reply({
+                content: '❌ You do not have permission to use this command!',
+                ephemeral: true
+            });
+        }
+
         const channelId = interaction.options.getString('channelid');
         const messageId = interaction.options.getString('messageid');
         const newContent = interaction.options.getString('newcontent');

@@ -28,6 +28,7 @@ module.exports = {
                 userId: userId,
                 channelId: channelId // Send the channel ID
             });
+
         } catch (error) {
             console.error('Error sending request:', error);
             // Optionally, handle errors from the Google Apps Script request

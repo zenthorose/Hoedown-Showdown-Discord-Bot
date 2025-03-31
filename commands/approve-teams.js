@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json'); // Ensure config contains required API credentials
+const { checkPermissions } = require('../permissions'); // Import the permissions check
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -12,29 +13,11 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction) {
-        // Ensure the command is run in a server (not DM)
-        if (!interaction.guild) {
-            return interaction.reply({ content: "❌ This command can't be used in DMs.", ephemeral: true });
-        }
-
-        const member = await interaction.guild.members.fetch(interaction.user.id);
-        if (!member) {
-            return interaction.reply({ content: "❌ Unable to retrieve member data.", ephemeral: true });
-        }
-
-        // Fetch the allowed roles and user IDs from the config file
-        const allowedRoles = config.allowedRoles;
-        const allowedUserIds = config.allowedUserIds;
-
-        // Check if the user has any of the allowed roles
-        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
-
-        // Check if the user is in the allowed user list
-        const isAllowedUser = allowedUserIds.includes(interaction.user.id);
-
-        if (!hasRequiredRole && !isAllowedUser) {
+        // Use the checkPermissions function to validate the user’s role or ID
+        const permissionError = await checkPermissions(interaction);
+        if (permissionError) {
             return interaction.reply({
-                content: '❌ You do not have permission to use this command!',
+                content: permissionError,
                 ephemeral: true
             });
         }
