@@ -1,4 +1,4 @@
-const config = require('../config.json'); // Import the config file
+const config = require('./config.json'); // Import the config file
 
 // Function to check if the user has permission
 async function checkPermissions(interaction) {
