@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { checkPermissions } = require('../utils/permissions'); // Assume this is a helper function to check permissions
+const { checkPermissions } = require('../permissions'); // Assume this is a helper function to check permissions
 
 module.exports = {
     data: new SlashCommandBuilder()
