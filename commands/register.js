@@ -43,15 +43,17 @@ module.exports = {
 
             const registerData = {
                 command: 'register',
-                nickname: member.nickname || member.user.username,
-                username: member.user.username,
-                discordId: member.user.id,
-                region,
-                steamId,
-                streamLink
+                registerData: [[
+                    member.nickname || member.user.username,
+                    member.user.username,
+                    member.user.id,
+                    region,
+                    steamId,
+                    streamLink
+                ]]
             };
-
-            await axios.post(process.env.Google_Apps_Script_URL, registerData);
+            
+            await axios.post(process.env.Google_Apps_Script_URL, registerData);            
 
             await interaction.editReply('✅ You have been successfully registered!');
         } catch (error) {
