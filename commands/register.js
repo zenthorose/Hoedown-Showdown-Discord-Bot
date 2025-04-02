@@ -41,7 +41,7 @@ module.exports = {
             if (role) await member.roles.add(role);
             if (registeredRole) await member.roles.add(registeredRole);
 
-            const memberData = {
+            const registerData = {
                 command: 'register',
                 nickname: member.nickname || member.user.username,
                 username: member.user.username,
@@ -51,7 +51,7 @@ module.exports = {
                 streamLink
             };
 
-            await axios.post(process.env.Google_Apps_Script_URL, { registerData: [memberData] });
+            await axios.post(process.env.Google_Apps_Script_URL, registerData);
 
             await interaction.editReply('✅ You have been successfully registered!');
         } catch (error) {
