@@ -5,7 +5,7 @@ const config = require('../config.json'); // Import the config file
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('grab-reactions')  // Command name
-        .setDescription('Fetches reactions from a specific message and uploads users to Google Sheets.')
+        .setDescription('Fetches unique users who reacted to a specific message and uploads them to Google Sheets.')
         .addStringOption(option =>
             option.setName('messageid')
                 .setDescription('The ID of the message to check reactions for')
@@ -13,17 +13,10 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        // Fetch the allowed roles and user IDs from the config file
         const allowedRoles = config.allowedRoles;
         const allowedUserIds = config.allowedUserIds;
-
-        // Check if the user has the required role or the specific Discord ID
         const member = await interaction.guild.members.fetch(interaction.user.id);
-
-        // Check if the user has any of the allowed roles
         const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
-        
-        // Check if the user's Discord ID is in the allowed list
         const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
         if (!hasRequiredRole && !isAllowedUser) {
@@ -33,7 +26,6 @@ module.exports = {
             });
         }
 
-        // Send an initial message acknowledging the command
         let replyMessage;
         try {
             replyMessage = await interaction.reply({
@@ -42,44 +34,33 @@ module.exports = {
             });
 
             const messageId = interaction.options.getString('messageid');
-            
-            // Trigger the Google Apps Script to process the reactions
-            setTimeout(async () => {
-                try {
-                    // Get the Google Apps Script URL from environment variables
-                    const triggerUrl = process.env.Google_Apps_Script_URL;
-                    
-                    if (!triggerUrl) {
-                        await interaction.channel.send({ content: 'Error: Google Apps Script URL is not defined.' });
-                        return;
-                    }
+            const message = await interaction.channel.messages.fetch(messageId);
+            const uniqueUserIds = new Set();
 
-                    // Send the message ID to the Google Apps Script for processing
-                    await axios.post(triggerUrl, {
-                        command: 'grab-reactions',
-                        messageId: messageId  // Sending the message ID to the script
-                    });
+            for (const [_, reaction] of message.reactions.cache) {
+                const users = await reaction.users.fetch();
+                users.forEach(user => {
+                    if (!user.bot) uniqueUserIds.add(user.id);
+                });
+            }
 
-                    const logMessage = "✅ Reaction user list update triggered!";
-                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage);
+            const triggerUrl = process.env.Google_Apps_Script_URL;
+            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-                    await interaction.channel.send({ content: "✅ Reaction user list update triggered in Google Sheets!" });
+            await axios.post(triggerUrl, {
+                command: 'grab-reactions',
+                discordIds: Array.from(uniqueUserIds)
+            });
 
-                    if (replyMessage) await replyMessage.delete();  // Clean up the initial reply
+            await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send("✅ Reaction user list update triggered!");
+            await interaction.channel.send("✅ Reaction user list update triggered in Google Sheets!");
 
-                } catch (error) {
-                    const logMessage = `❌ Error sending to Google Apps Script: ${error.message}`;
-                    await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(logMessage);
-
-                    await interaction.channel.send({ content: "❌ Failed to trigger Google Apps Script." });
-
-                    if (replyMessage) await replyMessage.delete();
-                }
-            }, 1000); // Small delay to avoid blocking execution
-
+            if (replyMessage) await replyMessage.delete();
         } catch (error) {
-            console.error("❌ Error sending initial reply:", error);
-            await interaction.channel.send({ content: "❌ Failed to send the initial reply." });
+            await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(`❌ Error: ${error.message}`);
+            await interaction.channel.send("❌ Failed to trigger Google Apps Script.");
+
+            if (replyMessage) await replyMessage.delete();
         }
     },
 };
