@@ -34,9 +34,9 @@ module.exports = {
         const member = interaction.member;
 
         try {
-            const roleName = region === 'East' ? 'East Role' : region === 'West' ? 'West Role' : 'Both Role';
+            const roleName = region === 'East' ? 'East' : region === 'West' ? 'West' : 'Both';
             const role = interaction.guild.roles.cache.find(r => r.name === roleName);
-            const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'registered');
+            const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');
 
             if (role) await member.roles.add(role);
             if (registeredRole) await member.roles.add(registeredRole);
