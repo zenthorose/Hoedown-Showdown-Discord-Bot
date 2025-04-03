@@ -19,6 +19,10 @@ module.exports = {
         const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
         const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
+        console.log("Reached before environment variable check");
+        const triggerUrl = process.env.Google_Apps_Script_URL;
+        console.log("Google Apps Script URL:", triggerUrl);
+
         if (!hasRequiredRole && !isAllowedUser) {
             return interaction.reply({
                 content: '❌ You do not have permission to use this command!',
