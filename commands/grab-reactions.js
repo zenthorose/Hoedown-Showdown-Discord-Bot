@@ -37,10 +37,10 @@ module.exports = {
             console.log("✅ Message ID received:", messageId);
 
             // Fetch OptInChannelID from environment variables
-            const channelId = process.env.OptInChannelID;
-            if (!channelId) throw new Error('OptInChannelID is not defined in environment properties.');
+            const channelId = config.OptInChannelID;
+            if (!channelId) throw new Error('OptInChannelID is not defined in config properties.');
 
-            console.log(`✅ Found OptInChannelID from environment properties: ${channelId}`);
+            console.log(`✅ Found OptInChannelID from config properties: ${channelId}`);
 
             // Fetch the specific channel by ID
             const channel = await interaction.guild.channels.fetch(channelId);
