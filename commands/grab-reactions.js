@@ -50,15 +50,15 @@ module.exports = {
             const message = await channel.messages.fetch(messageId);
             if (!message) throw new Error('Message not found in the specified channel.');
 
-            const uniqueUserIds = new Set();
+            const uniqueUsernames = new Set();
             for (const [_, reaction] of message.reactions.cache) {
                 const users = await reaction.users.fetch();
                 users.forEach(user => {
-                    if (!user.bot) uniqueUserIds.add(user.id);
+                    if (!user.bot) uniqueUsernames.add(user.username); // Collecting usernames instead of user IDs
                 });
             }
 
-            console.log("✅ Unique user IDs collected:", Array.from(uniqueUserIds));
+            console.log("✅ Unique usernames collected:", Array.from(uniqueUsernames));
 
             // Send the reaction data to Google Apps Script (no posting back in the channel)
             const triggerUrl = process.env.Google_Apps_Script_URL;
@@ -66,7 +66,7 @@ module.exports = {
 
             await axios.post(triggerUrl, {
                 command: 'grab-reactions',
-                discordIds: Array.from(uniqueUserIds)
+                discordUsernames: Array.from(uniqueUsernames) // Sending usernames instead of IDs
             });
 
             await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send("✅ Reaction user list update triggered!");
