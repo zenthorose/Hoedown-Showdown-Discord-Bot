@@ -48,9 +48,9 @@ module.exports = {
                 });
             }
 
-            console.log("Reached before environment variable check");
+            /*console.log("Reached before environment variable check");
             const triggerUrl = process.env.Google_Apps_Script_URL;
-            console.log("Google Apps Script URL:", triggerUrl);
+            console.log("Google Apps Script URL:", triggerUrl);*/
             if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
             await axios.post(triggerUrl, {
