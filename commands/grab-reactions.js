@@ -5,7 +5,7 @@ const config = require('../config.json'); // Import the config file
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('grab-reactions')  // Command name
-        .setDescription('Fetches unique users who reacted to a specific message in a specific channel and uploads them to Google Sheets.')
+        .setDescription('Grabs people that reacted to the message to form teams out of them.')
         .addStringOption(option =>
             option.setName('messageid')
                 .setDescription('The ID of the message to check reactions for')
