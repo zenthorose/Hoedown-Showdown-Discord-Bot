@@ -36,18 +36,11 @@ module.exports = {
             const messageId = interaction.options.getString('messageid');
             console.log("✅ Message ID received:", messageId);
 
-            // Fetch the channel ID from the Google Apps Script property "OptInChannelID"
-            const triggerUrl = process.env.Google_Apps_Script_URL;
-            console.log("✅ Google Apps Script URL:", triggerUrl);
-            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
+            // Fetch OptInChannelID from environment variables
+            const channelId = process.env.OptInChannelID;
+            if (!channelId) throw new Error('OptInChannelID is not defined in environment properties.');
 
-            // Send a request to Google Apps Script to get the channel ID (OptInChannelID)
-            const response = await axios.get(`${triggerUrl}?command=get-opt-in-channel-id`);
-            const channelId = response.data.channelId;
-
-            if (!channelId) throw new Error('Channel ID (OptInChannelID) not found in Google Apps Script.');
-
-            console.log(`✅ Found OptInChannelID: ${channelId}`);
+            console.log(`✅ Found OptInChannelID from environment properties: ${channelId}`);
 
             // Fetch the specific channel by ID
             const channel = await interaction.guild.channels.fetch(channelId);
@@ -68,6 +61,9 @@ module.exports = {
             console.log("✅ Unique user IDs collected:", Array.from(uniqueUserIds));
 
             // Send the reaction data to Google Apps Script (no posting back in the channel)
+            const triggerUrl = process.env.Google_Apps_Script_URL;
+            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
+
             await axios.post(triggerUrl, {
                 command: 'grab-reactions',
                 discordIds: Array.from(uniqueUserIds)
