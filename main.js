@@ -26,7 +26,7 @@ const clientId = process.env.CLIENT_ID;
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
-const { Hoedown_New_banner, statusChannelId, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
+const { Hoedown_New_banner, STATUS_CHANNEL_ID, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
 const credentials = {
     type: "service_account",
     project_id: process.env.GOOGLE_PROJECT_ID,
@@ -66,7 +66,7 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 
 client.once('ready', async () => {
     console.log(`✅ Bot is online and ready as ${client.user.tag}!`);
-    const channel = client.channels.cache.get(statusChannelId);
+    const channel = client.channels.cache.get(STATUS_CHANNEL_ID);
     if (channel) {
         const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]"); // ✅ Corrected time format
         channel.send(`✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀\n🕒 Current Time: **${currentTime}**`);
