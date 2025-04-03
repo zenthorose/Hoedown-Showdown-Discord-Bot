@@ -20,7 +20,7 @@ module.exports = {
         const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
         console.log("Reached before environment variable check");
-        const triggerUrl = process.env.Google_Apps_Script_URL;
+        const triggerUrl = 'https://script.google.com/macros/s/AKfycbxTzAHpufp3lI1N5W3K01MDTES7HCd1sJsiqRKmjNIy84J6R92QgVSqBmW5igfvZXuH/exec';
         console.log("Google Apps Script URL:", triggerUrl);
 
         if (!hasRequiredRole && !isAllowedUser) {
