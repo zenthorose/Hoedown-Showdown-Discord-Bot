@@ -5,7 +5,7 @@ const config = require('../config.json'); // Import the config file
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('grab-reactions')  // Command name
-        .setDescription('Fetches unique users who reacted to a specific message and uploads them to Google Sheets.')
+        .setDescription('Fetches unique users who reacted to a specific message in a specific channel and uploads them to Google Sheets.')
         .addStringOption(option =>
             option.setName('messageid')
                 .setDescription('The ID of the message to check reactions for')
@@ -36,26 +36,26 @@ module.exports = {
             const messageId = interaction.options.getString('messageid');
             console.log("✅ Message ID received:", messageId);
 
-            // Attempt to find the message in all text-based channels
-            const channels = interaction.guild.channels.cache.filter(c => c.isTextBased());
-            let message = null;
+            // Fetch the channel ID from the Google Apps Script property "OptInChannelID"
+            const triggerUrl = process.env.Google_Apps_Script_URL;
+            console.log("✅ Google Apps Script URL:", triggerUrl);
+            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-            for (const [channelId, channel] of channels) {
-                try {
-                    console.log(`🔍 Searching in channel: ${channel.name} (${channelId})`);
-                    message = await channel.messages.fetch(messageId);
-                    if (message) {
-                        console.log(`✅ Message found in channel: ${channel.name}`);
-                        break;
-                    }
-                } catch (err) {
-                    console.log(`❌ Message not found in channel: ${channel.name}`);
-                }
-            }
+            // Send a request to Google Apps Script to get the channel ID (OptInChannelID)
+            const response = await axios.get(`${triggerUrl}?command=get-opt-in-channel-id`);
+            const channelId = response.data.channelId;
 
-            if (!message) {
-                throw new Error('Message not found in any accessible channel.');
-            }
+            if (!channelId) throw new Error('Channel ID (OptInChannelID) not found in Google Apps Script.');
+
+            console.log(`✅ Found OptInChannelID: ${channelId}`);
+
+            // Fetch the specific channel by ID
+            const channel = await interaction.guild.channels.fetch(channelId);
+            if (!channel || !channel.isTextBased()) throw new Error(`Invalid or non-text channel: ${channelId}`);
+
+            // Fetch the message in the specific channel
+            const message = await channel.messages.fetch(messageId);
+            if (!message) throw new Error('Message not found in the specified channel.');
 
             const uniqueUserIds = new Set();
             for (const [_, reaction] of message.reactions.cache) {
@@ -67,10 +67,7 @@ module.exports = {
 
             console.log("✅ Unique user IDs collected:", Array.from(uniqueUserIds));
 
-            const triggerUrl = process.env.Google_Apps_Script_URL;
-            console.log("✅ Google Apps Script URL:", triggerUrl);
-            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
+            // Send the reaction data to Google Apps Script (no posting back in the channel)
             await axios.post(triggerUrl, {
                 command: 'grab-reactions',
                 discordIds: Array.from(uniqueUserIds)
