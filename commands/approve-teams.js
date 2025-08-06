@@ -13,54 +13,59 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction) {
-        // Use the checkPermissions function to validate the user’s role or ID
-        const permissionError = await checkPermissions(interaction);
-        if (permissionError) {
-            return interaction.reply({
-                content: permissionError,
-                ephemeral: true
-            });
-        }
-
-        const teamSet = interaction.options.getInteger('teamset');
-
-        console.log(`Received approve-teams command: teamSet=${teamSet}`);
-
-        // Initial response to avoid interaction timeout
-        await interaction.reply({ content: `🔄 Processing team approval...`, ephemeral: true });
-
         try {
-            // Get the Google Apps Script URL from environment variables
-            const triggerUrl = process.env.Google_Apps_Script_URL;
-
-            // Make sure the environment variable is defined
-            if (!triggerUrl) {
-                await interaction.followUp({ content: '❌ Error: Google Apps Script URL is not defined.', ephemeral: true });
-                return;
+            // Check permissions
+            const hasPermission = await checkPermissions(interaction);
+            if (!hasPermission) {
+                return await interaction.reply({
+                    content: '🚫 You do not have permission to use this command.',
+                    ephemeral: true
+                });
             }
 
+            const teamSet = interaction.options.getInteger('teamset');
+
+            // Defer the reply to give yourself more time
+            await interaction.deferReply({ ephemeral: true });
+
+            // Get Google Apps Script URL from env vars
+            const triggerUrl = process.env.Google_Apps_Script_URL;
+            if (!triggerUrl) {
+                return await interaction.editReply('❌ Error: Google Apps Script URL is not defined.');
+            }
+
+            // Post to Google Apps Script
             await axios.post(triggerUrl, {
-                command: "approve-teams",  // Command name
-                teamSet: teamSet           // Team set number
+                command: "approve-teams",
+                teamSet: teamSet
             });
 
             console.log("Approval request sent to Google Apps Script.");
 
-            // Fetch log channel and send update
+            // Send log message to Discord channel
             const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
             await logChannel.send(`✅ Team set "${teamSet}" has been approved.`);
 
-            // Follow up with success response
-            await interaction.followUp({ content: `✅ Team set ${teamSet} approved successfully.`, ephemeral: true });
+            // Edit deferred reply with success message
+            await interaction.editReply(`✅ Team set ${teamSet} approved successfully.`);
 
         } catch (error) {
-            console.error("Error with Google Apps Script:", error);
+            console.error("Error with Google Apps Script or command execution:", error);
 
-            await interaction.followUp({ content: "❌ There was an error triggering the Apps Script.", ephemeral: true });
+            // Reply or edit reply with error message depending on interaction state
+            if (interaction.deferred || interaction.replied) {
+                await interaction.editReply('❌ There was an error triggering the Apps Script.');
+            } else {
+                await interaction.reply({ content: '❌ There was an error triggering the Apps Script.', ephemeral: true });
+            }
 
             // Log error to Discord channel
-            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-            await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+            try {
+                const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+                await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+            } catch (logError) {
+                console.error('Failed to send error message to log channel:', logError);
+            }
         }
     }
 };
