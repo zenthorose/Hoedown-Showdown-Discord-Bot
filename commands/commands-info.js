@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const config = require('../config.json');  // Import the config file
-const { checkPermissions } = require('../permissions');  // Import the checkPermissions function
+const { InteractionResponseFlags } = require('discord.js'); // Use this for flags
+const config = require('../config.json');
+const { checkPermissions } = require('../permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -14,7 +15,7 @@ module.exports = {
         if (!hasPermission) {
             return interaction.reply({
                 content: '❌ You do not have permission to use this command!',
-                ephemeral: true
+                flags: InteractionResponseFlags.Ephemeral // Replaces ephemeral: true
             });
         }
 
@@ -31,7 +32,7 @@ module.exports = {
             { name: '/ping', description: 'This keeps the bot alive.' }
         ];
 
-        let commandList = commands.map(cmd => `\"${cmd.name}\" - ${cmd.description}`).join('\n');
+        const commandList = commands.map(cmd => `"${cmd.name}" - ${cmd.description}`).join('\n');
 
         // Send the command list in a code block, visible to everyone
         await interaction.reply({
