@@ -1,22 +1,27 @@
-const config = require('./config.json'); // Import the config file
+const config = require('./config.json');
 
-// Function to check if the user has permission
 async function checkPermissions(interaction) {
     const allowedRoles = config.allowedRoles;
 
-    // Check if the command is run inside a guild (server)
     if (!interaction.guild) {
+        console.log("⚠️ Interaction not from a guild.");
         return false;
     }
 
     try {
-        // Fetch the member data
         const member = await interaction.guild.members.fetch(interaction.user.id);
 
-        // Check if the user has any of the allowed roles
-        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
+        // Debug: Log member roles and allowed roles
+        const memberRoleIds = member.roles.cache.map(role => role.id);
+        console.log("✅ Member's roles:", memberRoleIds);
+        console.log("🟢 Allowed roles from config:", allowedRoles);
 
-        // If the user has the required role or is in the allowed list, they have permission
+        const hasRequiredRole = memberRoleIds.some(roleId => allowedRoles.includes(roleId));
+
+        if (!hasRequiredRole) {
+            console.log("❌ User does not have a required role.");
+        }
+
         return hasRequiredRole;
 
     } catch (error) {
