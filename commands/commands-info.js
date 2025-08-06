@@ -13,16 +13,17 @@ module.exports = {
 
     async function safeReply(content, isEphemeral = false) {
       if (replied) {
-        await interaction.followUp({
+        // If already replied, use followUp instead
+        return interaction.followUp({
           content,
-          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : 0,
+          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : undefined,
         });
       } else {
-        await interaction.reply({
-          content,
-          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : 0,
-        });
         replied = true;
+        return interaction.reply({
+          content,
+          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : undefined,
+        });
       }
     }
 
@@ -30,8 +31,8 @@ module.exports = {
       const hasPermission = await checkPermissions(interaction);
 
       if (!hasPermission) {
-        await safeReply('❌ You do not have permission to use this command!', false);
-        return;
+        // Only this reply is ephemeral
+        return safeReply('❌ You do not have permission to use this command!', true);
       }
 
       const commands = [
@@ -49,23 +50,25 @@ module.exports = {
 
       const commandList = commands.map(cmd => `"${cmd.name}" - ${cmd.description}`).join('\n');
 
+      // Public reply
       await safeReply(`\`\`\`\nHere are my commands:\n\n${commandList}\n\`\`\``);
 
     } catch (error) {
+      console.error("❌ Error executing commands-info command:", error);
       try {
         if (replied || interaction.deferred) {
           await interaction.followUp({
             content: '❌ There was an error executing this command!',
-            flags: 0,
+            flags: InteractionResponseFlags.Ephemeral,
           });
         } else {
           await interaction.reply({
             content: '❌ There was an error executing this command!',
-            flags: 0,
+            flags: InteractionResponseFlags.Ephemeral,
           });
         }
-      } catch {
-        // silently ignore failed error response
+      } catch (err) {
+        console.error('❌ Failed to send error message:', err);
       }
     }
   }
