@@ -1,53 +1,56 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { checkPermissions } = require('../permissions'); // Import the permissions check function
+const { SlashCommandBuilder } = require('@discordjs/builders');
+const axios = require('axios');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('update-message')
-        .setDescription('Updates a message previously sent by the bot.')
-        .addStringOption(option => 
-            option.setName('channelid')
-                .setDescription('The ID of the channel where the message was sent')
-                .setRequired(true))
-        .addStringOption(option => 
-            option.setName('messageid')
-                .setDescription('The ID of the message to update')
-                .setRequired(true))
-        .addStringOption(option => 
-            option.setName('newcontent')
-                .setDescription('The new embed description')
-                .setRequired(true)),
+        .setName('region-change')
+        .setDescription('Change your region selection')
+        .addStringOption(option =>
+            option.setName('region')
+                .setDescription('Choose a region: East, West, or Both')
+                .setRequired(true)
+                .addChoices(
+                    { name: 'East', value: 'East' },
+                    { name: 'West', value: 'West' },
+                    { name: 'Both', value: 'Both' }
+                )),
 
     async execute(interaction) {
-        // Check permissions using the function from permissions.js
-        const hasPermission = await checkPermissions(interaction);
+        try {
+            // Get the region and convert it to the proper capitalized format
+            let selectedRegion = interaction.options.getString('region');
+            selectedRegion = selectedRegion.charAt(0).toUpperCase() + selectedRegion.slice(1).toLowerCase();
+            
+            const userId = interaction.user.id;
+            const channelId = interaction.channel.id;
 
-        if (!hasPermission) {
-            return interaction.reply({
-                content: '❌ You do not have permission to use this command!',
-                ephemeral: true
+            // Validate the region (case insensitive)
+            if (!['East', 'West', 'Both'].includes(selectedRegion)) {
+                return await interaction.reply({ content: 'Invalid region selected. Please choose from "East", "West", or "Both".', ephemeral: true });
+            }
+
+            // Reply instantly to acknowledge the request
+            await interaction.reply({ content: 'Your region is being updated and confirmation will be sent momentarily.', ephemeral: true });
+
+            // Get the Google Apps Script URL from environment variables
+            const triggerUrl = process.env.Google_Apps_Script_URL;
+
+            // Make sure the environment variable is defined
+            if (!triggerUrl) {
+                return await interaction.editReply({ content: 'Error: Google Apps Script URL is not defined.' });
+            }
+
+            // Send the region change request to Google Apps Script
+            await axios.post(triggerUrl, {
+                command: 'region-change',
+                userId: userId,
+                region: selectedRegion, // Send the capitalized region
+                channelId: channelId
             });
+
+        } catch (error) {
+            console.error('Error processing region change:', error);
+            await interaction.editReply({ content: 'There was an error updating your region. Please try again later.' });
         }
-
-        const channelId = interaction.options.getString('channelid');
-        const messageId = interaction.options.getString('messageid');
-        const newContent = interaction.options.getString('newcontent');
-
-        const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
-        if (!channel) return interaction.reply({ content: "Invalid channel ID.", ephemeral: true });
-
-        const message = await channel.messages.fetch(messageId).catch(() => null);
-        if (!message) return interaction.reply({ content: "Message not found.", ephemeral: true });
-
-        if (!message.editable) return interaction.reply({ content: "I can't edit this message.", ephemeral: true });
-
-        const newEmbed = new EmbedBuilder()
-            .setTitle(newContent)
-            .setColor('#444444')
-            .setTimestamp();
-
-        await message.edit({ embeds: [newEmbed] });
-
-        interaction.reply({ content: "Message updated successfully!", ephemeral: true });
     }
 };

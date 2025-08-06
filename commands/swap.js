@@ -22,6 +22,7 @@ module.exports = {
     async execute(interaction) {
         // Fetch the allowed roles and user IDs from the config file
         const allowedRoles = config.allowedRoles;
+        const allowedUserIds = config.allowedUserIds;
 
         // Check if the command is run inside a guild
         if (!interaction.guild) {
@@ -34,6 +35,9 @@ module.exports = {
 
             // Check if the user has any of the allowed roles
             const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
+
+            // Check if the user's Discord ID is in the allowed list
+            const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
             if (!hasRequiredRole && !isAllowedUser) {
                 return interaction.reply({
