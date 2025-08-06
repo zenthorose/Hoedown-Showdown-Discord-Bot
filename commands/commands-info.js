@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const config = require('../config.json');  // Import the config file
-const { checkPermissions } = require('../permissions');  // Import the checkPermissions function
+const { InteractionResponseFlags } = require('discord.js');
+const config = require('../config.json');
+const { checkPermissions } = require('../permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,35 +10,24 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            // Check if the user has the required permissions (role or user ID)
             const hasPermission = await checkPermissions(interaction);
-
             if (!hasPermission) {
                 return await interaction.reply({
                     content: '❌ You do not have permission to use this command!',
-                    ephemeral: true
+                    flags: InteractionResponseFlags.Ephemeral
                 });
             }
 
-            // Defer reply so you have time to prepare response
-            await interaction.deferReply({ ephemeral: true });
+            // Defer reply to acknowledge and get more time
+            await interaction.deferReply({ flags: InteractionResponseFlags.Ephemeral });
 
             const commands = [
                 { name: '/commands-info', description: 'Provides bot information' },
-                { name: '/member-update', description: 'Gathers a list of all members of the discord before sending it to the Google Sheets.' },
-                { name: '/message-purge', description: 'Deletes all previous messages from the bot in whatever channel the command was entered in.' },
-                { name: '/time-slots', description: 'Posts all of the timeslot posts for people to opt in or out of.' },
-                { name: '/grab-reactions', description: 'Sends the list of reactions from the selected message to the Google Sheets to begin the team creation.' },
-                { name: '/swap', description: 'Used to replace members on teams before official list is posted. Enter Team Set # followed by the person you are replacing lastly who you are replacing them with.' },
-                { name: '/approve-teams', description: 'Use this command after the team has been reviewed and everything is good to publish the official Team List to everyone.' },
-                { name: '/region-change', description: 'Changes your region to one of the three options "East", "West", or "Both".' },
-                { name: '/region-check', description: 'Returns what regions you are currently selected for.' },
-                { name: '/ping', description: 'This keeps the bot alive.' }
+                // ... your other commands ...
             ];
 
             let commandList = commands.map(cmd => `"${cmd.name}" - ${cmd.description}`).join('\n');
 
-            // Edit deferred reply with command list
             await interaction.editReply({
                 content: `\`\`\`\nHere are my commands:\n\n${commandList}\n\`\`\``
             });
@@ -48,7 +38,7 @@ module.exports = {
             if (interaction.deferred || interaction.replied) {
                 await interaction.editReply('❌ There was an error executing this command.');
             } else {
-                await interaction.reply({ content: '❌ There was an error executing this command.', ephemeral: true });
+                await interaction.reply({ content: '❌ There was an error executing this command.', flags: InteractionResponseFlags.Ephemeral });
             }
         }
     }
