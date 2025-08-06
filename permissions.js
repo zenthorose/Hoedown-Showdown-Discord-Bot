@@ -17,6 +17,12 @@ async function checkPermissions(interaction) {
         // Check if the user has any of the allowed roles
         const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
 
+        console.log("User ID:", interaction.user.id);
+        console.log("User Roles:", member.roles.cache.map(r => r.id));
+        console.log("Allowed Roles:", allowedRoles);
+        console.log("Matched Role?", member.roles.cache.some(role => allowedRoles.includes(role.id)));
+
+
         // Check if the user's Discord ID is in the allowed list
         const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
