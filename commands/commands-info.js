@@ -9,37 +9,20 @@ module.exports = {
     .setDescription('Shows a list of available commands'),
 
   async execute(interaction) {
-    const startTime = Date.now();
     let replied = false;
 
-    // Helper to safely reply or follow-up and log
     async function safeReply(content, isEphemeral = false) {
-      const elapsed = Date.now() - startTime;
-      console.log(`⏱ Attempting reply after ${elapsed}ms. Replied before? ${replied}`);
-
       if (replied) {
-        console.warn('⚠️ Interaction already replied to, attempting followUp instead');
-        try {
-          await interaction.followUp({
-            content,
-            flags: isEphemeral ? InteractionResponseFlags.Ephemeral : undefined,
-          });
-          console.log('✅ Follow-up successful');
-        } catch (err) {
-          console.error('❌ Error sending follow-up:', err);
-        }
+        await interaction.followUp({
+          content,
+          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : 0,
+        });
       } else {
-        try {
-          await interaction.reply({
-            content,
-            flags: isEphemeral ? InteractionResponseFlags.Ephemeral : undefined,
-          });
-          replied = true;
-          console.log('✅ Reply successful');
-        } catch (err) {
-          console.error('❌ Error sending reply:', err);
-          throw err; // rethrow to catch block
-        }
+        await interaction.reply({
+          content,
+          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : 0,
+        });
+        replied = true;
       }
     }
 
@@ -47,7 +30,7 @@ module.exports = {
       const hasPermission = await checkPermissions(interaction);
 
       if (!hasPermission) {
-        await safeReply('❌ You do not have permission to use this command!', true);
+        await safeReply('❌ You do not have permission to use this command!', false);
         return;
       }
 
@@ -69,24 +52,20 @@ module.exports = {
       await safeReply(`\`\`\`\nHere are my commands:\n\n${commandList}\n\`\`\``);
 
     } catch (error) {
-      console.error("❌ Error executing commands-info command:", error);
-
       try {
         if (replied || interaction.deferred) {
           await interaction.followUp({
             content: '❌ There was an error executing this command!',
-            flags: InteractionResponseFlags.Ephemeral,
+            flags: 0,
           });
-          console.log('✅ Error follow-up sent');
         } else {
           await interaction.reply({
             content: '❌ There was an error executing this command!',
-            flags: InteractionResponseFlags.Ephemeral,
+            flags: 0,
           });
-          console.log('✅ Error reply sent');
         }
-      } catch (err) {
-        console.error('❌ Failed to send error message:', err);
+      } catch {
+        // silently ignore failed error response
       }
     }
   }
