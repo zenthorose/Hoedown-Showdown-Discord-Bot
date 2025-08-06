@@ -13,8 +13,6 @@ async function checkPermissions(interaction) {
 
         // Debug: Log member roles and allowed roles
         const memberRoleIds = member.roles.cache.map(role => role.id);
-        console.log("✅ Member's roles:", memberRoleIds);
-        console.log("🟢 Allowed roles from config:", allowedRoles);
 
         const hasRequiredRole = memberRoleIds.some(roleId => allowedRoles.includes(roleId));
 
