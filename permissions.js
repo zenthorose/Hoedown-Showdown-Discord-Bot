@@ -3,7 +3,6 @@ const config = require('./config.json'); // Import the config file
 // Function to check if the user has permission
 async function checkPermissions(interaction) {
     const allowedRoles = config.allowedRoles || [];
-    // const allowedUserIds = config.allowedUserIds || []; // Disabled for testing
 
     // Check if the command is run inside a guild (server)
     if (!interaction.guild) {
@@ -21,9 +20,6 @@ async function checkPermissions(interaction) {
         console.log("User Roles:", member.roles.cache.map(r => r.id));
         console.log("Allowed Roles:", allowedRoles);
         console.log("Matched Role?", hasRequiredRole);
-
-        // Commented out: Check if the user's Discord ID is in the allowed list
-        // const isAllowedUser = allowedUserIds.includes(interaction.user.id);
 
         // For testing, ignore user ID and only check role
         return hasRequiredRole;
