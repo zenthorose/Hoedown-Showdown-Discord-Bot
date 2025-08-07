@@ -3,8 +3,8 @@ const axios = require('axios');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('region-check')
-        .setDescription('Checks your region setting'),
+        .setName('info-check')
+        .setDescription('See your currently submitted info.'),
 
     async execute(interaction) {
         const userId = interaction.user.id;
@@ -24,7 +24,7 @@ module.exports = {
         try {
             // Send the region check request to Google Apps Script
             await axios.post(triggerUrl, {
-                command: 'region-check',
+                command: 'info-check',
                 userId: userId,
                 channelId: channelId // Send the channel ID
             });
