@@ -3,6 +3,7 @@ const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = requir
 const { google } = require('googleapis');
 const moment = require('moment-timezone');
 const fs = require('fs');
+const axios = require('axios');  // <-- added axios import
 
 const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -66,6 +67,15 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 
 client.once('ready', async () => {
     console.log(`✅ Bot is online and ready as ${client.user.tag}!`);
+
+    // Test Google Apps Script connectivity
+    try {
+        const response = await axios.get(process.env.Google_Apps_Script_URL);
+        console.log("Google Script response:", response.data);
+    } catch (error) {
+        console.error("Error connecting to Google Script:", error.message);
+    }
+
     const channel = client.channels.cache.get(STATUS_CHANNEL_ID);
     if (channel) {
         const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]"); // ✅ Corrected time format
