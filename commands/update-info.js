@@ -31,6 +31,7 @@ module.exports = {
         try {
             // Check Google Apps Script URL
             const triggerUrl = process.env.Google_Apps_Script_URL;
+            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
             if (!triggerUrl) {
                 return await interaction.editReply('❌ Error: Google Apps Script URL is not set in environment variables.');
             }

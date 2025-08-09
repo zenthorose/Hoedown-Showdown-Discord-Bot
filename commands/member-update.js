@@ -38,7 +38,8 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
              const memberData = [["Nickname", "Username", "Discord ID"], ...sortedMembers];
  
              // Send the data to the Google Apps Script URL
-             const triggerUrl = process.env.Google_Apps_Script_URL;
+            const triggerUrl = process.env.Google_Apps_Script_URL;
+            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
  
              if (!triggerUrl) {
                  return interaction.editReply('❌ Google Apps Script URL is not defined.');

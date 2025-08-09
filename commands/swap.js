@@ -54,6 +54,7 @@ module.exports = {
             try {
                 // Get the Google Apps Script URL from environment variables
                 const triggerUrl = process.env.Google_Apps_Script_URL;
+                if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
                 // Make sure the environment variable is defined
                 if (!triggerUrl) {

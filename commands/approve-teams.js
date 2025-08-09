@@ -31,7 +31,9 @@ module.exports = {
 
         try {
             // Get the Google Apps Script URL from environment variables
-            const triggerUrl = process.env.Google_Apps_Script_URL;
+            const { googleAppsScriptUrl } = require('./path/to/main.js'); // adjust path as needed
+            const triggerUrl = googleAppsScriptUrl;
+
 
             // Make sure the environment variable is defined
             if (!triggerUrl) {
