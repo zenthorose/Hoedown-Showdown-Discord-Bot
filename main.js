@@ -3,16 +3,6 @@ const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = requir
 const { google } = require('googleapis');
 const moment = require('moment-timezone');
 const fs = require('fs');
-const express = require('express');
-
-const { Google_Apps_Script_Env_Var_Name, Hoedown_New_banner, STATUS_CHANNEL_ID, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
-const googleAppsScriptUrl = process.env[Google_Apps_Script_Env_Var_Name];
-
-// Validate the Google Apps Script URL on startup
-if (!googleAppsScriptUrl) {
-    console.error("❌ ERROR: Google Apps Script URL is not set in environment variables!");
-    process.exit(1);
-}
 
 const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -36,6 +26,7 @@ const clientId = process.env.CLIENT_ID;
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
+const { Hoedown_New_banner, STATUS_CHANNEL_ID, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
 const credentials = {
     type: "service_account",
     project_id: process.env.GOOGLE_PROJECT_ID,
@@ -77,7 +68,7 @@ client.once('ready', async () => {
     console.log(`✅ Bot is online and ready as ${client.user.tag}!`);
     const channel = client.channels.cache.get(STATUS_CHANNEL_ID);
     if (channel) {
-        const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]");
+        const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]"); // ✅ Corrected time format
         channel.send(`✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀\n🕒 Current Time: **${currentTime}**`);
         console.log(`✅ Startup message sent at ${currentTime}`);
     } else {
@@ -85,7 +76,7 @@ client.once('ready', async () => {
     }
 });
 
-// Add back the ping command to keep the bot awake
+// ✅ Add back the ping command to keep the bot awake
 client.on('messageCreate', async message => {
     if (message.content === '!ping') {
         message.channel.send('Pong!');
@@ -98,14 +89,15 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'muffin') {
         try {
             await interaction.update({
-                content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>',
+                content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>', // This can still be a message
                 embeds: [{
                     image: {
-                        url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642'
+                        url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' // The image link
                     }
                 }],
-                components: []
+                components: [] // Remove button after interaction
             });
+
         } catch (error) {
             console.error(error);
             if (!interaction.replied && !interaction.deferred) {
@@ -120,7 +112,7 @@ client.on('interactionCreate', async interaction => {
 
 // Watch for the word "muffin" in a specific channel
 client.on('messageCreate', async message => {
-    if (message.author.bot) return;
+    if (message.author.bot) return; // Ignore bot messages
 
     const targetChannelId = '1052393482699948132'; // Replace with your actual channel ID
     const targetWord = 'muffin';
@@ -139,7 +131,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// Handle command interactions
+// Handle command interactions (existing functionality)
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
@@ -154,14 +146,17 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Express server setup
+// ✅ Start Express Server (Required for Render)
+const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// Existing ping endpoint
 app.get('/ping', (req, res) => res.send('Pong!'));
 
+// New endpoint to send a message to Discord
 app.post('/sendmessage', async (req, res) => {
     const { channelId, message } = req.body;
 
@@ -183,6 +178,3 @@ app.listen(port, () => {
     console.log(`🌐 Server is running on port ${port}`);
     client.login(botToken);
 });
-
-// Export Google Apps Script URL for use in other modules
-module.exports.googleAppsScriptUrl = googleAppsScriptUrl;
