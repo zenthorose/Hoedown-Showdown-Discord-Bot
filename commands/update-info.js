@@ -5,90 +5,105 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('update-info')
         .setDescription('Update one piece of your registration info.')
-        .addStringOption(option =>
-            option.setName('info')
-                .setDescription('Select what you want to update.')
-                .setRequired(true)
-                .addChoices(
-                    { name: 'Region', value: 'region' },
-                    { name: 'Steam ID', value: 'steamid' },
-                    { name: 'Stream Link', value: 'streamlink' }
-                ))
-        // Region-specific value choices
-        .addStringOption(option =>
-            option.setName('region_value')
-                .setDescription('Choose your region (only used if info = Region).')
-                .addChoices(
-                    { name: 'East', value: 'East' },
-                    { name: 'West', value: 'West' },
-                    { name: 'Both', value: 'Both' }
+        
+        // --- REGION SUBCOMMAND ---
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('region')
+                .setDescription('Update your region')
+                .addStringOption(option =>
+                    option.setName('region')
+                        .setDescription('Select your region')
+                        .setRequired(true)
+                        .addChoices(
+                            { name: 'East', value: 'East' },
+                            { name: 'West', value: 'West' },
+                            { name: 'Both', value: 'Both' }
+                        )
                 )
         )
-        // Generic value for steamid or streamlink
-        .addStringOption(option =>
-            option.setName('value')
-                .setDescription('Enter the new value for the selected info.')
+
+        // --- STEAM ID SUBCOMMAND ---
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('steamid')
+                .setDescription('Update your Steam Friend Code')
+                .addStringOption(option =>
+                    option.setName('friendcode')
+                        .setDescription('Enter your 17-digit Steam Friend Code')
+                        .setRequired(true)
+                )
+        )
+
+        // --- STREAM LINK SUBCOMMAND ---
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('streamlink')
+                .setDescription('Update your Twitch or Kick stream link')
+                .addStringOption(option =>
+                    option.setName('link')
+                        .setDescription('Enter your Twitch or Kick link')
+                        .setRequired(true)
+                )
         ),
 
     async execute(interaction) {
-        const infoType = interaction.options.getString('info');
-        let newValue;
+        const subcommand = interaction.options.getSubcommand();
+        const member = interaction.member;
+        const triggerUrl = process.env.Google_Apps_Script_URL;
 
-        if (infoType === 'region') {
-            newValue = interaction.options.getString('region_value');
-            if (!newValue) {
-                return await interaction.reply({ 
-                    content: '❌ Please select a region option.', 
-                    ephemeral: true 
-                });
+        if (!triggerUrl) {
+            return interaction.reply({ 
+                content: '❌ Error: Google Apps Script URL is not set in environment variables.', 
+                ephemeral: true 
+            });
+        }
+
+        let infoType, newValue;
+
+        if (subcommand === 'region') {
+            infoType = 'region';
+            newValue = interaction.options.getString('region');
+
+            const validRegions = ['East', 'West', 'Both'];
+            if (!validRegions.includes(newValue)) {
+                return interaction.reply({ content: '❌ Invalid region.', ephemeral: true });
             }
-        } else {
-            newValue = interaction.options.getString('value');
-            if (!newValue) {
-                return await interaction.reply({ 
-                    content: '❌ Please enter a value.', 
-                    ephemeral: true 
-                });
+
+            // Remove any old region roles
+            const allRegionRoles = ['East', 'West', 'Both'];
+            for (const roleName of allRegionRoles) {
+                const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+                if (role && member.roles.cache.has(role.id)) {
+                    await member.roles.remove(role);
+                }
+            }
+
+            // Add the new role
+            const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
+            if (newRole) await member.roles.add(newRole);
+        }
+
+        if (subcommand === 'steamid') {
+            infoType = 'steamid';
+            newValue = interaction.options.getString('friendcode');
+
+            if (!/^\d{17}$/.test(newValue)) {
+                return interaction.reply({ content: '❌ Invalid Steam ID. Must be 17 digits.', ephemeral: true });
             }
         }
 
-        const member = interaction.member;
-        await interaction.reply({ content: `🔄 Updating your **${infoType}**...`, ephemeral: true });
+        if (subcommand === 'streamlink') {
+            infoType = 'streamlink';
+            newValue = interaction.options.getString('link');
+
+            const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
+            if (!twitchOrKickRegex.test(newValue)) {
+                return interaction.reply({ content: '❌ Invalid link. Must be Twitch or Kick.', ephemeral: true });
+            }
+        }
 
         try {
-            const triggerUrl = process.env.Google_Apps_Script_URL;
-            if (!triggerUrl) {
-                return await interaction.editReply('❌ Google Apps Script URL is not set.');
-            }
-
-            // Region role management
-            if (infoType === 'region') {
-                const allRegionRoles = ['East', 'West', 'Both'];
-                for (const roleName of allRegionRoles) {
-                    const role = interaction.guild.roles.cache.find(r => r.name === roleName);
-                    if (role && member.roles.cache.has(role.id)) {
-                        await member.roles.remove(role);
-                    }
-                }
-
-                const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
-                if (newRole) await member.roles.add(newRole);
-            }
-
-            // Validation for other types
-            if (infoType === 'streamlink') {
-                const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
-                if (!twitchOrKickRegex.test(newValue)) {
-                    return await interaction.editReply('❌ Invalid stream link. Please provide a valid Twitch or Kick link.');
-                }
-            }
-
-            if (infoType === 'steamid') {
-                if (!/^\d{17}$/.test(newValue)) {
-                    return await interaction.editReply('❌ Invalid Steam ID. It must be a 17-digit number.');
-                }
-            }
-
             // Send update to Google Script
             const updateData = {
                 command: 'update',
@@ -100,11 +115,11 @@ module.exports = {
             };
 
             await axios.post(triggerUrl, updateData);
+            await interaction.reply({ content: `✅ Your **${infoType}** has been updated to **${newValue}**!`, ephemeral: true });
 
-            await interaction.editReply(`✅ Your **${infoType}** has been successfully updated!`);
         } catch (error) {
             console.error('❌ Error in /update-info:', error);
-            await interaction.editReply('❌ Failed to update your info. Please try again later.');
+            await interaction.reply({ content: '❌ Failed to update your info.', ephemeral: true });
         }
-    },
+    }
 };
