@@ -14,38 +14,55 @@ module.exports = {
                     { name: 'Steam ID', value: 'steamid' },
                     { name: 'Stream Link', value: 'streamlink' }
                 ))
+        // Region-specific value choices
+        .addStringOption(option =>
+            option.setName('region_value')
+                .setDescription('Choose your region (only used if info = Region).')
+                .addChoices(
+                    { name: 'East', value: 'East' },
+                    { name: 'West', value: 'West' },
+                    { name: 'Both', value: 'Both' }
+                )
+        )
+        // Generic value for steamid or streamlink
         .addStringOption(option =>
             option.setName('value')
                 .setDescription('Enter the new value for the selected info.')
-                .setRequired(true)
         ),
 
     async execute(interaction) {
         const infoType = interaction.options.getString('info');
-        let newValue = interaction.options.getString('value');
-        const member = interaction.member;
+        let newValue;
 
-        // Initial user feedback
+        if (infoType === 'region') {
+            newValue = interaction.options.getString('region_value');
+            if (!newValue) {
+                return await interaction.reply({ 
+                    content: '❌ Please select a region option.', 
+                    ephemeral: true 
+                });
+            }
+        } else {
+            newValue = interaction.options.getString('value');
+            if (!newValue) {
+                return await interaction.reply({ 
+                    content: '❌ Please enter a value.', 
+                    ephemeral: true 
+                });
+            }
+        }
+
+        const member = interaction.member;
         await interaction.reply({ content: `🔄 Updating your **${infoType}**...`, ephemeral: true });
 
         try {
-            // Check Google Apps Script URL
             const triggerUrl = process.env.Google_Apps_Script_URL;
-            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
             if (!triggerUrl) {
-                return await interaction.editReply('❌ Error: Google Apps Script URL is not set in environment variables.');
+                return await interaction.editReply('❌ Google Apps Script URL is not set.');
             }
 
-            // Region normalization and validation
+            // Region role management
             if (infoType === 'region') {
-                newValue = newValue.charAt(0).toUpperCase() + newValue.slice(1).toLowerCase();
-                const validRegions = ['East', 'West', 'Both'];
-
-                if (!validRegions.includes(newValue)) {
-                    return await interaction.editReply('❌ Invalid region. Please choose East, West, or Both.');
-                }
-
-                // Remove any existing region roles
                 const allRegionRoles = ['East', 'West', 'Both'];
                 for (const roleName of allRegionRoles) {
                     const role = interaction.guild.roles.cache.find(r => r.name === roleName);
@@ -54,12 +71,11 @@ module.exports = {
                     }
                 }
 
-                // Assign the new region role
                 const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
                 if (newRole) await member.roles.add(newRole);
             }
 
-            // Validate stream link
+            // Validation for other types
             if (infoType === 'streamlink') {
                 const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
                 if (!twitchOrKickRegex.test(newValue)) {
@@ -67,14 +83,13 @@ module.exports = {
                 }
             }
 
-            // Validate Steam ID (17-digit number)
             if (infoType === 'steamid') {
                 if (!/^\d{17}$/.test(newValue)) {
                     return await interaction.editReply('❌ Invalid Steam ID. It must be a 17-digit number.');
                 }
             }
 
-            // Send update payload to Google Apps Script
+            // Send update to Google Script
             const updateData = {
                 command: 'update',
                 updateData: [[
