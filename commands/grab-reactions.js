@@ -15,7 +15,7 @@ module.exports = {
     async execute(interaction) {
         const allowedRoles = config.allowedRoles;
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.name));
+        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
 
         if (!hasRequiredRole && !isAllowedUser) {
             return interaction.reply({
