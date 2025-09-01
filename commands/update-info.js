@@ -5,8 +5,8 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('update-info')
         .setDescription('Update one piece of your registration info.')
-        
-        // REGION SUBCOMMAND
+
+        // --- REGION SUBCOMMAND ---
         .addSubcommand(subcommand =>
             subcommand
                 .setName('region')
@@ -23,7 +23,7 @@ module.exports = {
                 )
         )
 
-        // STEAM ID SUBCOMMAND
+        // --- STEAM ID SUBCOMMAND ---
         .addSubcommand(subcommand =>
             subcommand
                 .setName('steamid')
@@ -35,7 +35,7 @@ module.exports = {
                 )
         )
 
-        // STREAM LINK SUBCOMMAND
+        // --- STREAM LINK SUBCOMMAND ---
         .addSubcommand(subcommand =>
             subcommand
                 .setName('streamlink')
@@ -48,8 +48,13 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        // Immediately defer the reply to avoid "Unknown interaction" issues
-        await interaction.deferReply({ flags: 64 }); // ephemeral
+        // Immediately defer the reply to avoid unknown interaction errors
+        try {
+            await interaction.deferReply({ flags: 64 }); // ephemeral
+        } catch (err) {
+            console.error('Failed to defer interaction:', err);
+            return;
+        }
 
         const subcommand = interaction.options.getSubcommand();
         const member = interaction.member;
@@ -62,14 +67,14 @@ module.exports = {
         let infoType, newValue;
 
         try {
-            // --- REGION ---
+            // REGION SUBCOMMAND
             if (subcommand === 'region') {
                 infoType = 'region';
                 newValue = interaction.options.getString('region');
 
                 const validRegions = ['East', 'West', 'Both'];
                 if (!validRegions.includes(newValue)) {
-                    return interaction.editReply({ content: '❌ Invalid region selected.' });
+                    return interaction.editReply({ content: '❌ Invalid region.' });
                 }
 
                 // Remove old region roles
@@ -81,13 +86,13 @@ module.exports = {
                     }
                 }
 
-                // Add the new role
+                // Add the new region role
                 const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
                 if (newRole) await member.roles.add(newRole).catch(console.error);
             }
 
-            // --- STEAM ID ---
-            else if (subcommand === 'steamid') {
+            // STEAM ID SUBCOMMAND
+            if (subcommand === 'steamid') {
                 infoType = 'steamid';
                 newValue = interaction.options.getString('friendcode');
 
@@ -96,8 +101,8 @@ module.exports = {
                 }
             }
 
-            // --- STREAM LINK ---
-            else if (subcommand === 'streamlink') {
+            // STREAM LINK SUBCOMMAND
+            if (subcommand === 'streamlink') {
                 infoType = 'streamlink';
                 newValue = interaction.options.getString('link');
 
@@ -107,7 +112,7 @@ module.exports = {
                 }
             }
 
-            // Send update to Google Script
+            // Send the update to Google Apps Script
             const updateData = {
                 command: 'update',
                 updateData: [[
@@ -119,14 +124,13 @@ module.exports = {
 
             await axios.post(triggerUrl, updateData);
 
-            // Confirm to user
-            return interaction.editReply({
-                content: `✅ Your **${infoType}** has been updated to **${newValue}**!`
-            });
+            // Send final confirmation
+            await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue}**!` });
 
         } catch (error) {
-            console.error('❌ Error in /update-info:', error);
-            return interaction.editReply({ content: '❌ Failed to update your info.' });
+            console.error('❌ Error updating info:', error);
+            // Only use editReply because we already deferred
+            await interaction.editReply({ content: '❌ There was an error executing this command.' });
         }
     }
 };
