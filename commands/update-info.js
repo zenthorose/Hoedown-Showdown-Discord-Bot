@@ -5,7 +5,7 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('update-info')
         .setDescription('Update one piece of your registration info.')
-
+        
         // --- REGION SUBCOMMAND ---
         .addSubcommand(subcommand =>
             subcommand
@@ -48,71 +48,87 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        // Immediately defer the reply to avoid unknown interaction errors
-        try {
-            await interaction.deferReply({ flags: 64 }); // ephemeral
-        } catch (err) {
-            console.error('Failed to defer interaction:', err);
-            return;
-        }
-
+        console.log('[DEBUG] Command execution started');
         const subcommand = interaction.options.getSubcommand();
         const member = interaction.member;
         const triggerUrl = process.env.Google_Apps_Script_URL;
 
         if (!triggerUrl) {
-            return interaction.editReply({ content: '❌ Error: Google Apps Script URL is not set.' });
+            console.error('[DEBUG] Google Apps Script URL not set');
+            return interaction.reply({ content: '❌ Error: Google Apps Script URL is not set.', flags: 64 });
         }
 
         let infoType, newValue;
 
         try {
-            // REGION SUBCOMMAND
-            if (subcommand === 'region') {
-                infoType = 'region';
-                newValue = interaction.options.getString('region');
+            console.log('[DEBUG] Attempting deferReply');
+            await interaction.deferReply({ flags: 64 }); // ephemeral
+            console.log('[DEBUG] deferReply successful');
+        } catch (err) {
+            console.error('[DEBUG] deferReply failed:', err);
+        }
 
-                const validRegions = ['East', 'West', 'Both'];
-                if (!validRegions.includes(newValue)) {
-                    return interaction.editReply({ content: '❌ Invalid region.' });
-                }
+        // --- Determine subcommand type ---
+        if (subcommand === 'region') {
+            infoType = 'region';
+            newValue = interaction.options.getString('region');
 
-                // Remove old region roles
-                const allRegionRoles = ['East', 'West', 'Both'];
-                for (const roleName of allRegionRoles) {
-                    const role = interaction.guild.roles.cache.find(r => r.name === roleName);
-                    if (role && member.roles.cache.has(role.id)) {
-                        await member.roles.remove(role).catch(console.error);
+            const validRegions = ['East', 'West', 'Both'];
+            if (!validRegions.includes(newValue)) {
+                console.log('[DEBUG] Invalid region selected:', newValue);
+                return interaction.editReply({ content: '❌ Invalid region.' });
+            }
+
+            console.log('[DEBUG] Updating roles for region');
+
+            const allRegionRoles = ['East', 'West', 'Both'];
+            for (const roleName of allRegionRoles) {
+                const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+                if (role && member.roles.cache.has(role.id)) {
+                    try {
+                        await member.roles.remove(role);
+                        console.log(`[DEBUG] Removed role: ${roleName}`);
+                    } catch (err) {
+                        console.error(`[DEBUG] Failed to remove role ${roleName}:`, err);
                     }
                 }
-
-                // Add the new region role
-                const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
-                if (newRole) await member.roles.add(newRole).catch(console.error);
             }
 
-            // STEAM ID SUBCOMMAND
-            if (subcommand === 'steamid') {
-                infoType = 'steamid';
-                newValue = interaction.options.getString('friendcode');
-
-                if (!/^\d{17}$/.test(newValue)) {
-                    return interaction.editReply({ content: '❌ Invalid Steam ID. Must be 17 digits.' });
+            const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
+            if (newRole) {
+                try {
+                    await member.roles.add(newRole);
+                    console.log(`[DEBUG] Added new role: ${newValue}`);
+                } catch (err) {
+                    console.error(`[DEBUG] Failed to add role ${newValue}:`, err);
                 }
             }
+        }
 
-            // STREAM LINK SUBCOMMAND
-            if (subcommand === 'streamlink') {
-                infoType = 'streamlink';
-                newValue = interaction.options.getString('link');
+        if (subcommand === 'steamid') {
+            infoType = 'steamid';
+            newValue = interaction.options.getString('friendcode');
 
-                const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
-                if (!twitchOrKickRegex.test(newValue)) {
-                    return interaction.editReply({ content: '❌ Invalid link. Must be Twitch or Kick.' });
-                }
+            if (!/^\d{17}$/.test(newValue)) {
+                console.log('[DEBUG] Invalid Steam ID:', newValue);
+                return interaction.editReply({ content: '❌ Invalid Steam ID. Must be 17 digits.' });
             }
+        }
 
-            // Send the update to Google Apps Script
+        if (subcommand === 'streamlink') {
+            infoType = 'streamlink';
+            newValue = interaction.options.getString('link');
+
+            const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
+            if (!twitchOrKickRegex.test(newValue)) {
+                console.log('[DEBUG] Invalid stream link:', newValue);
+                return interaction.editReply({ content: '❌ Invalid link. Must be Twitch or Kick.' });
+            }
+        }
+
+        console.log('[DEBUG] Sending update to Google Script:', { infoType, newValue });
+
+        try {
             const updateData = {
                 command: 'update',
                 updateData: [[
@@ -123,14 +139,20 @@ module.exports = {
             };
 
             await axios.post(triggerUrl, updateData);
+            console.log('[DEBUG] Google Script update successful');
 
-            // Send final confirmation
             await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue}**!` });
+            console.log('[DEBUG] editReply successful');
 
         } catch (error) {
-            console.error('❌ Error updating info:', error);
-            // Only use editReply because we already deferred
-            await interaction.editReply({ content: '❌ There was an error executing this command.' });
+            console.error('[DEBUG] Error updating info or editing reply:', error);
+            try {
+                await interaction.editReply({ content: '❌ Failed to update your info.' });
+            } catch (err) {
+                console.error('[DEBUG] editReply failed:', err);
+            }
         }
+
+        console.log('[DEBUG] Command execution finished');
     }
 };
