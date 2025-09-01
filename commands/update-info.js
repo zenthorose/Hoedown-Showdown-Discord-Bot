@@ -5,7 +5,7 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('update-info')
         .setDescription('Update one piece of your registration info.')
-        
+
         // --- REGION SUBCOMMAND ---
         .addSubcommand(subcommand =>
             subcommand
@@ -54,72 +54,69 @@ module.exports = {
 
         if (!triggerUrl) {
             return interaction.reply({ 
-                content: '❌ Error: Google Apps Script URL is not set in environment variables.', 
+                content: '❌ Error: Google Apps Script URL is not set.', 
                 ephemeral: true 
             });
         }
 
+        // Defer reply to prevent multiple-reply crashes
+        await interaction.deferReply({ ephemeral: true });
+
         let infoType, newValue;
 
-        if (subcommand === 'region') {
-            infoType = 'region';
-            newValue = interaction.options.getString('region');
+        try {
+            if (subcommand === 'region') {
+                infoType = 'region';
+                newValue = interaction.options.getString('region');
+                const validRegions = ['East', 'West', 'Both'];
 
-            const validRegions = ['East', 'West', 'Both'];
-            if (!validRegions.includes(newValue)) {
-                return interaction.reply({ content: '❌ Invalid region.', ephemeral: true });
-            }
+                if (!validRegions.includes(newValue)) {
+                    return interaction.editReply({ content: '❌ Invalid region.' });
+                }
 
-            // Remove any old region roles
-            const allRegionRoles = ['East', 'West', 'Both'];
-            for (const roleName of allRegionRoles) {
-                const role = interaction.guild.roles.cache.find(r => r.name === roleName);
-                if (role && member.roles.cache.has(role.id)) {
-                    await member.roles.remove(role);
+                // Remove old region roles
+                for (const roleName of validRegions) {
+                    const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+                    if (role && member.roles.cache.has(role.id)) {
+                        await member.roles.remove(role);
+                    }
+                }
+
+                // Add new role
+                const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
+                if (newRole) await member.roles.add(newRole);
+
+            } else if (subcommand === 'steamid') {
+                infoType = 'steamid';
+                newValue = interaction.options.getString('friendcode');
+
+                if (!/^\d{17}$/.test(newValue)) {
+                    return interaction.editReply({ content: '❌ Invalid Steam ID. Must be 17 digits.' });
+                }
+
+            } else if (subcommand === 'streamlink') {
+                infoType = 'streamlink';
+                newValue = interaction.options.getString('link');
+                const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
+
+                if (!twitchOrKickRegex.test(newValue)) {
+                    return interaction.editReply({ content: '❌ Invalid link. Must be Twitch or Kick.' });
                 }
             }
 
-            // Add the new role
-            const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
-            if (newRole) await member.roles.add(newRole);
-        }
-
-        if (subcommand === 'steamid') {
-            infoType = 'steamid';
-            newValue = interaction.options.getString('friendcode');
-
-            if (!/^\d{17}$/.test(newValue)) {
-                return interaction.reply({ content: '❌ Invalid Steam ID. Must be 17 digits.', ephemeral: true });
-            }
-        }
-
-        if (subcommand === 'streamlink') {
-            infoType = 'streamlink';
-            newValue = interaction.options.getString('link');
-
-            const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
-            if (!twitchOrKickRegex.test(newValue)) {
-                return interaction.reply({ content: '❌ Invalid link. Must be Twitch or Kick.', ephemeral: true });
-            }
-        }
-
-        try {
             // Send update to Google Script
-            const updateData = {
+            await axios.post(triggerUrl, {
                 command: 'update',
-                updateData: [[
-                    member.user.id,
-                    infoType,
-                    newValue
-                ]]
-            };
+                updateData: [[member.user.id, infoType, newValue]]
+            });
 
-            await axios.post(triggerUrl, updateData);
-            await interaction.reply({ content: `✅ Your **${infoType}** has been updated to **${newValue}**!`, ephemeral: true });
+            await interaction.editReply({
+                content: `✅ Your **${infoType}** has been updated to **${newValue}**!`
+            });
 
         } catch (error) {
             console.error('❌ Error in /update-info:', error);
-            await interaction.reply({ content: '❌ Failed to update your info.', ephemeral: true });
+            await interaction.editReply({ content: '❌ Failed to update your info.' });
         }
     }
 };
