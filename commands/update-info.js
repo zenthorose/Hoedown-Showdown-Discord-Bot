@@ -5,8 +5,8 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('update-info')
         .setDescription('Update one piece of your registration info.')
-
-        // --- REGION SUBCOMMAND ---
+        
+        // REGION SUBCOMMAND
         .addSubcommand(subcommand =>
             subcommand
                 .setName('region')
@@ -23,7 +23,7 @@ module.exports = {
                 )
         )
 
-        // --- STEAM ID SUBCOMMAND ---
+        // STEAM ID SUBCOMMAND
         .addSubcommand(subcommand =>
             subcommand
                 .setName('steamid')
@@ -35,7 +35,7 @@ module.exports = {
                 )
         )
 
-        // --- STREAM LINK SUBCOMMAND ---
+        // STREAM LINK SUBCOMMAND
         .addSubcommand(subcommand =>
             subcommand
                 .setName('streamlink')
@@ -48,75 +48,85 @@ module.exports = {
         ),
 
     async execute(interaction) {
+        // Immediately defer the reply to avoid "Unknown interaction" issues
+        await interaction.deferReply({ flags: 64 }); // ephemeral
+
         const subcommand = interaction.options.getSubcommand();
         const member = interaction.member;
         const triggerUrl = process.env.Google_Apps_Script_URL;
 
         if (!triggerUrl) {
-            return interaction.reply({ 
-                content: '❌ Error: Google Apps Script URL is not set.', 
-                ephemeral: true 
-            });
+            return interaction.editReply({ content: '❌ Error: Google Apps Script URL is not set.' });
         }
-
-        // Defer reply to prevent multiple-reply crashes
-        await interaction.deferReply({ ephemeral: true });
 
         let infoType, newValue;
 
         try {
+            // --- REGION ---
             if (subcommand === 'region') {
                 infoType = 'region';
                 newValue = interaction.options.getString('region');
-                const validRegions = ['East', 'West', 'Both'];
 
+                const validRegions = ['East', 'West', 'Both'];
                 if (!validRegions.includes(newValue)) {
-                    return interaction.editReply({ content: '❌ Invalid region.' });
+                    return interaction.editReply({ content: '❌ Invalid region selected.' });
                 }
 
                 // Remove old region roles
-                for (const roleName of validRegions) {
+                const allRegionRoles = ['East', 'West', 'Both'];
+                for (const roleName of allRegionRoles) {
                     const role = interaction.guild.roles.cache.find(r => r.name === roleName);
                     if (role && member.roles.cache.has(role.id)) {
-                        await member.roles.remove(role);
+                        await member.roles.remove(role).catch(console.error);
                     }
                 }
 
-                // Add new role
+                // Add the new role
                 const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
-                if (newRole) await member.roles.add(newRole);
+                if (newRole) await member.roles.add(newRole).catch(console.error);
+            }
 
-            } else if (subcommand === 'steamid') {
+            // --- STEAM ID ---
+            else if (subcommand === 'steamid') {
                 infoType = 'steamid';
                 newValue = interaction.options.getString('friendcode');
 
                 if (!/^\d{17}$/.test(newValue)) {
                     return interaction.editReply({ content: '❌ Invalid Steam ID. Must be 17 digits.' });
                 }
+            }
 
-            } else if (subcommand === 'streamlink') {
+            // --- STREAM LINK ---
+            else if (subcommand === 'streamlink') {
                 infoType = 'streamlink';
                 newValue = interaction.options.getString('link');
-                const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
 
+                const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
                 if (!twitchOrKickRegex.test(newValue)) {
                     return interaction.editReply({ content: '❌ Invalid link. Must be Twitch or Kick.' });
                 }
             }
 
             // Send update to Google Script
-            await axios.post(triggerUrl, {
+            const updateData = {
                 command: 'update',
-                updateData: [[member.user.id, infoType, newValue]]
-            });
+                updateData: [[
+                    member.user.id,
+                    infoType,
+                    newValue
+                ]]
+            };
 
-            await interaction.editReply({
+            await axios.post(triggerUrl, updateData);
+
+            // Confirm to user
+            return interaction.editReply({
                 content: `✅ Your **${infoType}** has been updated to **${newValue}**!`
             });
 
         } catch (error) {
             console.error('❌ Error in /update-info:', error);
-            await interaction.editReply({ content: '❌ Failed to update your info.' });
+            return interaction.editReply({ content: '❌ Failed to update your info.' });
         }
     }
 };
