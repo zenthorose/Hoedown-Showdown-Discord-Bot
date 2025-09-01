@@ -5,7 +5,7 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('update-info')
         .setDescription('Update one piece of your registration info.')
-
+        
         // --- REGION SUBCOMMAND ---
         .addSubcommand(subcommand =>
             subcommand
@@ -59,48 +59,40 @@ module.exports = {
             return interaction.reply({ content: '❌ Error: Google Apps Script URL is not set in environment variables.', flags: 64 });
         }
 
-        // Immediately reply to interaction to prevent Unknown Interaction
-        try {
-            await interaction.reply({ content: 'Updating your info...', flags: 64 });
-            console.log('[DEBUG] Initial reply sent');
-        } catch (err) {
-            console.error('[DEBUG] Failed to send initial reply:', err);
-        }
-
         let infoType, newValue;
 
-        // --- REGION ---
+        try {
+            console.log('[DEBUG] Initial reply sent');
+            await interaction.reply({ content: '⏳ Processing your update…', flags: 64 });
+        } catch (err) {
+            console.log('[DEBUG] Initial reply failed:', err);
+        }
+
+        console.log('[DEBUG] Subcommand:', subcommand);
+
         if (subcommand === 'region') {
-            console.log('[DEBUG] Subcommand: region');
             infoType = 'region';
             newValue = interaction.options.getString('region');
 
-            const validRegions = ['East', 'West', 'Both'];
-            if (!validRegions.includes(newValue)) {
-                console.log('[DEBUG] Invalid region provided:', newValue);
-                return interaction.editReply({ content: '❌ Invalid region.' });
-            }
-
             console.log('[DEBUG] Updating roles for region');
+
             const allRegionRoles = ['East', 'West', 'Both'];
             for (const roleName of allRegionRoles) {
                 const role = interaction.guild.roles.cache.find(r => r.name === roleName);
                 if (role && member.roles.cache.has(role.id)) {
                     await member.roles.remove(role);
-                    console.log('[DEBUG] Removed role:', roleName);
+                    console.log(`[DEBUG] Removed role: ${roleName}`);
                 }
             }
 
             const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
             if (newRole) {
                 await member.roles.add(newRole);
-                console.log('[DEBUG] Added new role:', newValue);
+                console.log(`[DEBUG] Added new role: ${newValue}`);
             }
         }
 
-        // --- STEAM ID ---
         if (subcommand === 'steamid') {
-            console.log('[DEBUG] Subcommand: steamid');
             infoType = 'steamid';
             newValue = interaction.options.getString('friendcode');
 
@@ -110,28 +102,21 @@ module.exports = {
             }
         }
 
-        // --- STREAM LINK ---
         if (subcommand === 'streamlink') {
-            console.log('[DEBUG] Subcommand: streamlink');
             infoType = 'streamlink';
             newValue = interaction.options.getString('link');
 
             const twitchOrKickRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com)\/[a-zA-Z0-9_]+$/;
             if (!twitchOrKickRegex.test(newValue)) {
-                console.log('[DEBUG] Invalid link provided:', newValue);
+                console.log('[DEBUG] Invalid stream link:', newValue);
                 return interaction.editReply({ content: '❌ Invalid link. Must be Twitch or Kick.' });
             }
         }
 
-        // --- Send update to Google Script ---
         try {
             const updateData = {
                 command: 'update',
-                updateData: [[
-                    member.user.id,
-                    infoType,
-                    newValue
-                ]]
+                updateData: [[ member.user.id, infoType, newValue ]]
             };
 
             console.log('[DEBUG] Sending update to Google Script:', updateData);
@@ -142,15 +127,15 @@ module.exports = {
                 await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue}**!` });
                 console.log('[DEBUG] editReply successful');
             } catch (err) {
-                console.error('[DEBUG] editReply failed:', err);
+                console.log('[DEBUG] Error editing reply:', err);
             }
 
         } catch (error) {
-            console.error('[DEBUG] Error updating info or sending to Google Script:', error);
+            console.log('[DEBUG] Error updating info or sending to Google Script:', error);
             try {
                 await interaction.editReply({ content: '❌ Failed to update your info.' });
             } catch (err) {
-                console.error('[DEBUG] Failed to send failure message:', err);
+                console.log('[DEBUG] editReply failed after Google Script error:', err);
             }
         }
 
