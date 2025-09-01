@@ -1,4 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
+const { InteractionResponseFlags } = require('discord.js'); // v14+
+
 const axios = require('axios');
 
 module.exports = {
@@ -9,8 +11,11 @@ module.exports = {
     async execute(interaction) {
         const userId = interaction.user.id;
 
-        // Reply instantly so the user knows something is happening
-        await interaction.reply({ content: 'Fetching your info...', ephemeral: true });
+        // Reply instantly with flags.Ephemeral
+        await interaction.reply({ 
+            content: 'Fetching your info...', 
+            flags: InteractionResponseFlags.Ephemeral 
+        });
 
         const triggerUrl = process.env.Google_Apps_Script_URL;
         if (!triggerUrl) {
@@ -30,7 +35,6 @@ module.exports = {
                 return await interaction.editReply({ content: `❌ ${data.error}` });
             }
 
-            // Format nicely for Discord
             const msg = [
                 `✅ Here’s your submitted info:`,
                 `**Region:** ${data.region || 'Not set'}`,
