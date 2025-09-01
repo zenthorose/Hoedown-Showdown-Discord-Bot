@@ -1,6 +1,5 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { InteractionResponseFlags } = require('discord.js'); // v14+
-
+const { MessageFlags } = require('discord.js'); // ✅ use MessageFlags instead
 const axios = require('axios');
 
 module.exports = {
@@ -11,10 +10,10 @@ module.exports = {
     async execute(interaction) {
         const userId = interaction.user.id;
 
-        // Reply instantly with flags.Ephemeral
+        // Reply instantly with ephemeral flag
         await interaction.reply({ 
             content: 'Fetching your info...', 
-            flags: InteractionResponseFlags.Ephemeral 
+            flags: MessageFlags.Ephemeral 
         });
 
         const triggerUrl = process.env.Google_Apps_Script_URL;
@@ -23,7 +22,6 @@ module.exports = {
         }
 
         try {
-            // Post to Google Apps Script and wait for JSON back
             const response = await axios.post(triggerUrl, {
                 command: 'info-check',
                 userId: userId
