@@ -44,7 +44,7 @@ module.exports = {
         { name: '/swap', description: 'Used to replace members on teams before official list is posted. Enter Team Set # followed by the person you are replacing lastly who you are replacing them with.' },
         { name: '/approve-teams', description: 'Use this command after the team has been reviewed and everything is good to publish the official Team List to everyone.' },
         { name: '/region-change', description: 'Changes your region to one of the three options "East", "West", or "Both".' },
-        { name: '/region-check', description: 'Returns what regions you are currently selected for.' },
+        { name: '/info-check', description: 'Returns what information you have submitted.' },
         { name: '/register', description: 'Imports the info given for your bot to use.' },
         { name: '/update-info', description: 'Updates the selected info for the bot to use' },
         { name: '/ping', description: 'This keeps the bot alive.' }
