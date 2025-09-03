@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { InteractionResponseFlags } = require('discord.js');
 const { checkPermissions } = require('../permissions');
 
 module.exports = {
@@ -24,13 +23,13 @@ module.exports = {
       if (replied) {
         return interaction.followUp({
           content,
-          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : undefined,
+          ephemeral: isEphemeral,
         });
       } else {
         replied = true;
         return interaction.reply({
           content,
-          flags: isEphemeral ? InteractionResponseFlags.Ephemeral : undefined,
+          ephemeral: isEphemeral,
         });
       }
     }
@@ -43,7 +42,7 @@ module.exports = {
         return safeReply('❌ You do not have permission to view command lists!', true);
       }
 
-      // Updated command lists
+      // Command lists
       const generalCommands = [
         { name: '/info-check', description: 'See what info you’ve submitted.' },
         { name: '/register', description: 'Register your information with the bot.' },
@@ -79,12 +78,12 @@ module.exports = {
         if (replied || interaction.deferred) {
           await interaction.followUp({
             content: '❌ There was an error executing this command!',
-            flags: InteractionResponseFlags.Ephemeral,
+            ephemeral: true,
           });
         } else {
           await interaction.reply({
             content: '❌ There was an error executing this command!',
-            flags: InteractionResponseFlags.Ephemeral,
+            ephemeral: true,
           });
         }
       } catch (err) {
