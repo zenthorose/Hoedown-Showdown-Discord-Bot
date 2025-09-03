@@ -4,8 +4,8 @@ const config = require('../config.json'); // Ensure config contains required API
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('swap')
-        .setDescription('Swap a player in a team.')
+        .setName('replace')
+        .setDescription('Replace a player in a team.')
         .addStringOption(option =>
             option.setName('teamset')
                 .setDescription('The team name')
@@ -41,27 +41,27 @@ module.exports = {
             const removePlayer = interaction.options.getString('removeplayer');
             const addPlayer = interaction.options.getString('addplayer');
 
-            console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
+            console.log(`Received replace command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
 
-            await interaction.reply({ content: `🔄 Processing swap...`, ephemeral: true });
+            await interaction.reply({ content: `🔄 Processing replacement...`, ephemeral: true });
 
             try {
                 const triggerUrl = process.env.Google_Apps_Script_URL;
                 if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
                 await axios.post(triggerUrl, {
-                    command: "swap",
+                    command: "replace",
                     teamSet: teamSet,
                     removePlayer: removePlayer,
                     addPlayer: addPlayer
                 });
 
-                console.log("Swap data sent to Google Apps Script.");
+                console.log("Replacement data sent to Google Apps Script.");
 
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                await logChannel.send(`✅ Player "${removePlayer}" has been swapped with "${addPlayer}" on team "${teamSet}".`);
+                await logChannel.send(`✅ Player "${removePlayer}" has been replaced with "${addPlayer}" on team "${teamSet}".`);
 
-                await interaction.followUp({ content: `✅ Swap completed successfully.`, ephemeral: true });
+                await interaction.followUp({ content: `✅ Replacement completed successfully.`, ephemeral: true });
 
             } catch (error) {
                 console.error("Error with Google Apps Script:", error);

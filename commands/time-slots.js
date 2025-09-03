@@ -1,80 +1,74 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
-const config = require('../config.json'); // Ensure config contains required API credentials
-const { checkPermissions } = require('../permissions'); // Import the permissions check function
+const { EmbedBuilder } = require('discord.js');
+const config = require('../config.json'); // Load config
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('swap')
-        .setDescription('Swap a player in a team.')
-        .addStringOption(option =>
-            option.setName('teamset')
-                .setDescription('The team name')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('removeplayer')
-                .setDescription('The player to be removed')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('addplayer')
-                .setDescription('The player to be added')
-                .setRequired(true)),
+        .setName('time-slots')  // Command name
+        .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),  // Description
+    
+    async execute(interaction, reactionPostsManager) {
+        // Check if the user has the required role or ID
+        const member = interaction.guild.members.cache.get(interaction.user.id);
 
-    async execute(interaction) {
-        // Check permissions using the function from permissions.js
-        const hasPermission = await checkPermissions(interaction);
+        // Check if the member has any of the allowed roles or matching ID
+        const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.name)); // Changed to role.name
+        const isAllowedUser = config.allowedUserIds.includes(interaction.user.id); // Changed to allowedUserIds
 
-        if (!hasPermission) {
-            return interaction.reply({
-                content: '❌ You do not have permission to use this command!',
-                ephemeral: true
-            });
+        if (!hasRequiredRole && !isAllowedUser) {
+            return interaction.reply({ content: "❌ You don't have the required role or ID to use this command.", ephemeral: true });
         }
 
-        const teamSet = interaction.options.getString('teamset');
-        const removePlayer = interaction.options.getString('removeplayer');
-        const addPlayer = interaction.options.getString('addplayer');
-
-        console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
-
-        // Initial response to avoid interaction timeout
-        await interaction.reply({ content: `🔄 Processing swap...`, ephemeral: true });
-
         try {
-            // Get the Google Apps Script URL from environment variables
-            const triggerUrl = process.env.Google_Apps_Script_URL;
+            const targetChannel = interaction.channel; // Use the current channel
 
-            // Make sure the environment variable is defined
-            if (!triggerUrl) {
-                await interaction.followUp({ content: '❌ Error: Google Apps Script URL is not defined.', ephemeral: true });
-                return;
+            // Ensure lists are the same length
+            if (config.timeSlots.length !== config.emojis.length) {
+                console.warn("⚠️ Warning: The number of emojis does not match the number of time slots.");
             }
 
-            // Send the swap data to Google Apps Script
-            await axios.post(triggerUrl, {
-                command: "swap",
-                teamSet: teamSet,
-                removePlayer: removePlayer,
-                addPlayer: addPlayer
+            // Acknowledge command first
+            const responseMessage = await interaction.reply({ 
+                content: "Posting time slot sign-up messages...", 
+                ephemeral: true 
             });
 
-            console.log("Swap data sent to Google Apps Script.");
+            // 🔹 Post an **Introductory Embed** before the time slot messages
+            const introEmbed = new EmbedBuilder()
+                .setColor('#ff0000')
+                .setTitle("Hoedown Showdown Time Slot Sign-Ups")
+                .setDescription("React to the messages below to sign up for a time slot. Make sure to remove your reaction if you are no longer available.")
+                .setTimestamp();
 
-            // Fetch log channel and send update
-            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-            await logChannel.send(`✅ Player "${removePlayer}" has been removed from team "${teamSet}", and "${addPlayer}" has been added.`);
+            await targetChannel.send({ embeds: [introEmbed] });
 
-            // Follow up with success response
-            await interaction.followUp({ content: `✅ Swap completed successfully.`, ephemeral: true });
+            // Loop through each time slot and emoji
+            for (let i = 0; i < config.timeSlots.length; i++) {
+                const timeSlot = config.timeSlots[i];
+                const emoji = config.emojis[i]; // Pick matching emoji for this time slot
+
+                const exampleEmbed = new EmbedBuilder()
+                    .setColor('#444444')
+                    .setTitle(`React to the emoji below to join the ${timeSlot} time slot!`)
+                    .setTimestamp(); 
+
+                const message = await targetChannel.send({ embeds: [exampleEmbed] });
+                reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
+
+                console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
+
+                await message.react(emoji); // React with corresponding emoji
+
+                // ⏳ Add a small delay (1 second) before posting the next message
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            // 🔥 Delete the original bot response after all messages are posted
+            await responseMessage.delete();
 
         } catch (error) {
-            console.error("Error with Google Apps Script:", error);
-
-            await interaction.followUp({ content: "❌ There was an error triggering the Apps Script.", ephemeral: true });
-
-            // Log error to Discord channel
-            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-            await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+            console.error("Error executing timeslots command:", error);
+            await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
         }
     }
 };
