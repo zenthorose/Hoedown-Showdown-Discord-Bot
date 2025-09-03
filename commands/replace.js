@@ -5,10 +5,10 @@ const config = require('../config.json'); // Ensure config contains required API
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('replace')
-        .setDescription('Replace a player in a team.')
-        .addStringOption(option =>
-            option.setName('teamset')
-                .setDescription('The team name')
+        .setDescription('Replace a player in a round.')
+        .addIntegerOption(option =>
+            option.setName('round')
+                .setDescription('The round number')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('removeplayer')
@@ -37,13 +37,13 @@ module.exports = {
                 });
             }
 
-            const teamSet = interaction.options.getString('teamset');
+            const round = interaction.options.getInteger('round');
             const removePlayer = interaction.options.getString('removeplayer');
             const addPlayer = interaction.options.getString('addplayer');
 
-            console.log(`Received replace command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
+            console.log(`Received replace command: round=${round}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
 
-            await interaction.reply({ content: `🔄 Processing replacement...`, ephemeral: true });
+            await interaction.reply({ content: `🔄 Processing replacement for Round #${round}...`, ephemeral: true });
 
             try {
                 const triggerUrl = process.env.Google_Apps_Script_URL;
@@ -51,7 +51,7 @@ module.exports = {
 
                 await axios.post(triggerUrl, {
                     command: "replace",
-                    teamSet: teamSet,
+                    round: round,
                     removePlayer: removePlayer,
                     addPlayer: addPlayer
                 });
@@ -59,7 +59,7 @@ module.exports = {
                 console.log("Replacement data sent to Google Apps Script.");
 
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                await logChannel.send(`✅ Player "${removePlayer}" has been replaced with "${addPlayer}" on team "${teamSet}".`);
+                await logChannel.send(`✅ Player "${removePlayer}" has been replaced with "${addPlayer}" in Round #${round}.`);
 
                 await interaction.followUp({ content: `✅ Replacement completed successfully.`, ephemeral: true });
 
