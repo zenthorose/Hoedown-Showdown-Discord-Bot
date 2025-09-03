@@ -5,18 +5,18 @@ const config = require('../config.json'); // Ensure config contains required API
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('swap')
-        .setDescription('Swap a player in a team.')
+        .setDescription('Swap the positions of two players in a round.')
         .addStringOption(option =>
-            option.setName('teamset')
-                .setDescription('The team name')
+            option.setName('round')
+                .setDescription('The round number (e.g., 3)')
                 .setRequired(true))
         .addStringOption(option =>
-            option.setName('removeplayer')
-                .setDescription('The player to be removed')
+            option.setName('player1')
+                .setDescription('The first player to swap')
                 .setRequired(true))
         .addStringOption(option =>
-            option.setName('addplayer')
-                .setDescription('The player to be added')
+            option.setName('player2')
+                .setDescription('The second player to swap')
                 .setRequired(true)),
 
     async execute(interaction) {
@@ -37,29 +37,30 @@ module.exports = {
                 });
             }
 
-            const teamSet = interaction.options.getString('teamset');
-            const removePlayer = interaction.options.getString('removeplayer');
-            const addPlayer = interaction.options.getString('addplayer');
+            const round = interaction.options.getString('round');
+            const player1 = interaction.options.getString('player1');
+            const player2 = interaction.options.getString('player2');
 
-            console.log(`Received swap command: team=${teamSet}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
+            console.log(`Received swap command: round=${round}, player1=${player1}, player2=${player2}`);
 
-            await interaction.reply({ content: `🔄 Processing swap...`, ephemeral: true });
+            await interaction.reply({ content: `🔄 Processing swap for Round #${round}...`, ephemeral: true });
 
             try {
                 const triggerUrl = process.env.Google_Apps_Script_URL;
                 if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
+                // Send swap data
                 await axios.post(triggerUrl, {
                     command: "swap",
-                    teamSet: teamSet,
-                    removePlayer: removePlayer,
-                    addPlayer: addPlayer
+                    round: round,
+                    player1: player1,
+                    player2: player2
                 });
 
                 console.log("Swap data sent to Google Apps Script.");
 
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                await logChannel.send(`✅ Player "${removePlayer}" has been swapped with "${addPlayer}" on team "${teamSet}".`);
+                await logChannel.send(`✅ Players "${player1}" and "${player2}" have been swapped in Round #${round}.`);
 
                 await interaction.followUp({ content: `✅ Swap completed successfully.`, ephemeral: true });
 
