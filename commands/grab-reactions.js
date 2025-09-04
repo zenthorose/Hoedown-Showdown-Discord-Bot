@@ -17,7 +17,7 @@ module.exports = {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
 
-        if (!hasRequiredRole && !isAllowedUser) {
+        if (!hasRequiredRole) {
             return interaction.reply({
                 content: '❌ You do not have permission to use this command!',
                 ephemeral: true
@@ -34,7 +34,7 @@ module.exports = {
             const messageId = interaction.options.getString('messageid');
             console.log("✅ Message ID received:", messageId);
 
-            // Fetch OptInChannelID from environment variables
+            // Fetch OptInChannelID from config
             const channelId = config.OptInChannelID;
             if (!channelId) throw new Error('OptInChannelID is not defined in config properties.');
 
@@ -48,23 +48,29 @@ module.exports = {
             const message = await channel.messages.fetch(messageId);
             if (!message) throw new Error('Message not found in the specified channel.');
 
-            const uniqueUsernames = new Set();
+            // Collect unique players (IDs as primary key, names for display/logging)
+            const uniquePlayers = new Map(); // key: user.id, value: { id, name }
             for (const [_, reaction] of message.reactions.cache) {
                 const users = await reaction.users.fetch();
                 users.forEach(user => {
-                    if (!user.bot) uniqueUsernames.add(user.username); // Collecting usernames instead of user IDs
+                    if (!user.bot && !uniquePlayers.has(user.id)) {
+                        uniquePlayers.set(user.id, {
+                            id: user.id,
+                            name: user.username // or user.globalName/displayName if you prefer
+                        });
+                    }
                 });
             }
 
-            console.log("✅ Unique usernames collected:", Array.from(uniqueUsernames));
+            console.log("✅ Unique players collected:", Array.from(uniquePlayers.values()));
 
-            // Send the reaction data to Google Apps Script (no posting back in the channel)
+            // Send the reaction data to Google Apps Script
             const triggerUrl = process.env.Google_Apps_Script_URL;
             if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
             await axios.post(triggerUrl, {
                 command: 'grab-reactions',
-                discordUsernames: Array.from(uniqueUsernames) // Sending usernames instead of IDs
+                discordPlayers: Array.from(uniquePlayers.values()) // send [{id, name}, ...]
             });
 
             await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send("✅ Reaction user list update triggered!");
