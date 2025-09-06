@@ -1,25 +1,51 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
+const { checkPermissions } = require('../permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('reset-my-nickname')
-        .setDescription('Resets your server nickname back to your default Discord username.'),
+        .setName('reset-all-nicknames')
+        .setDescription('Resets all server member nicknames back to their default Discord usernames.'),
 
     async execute(interaction) {
-        // Defer reply (ephemeral so only you see it)
+        // Permission check first
+        const hasPermission = await checkPermissions(interaction);
+        if (!hasPermission) {
+            return interaction.reply({
+                content: '❌ You do not have permission to use this command!',
+                ephemeral: true
+            });
+        }
+
+        // Defer reply (visible only to command invoker to avoid flooding chat)
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            // Get the member who invoked the command
-            const member = await interaction.guild.members.fetch(interaction.user.id);
+            // Fetch all members in the guild
+            await interaction.guild.members.fetch();
 
-            // Reset nickname to null (clears server nickname, falls back to default username)
-            await member.setNickname(null);
+            let successCount = 0;
+            let skippedCount = 0;
 
-            await interaction.editReply("✅ Your nickname has been reset to your default Discord username!");
+            // Loop through all members
+            for (const member of interaction.guild.members.cache.values()) {
+                try {
+                    if (member.manageable && member.nickname) {
+                        // Reset nickname (null = remove nickname)
+                        await member.setNickname(null);
+                        successCount++;
+                    } else {
+                        skippedCount++;
+                    }
+                } catch (err) {
+                    console.warn(`⚠️ Could not reset nickname for ${member.user.tag}: ${err.message}`);
+                    skippedCount++;
+                }
+            }
+
+            await interaction.editReply(`✅ Nickname reset complete!\n- Success: ${successCount}\n- Skipped: ${skippedCount}`);
         } catch (error) {
-            console.error("❌ Error resetting nickname:", error);
-            await interaction.editReply("❌ Failed to reset your nickname. Make sure the bot has permission to manage nicknames and its role is above yours.");
+            console.error("❌ Error bulk resetting nicknames:", error);
+            await interaction.editReply("❌ Failed to bulk reset nicknames. Check bot permissions and role hierarchy.");
         }
     },
 };
