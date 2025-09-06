@@ -4,7 +4,7 @@ const { checkPermissions } = require('../permissions');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('reset-all-nicknames')
-        .setDescription('Resets all server member nicknames back to their default Discord usernames.'),
+        .setDescription('Resets all server member display names to their default Discord usernames.'),
 
     async execute(interaction) {
         // Permission check
@@ -28,7 +28,7 @@ module.exports = {
 
             for (const member of interaction.guild.members.cache.values()) {
                 try {
-                    // Skip the guild owner (can never change)
+                    // Skip the guild owner (cannot change)
                     if (member.id === interaction.guild.ownerId) {
                         console.log(`⏩ Skipped ${member.user.tag}: Guild Owner`);
                         skippedCount++;
@@ -53,27 +53,27 @@ module.exports = {
                         continue;
                     }
 
-                    // Only reset if they have a nickname
-                    if (member.nickname) {
-                        await member.setNickname(null);
-                        console.log(`✅ Reset nickname for ${member.user.tag}`);
+                    // Reset nickname if their display name doesn't match their username
+                    if (member.displayName !== member.user.username) {
+                        await member.setNickname(member.user.username);
+                        console.log(`✅ Set display name to username for ${member.user.tag}`);
                         successCount++;
                     } else {
-                        console.log(`⏩ Skipped ${member.user.tag}: No nickname set`);
+                        console.log(`⏩ Skipped ${member.user.tag}: Display name already matches username`);
                         skippedCount++;
                     }
                 } catch (err) {
-                    console.warn(`⚠️ Could not reset nickname for ${member.user.tag}: ${err.message}`);
+                    console.warn(`⚠️ Could not update ${member.user.tag}: ${err.message}`);
                     skippedCount++;
                 }
             }
 
             await interaction.editReply(
-                `✅ Nickname reset complete!\n- Success: ${successCount}\n- Skipped: ${skippedCount}`
+                `✅ Display name reset complete!\n- Updated: ${successCount}\n- Skipped: ${skippedCount}`
             );
         } catch (error) {
-            console.error("❌ Error bulk resetting nicknames:", error);
-            await interaction.editReply("❌ Failed to bulk reset nicknames. Check bot permissions and role hierarchy.");
+            console.error("❌ Error bulk resetting display names:", error);
+            await interaction.editReply("❌ Failed to bulk reset display names. Check bot permissions and role hierarchy.");
         }
     },
 };
