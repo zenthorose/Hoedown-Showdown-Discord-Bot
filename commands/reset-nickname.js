@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { checkPermissions } = require('../permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -7,17 +6,7 @@ module.exports = {
         .setDescription('Resets your server nickname back to your default Discord username.'),
 
     async execute(interaction) {
-        // Check if the user has the required permissions
-        const hasPermission = await checkPermissions(interaction);
-
-        if (!hasPermission) {
-            return interaction.reply({
-                content: '❌ You do not have permission to use this command!',
-                ephemeral: true
-            });
-        }
-
-        // Defer reply (so we don’t time out if API is slow)
+        // Defer reply (ephemeral so only you see it)
         await interaction.deferReply({ ephemeral: true });
 
         try {
