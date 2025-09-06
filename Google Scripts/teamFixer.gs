@@ -31,7 +31,7 @@ function teamFixer(teams, previousSheet, avoidSheet, safeLog, startingAudit = nu
 
   let swapsApplied = 0;
   const unresolvedConflicts = [];
-  const MAX_PASSES = 1000;
+  const MAX_PASSES = 30;
   let passCount = 0;
   let anyFixThisPass;
 
