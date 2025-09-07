@@ -11,14 +11,21 @@ module.exports = {
         try {
             // --- Role / user permission check ---
             const member = await interaction.guild.members.fetch(interaction.user.id);
-            const allowedRoles = config.allowedRoles;
-            const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.id));
+            const allowedRoles = Array.isArray(config.allowedRoles) ? config.allowedRoles : [];
+            const hasRequiredRole = member && member.roles.cache.some(role => allowedRoles.includes(role.id));
+
+            const isAllowedUser = Array.isArray(config.allowedUserIds) ? config.allowedUserIds.includes(interaction.user.id) : false;
 
             if (!hasRequiredRole && !isAllowedUser) {
                 return interaction.reply({ content: "❌ You don't have the required role or ID to use this command.", ephemeral: true });
             }
 
-            const targetChannel = interaction.channel;
+            // --- Fetch the OptIn channel from config ---
+            const targetChannel = await interaction.client.channels.fetch(config.OptInChannelID);
+            if (!targetChannel) {
+                console.error("❌ Could not find OptInChannelID in this server");
+                return interaction.reply({ content: "❌ Could not find the Opt-In channel.", ephemeral: true });
+            }
 
             // --- Validate timeSlots / emojis length ---
             if (config.timeSlots.length !== config.emojis.length) {
@@ -28,7 +35,7 @@ module.exports = {
             // --- Send a public processing message so it can be deleted later ---
             const responseMessage = await interaction.reply({ 
                 content: "Posting time slot sign-up messages...", 
-                fetchReply: true // important for deleting later
+                fetchReply: true
             });
 
             // --- Post introductory embed ---
@@ -51,7 +58,9 @@ module.exports = {
                     .setTimestamp(); 
 
                 const message = await targetChannel.send({ embeds: [exampleEmbed] });
-                reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
+                if (reactionPostsManager && typeof reactionPostsManager.addPost === 'function') {
+                    reactionPostsManager.addPost({ channelId: message.channel.id, messageId: message.id, embedId: exampleEmbed.id, reactions: [] });
+                }
 
                 console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
 
