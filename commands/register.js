@@ -34,6 +34,7 @@ module.exports = {
         const member = interaction.member;
 
         try {
+            // Assign region + registered roles
             const roleName = region === 'East' ? 'East' : region === 'West' ? 'West' : 'Both';
             const role = interaction.guild.roles.cache.find(r => r.name === roleName);
             const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');
@@ -41,12 +42,12 @@ module.exports = {
             if (role) await member.roles.add(role);
             if (registeredRole) await member.roles.add(registeredRole);
 
+            // Always send username + ID (no nicknames)
             const registerData = {
                 command: 'register',
                 registerData: [[
-                    member.nickname || member.user.username,
-                    member.user.username,
-                    member.user.id,
+                    member.user.username,  // Username
+                    member.user.id,        // Discord ID
                     region,
                     steamId,
                     streamLink

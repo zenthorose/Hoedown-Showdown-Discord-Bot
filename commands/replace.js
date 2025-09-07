@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
-const config = require('../config.json'); // Ensure config contains required API credentials
+const config = require('../config.json');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -10,11 +10,11 @@ module.exports = {
             option.setName('round')
                 .setDescription('The round number')
                 .setRequired(true))
-        .addStringOption(option =>
+        .addUserOption(option =>
             option.setName('removeplayer')
                 .setDescription('The player to be removed')
                 .setRequired(true))
-        .addStringOption(option =>
+        .addUserOption(option =>
             option.setName('addplayer')
                 .setDescription('The player to be added')
                 .setRequired(true)),
@@ -38,10 +38,10 @@ module.exports = {
             }
 
             const round = interaction.options.getInteger('round');
-            const removePlayer = interaction.options.getString('removeplayer');
-            const addPlayer = interaction.options.getString('addplayer');
+            const removeUser = interaction.options.getUser('removeplayer');
+            const addUser = interaction.options.getUser('addplayer');
 
-            console.log(`Received replace command: round=${round}, removePlayer=${removePlayer}, addPlayer=${addPlayer}`);
+            console.log(`Received replace command: round=${round}, remove=${removeUser.tag}, add=${addUser.tag}`);
 
             await interaction.reply({ content: `🔄 Processing replacement for Round #${round}...`, ephemeral: true });
 
@@ -52,14 +52,20 @@ module.exports = {
                 await axios.post(triggerUrl, {
                     command: "replace",
                     round: round,
-                    removePlayer: removePlayer,
-                    addPlayer: addPlayer
+                    removePlayer: {
+                        username: removeUser.username,
+                        id: removeUser.id
+                    },
+                    addPlayer: {
+                        username: addUser.username,
+                        id: addUser.id
+                    }
                 });
 
                 console.log("Replacement data sent to Google Apps Script.");
 
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                await logChannel.send(`✅ Player "${removePlayer}" has been replaced with "${addPlayer}" in Round #${round}.`);
+                await logChannel.send(`✅ Player **${removeUser.username}** (${removeUser.id}) has been replaced with **${addUser.username}** (${addUser.id}) in Round #${round}.`);
 
                 await interaction.followUp({ content: `✅ Replacement completed successfully.`, ephemeral: true });
 
