@@ -30,12 +30,6 @@ module.exports = {
             const round = interaction.options.getInteger('round');
             console.log(`✅ Received approve-round command for Round #${round}`);
 
-            // --- Send "processing" message (public, not ephemeral) ---
-            replyMessage = await interaction.reply({
-                content: `🔄 Processing approval for Round #${round}...`,
-                fetchReply: true
-            });
-
             // --- Clear previous bot messages in the channel ---
             try {
                 const fetchedMessages = await interaction.channel.messages.fetch({ limit: 100 });
@@ -47,6 +41,12 @@ module.exports = {
             } catch (clearError) {
                 console.error("❌ Error clearing bot messages:", clearError);
             }
+
+            // --- Send "processing" message (public, not ephemeral) ---
+            replyMessage = await interaction.reply({
+                content: `🔄 Processing approval for Round #${round}...`,
+                fetchReply: true
+            });
 
             // --- Send approval request to Google Apps Script ---
             try {
