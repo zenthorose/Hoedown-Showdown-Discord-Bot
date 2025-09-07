@@ -43,13 +43,22 @@ module.exports = {
 
             console.log(`Received swap command: round=${round}, player1=${player1.tag}, player2=${player2.tag}`);
 
-            await interaction.reply({ content: `🔄 Processing swap for Round #${round}...`, ephemeral: true });
+            // Send ephemeral "processing" reply and fetch it
+            let replyMessage;
+            try {
+                replyMessage = await interaction.reply({
+                    content: `🔄 Processing swap for Round #${round}...`,
+                    fetchReply: true,
+                    ephemeral: true
+                });
+            } catch (err) {
+                console.error("Error sending processing reply:", err);
+            }
 
-            // --- Clear bot messages in the channel ---
+            // Clear bot messages in the channel
             try {
                 const fetchedMessages = await interaction.channel.messages.fetch({ limit: 100 });
                 const botMessages = fetchedMessages.filter(msg => msg.author.bot);
-
                 if (botMessages.size > 0) {
                     await interaction.channel.bulkDelete(botMessages, true);
                     console.log(`Deleted ${botMessages.size} bot messages.`);
@@ -58,7 +67,7 @@ module.exports = {
                 console.error("❌ Error clearing bot messages:", clearError);
             }
 
-            // --- Send swap data to Google Apps Script ---
+            // Send swap data to Google Apps Script
             try {
                 const triggerUrl = process.env.Google_Apps_Script_URL;
                 if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
@@ -66,35 +75,47 @@ module.exports = {
                 await axios.post(triggerUrl, {
                     command: "swap",
                     round: round,
-                    player1: {
-                        username: player1.username,
-                        id: player1.id
-                    },
-                    player2: {
-                        username: player2.username,
-                        id: player2.id
-                    }
+                    player1: { username: player1.username, id: player1.id },
+                    player2: { username: player2.username, id: player2.id }
                 });
 
                 console.log("Swap data sent to Google Apps Script.");
 
+                // Log to the designated log channel
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                await logChannel.send(`✅ Players **${player1.username}** (${player1.id}) and **${player2.username}** (${player2.id}) have been swapped in Round #${round}.`);
+                if (logChannel) {
+                    await logChannel.send(`✅ Players **${player1.username}** (${player1.id}) and **${player2.username}** (${player2.id}) have been swapped in Round #${round}.`);
+                }
 
-                await interaction.followUp({ content: `✅ Swap completed successfully.`, ephemeral: true });
+                // Send a single success message and delete after 5 seconds
+                const successMessage = await interaction.channel.send(
+                    `✅ Swap completed successfully! Players **${player1.username}** and **${player2.username}** have been swapped in Round #${round}.`
+                );
+
+                setTimeout(async () => {
+                    try {
+                        await successMessage.delete();
+                    } catch (err) {
+                        console.error("Error deleting swap success message:", err);
+                    }
+                }, 5000);
+
+                // Delete the ephemeral "processing" reply
+                if (replyMessage) await replyMessage.delete();
 
             } catch (error) {
                 console.error("Error with Google Apps Script:", error);
 
-                await interaction.followUp({ content: "❌ There was an error triggering the Apps Script.", ephemeral: true });
-
+                await interaction.channel.send("❌ There was an error triggering the Apps Script.");
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+                if (logChannel) await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+
+                if (replyMessage) await replyMessage.delete();
             }
 
         } catch (error) {
             console.error("❌ Error checking permissions:", error);
             return interaction.reply({ content: "❌ Error checking permissions.", ephemeral: true });
         }
-    }
+    },
 };
