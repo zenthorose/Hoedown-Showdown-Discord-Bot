@@ -45,6 +45,20 @@ module.exports = {
 
             await interaction.reply({ content: `🔄 Processing replacement for Round #${round}...`, ephemeral: true });
 
+            // --- Clear bot messages in the channel ---
+            try {
+                const fetchedMessages = await interaction.channel.messages.fetch({ limit: 100 });
+                const botMessages = fetchedMessages.filter(msg => msg.author.bot);
+
+                if (botMessages.size > 0) {
+                    await interaction.channel.bulkDelete(botMessages, true);
+                    console.log(`Deleted ${botMessages.size} bot messages.`);
+                }
+            } catch (clearError) {
+                console.error("❌ Error clearing bot messages:", clearError);
+            }
+
+            // --- Send replacement data to Google Apps Script ---
             try {
                 const triggerUrl = process.env.Google_Apps_Script_URL;
                 if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
