@@ -4,36 +4,34 @@ const config = require('../config.json'); // Load config
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('time-slots')  // Command name
-        .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),  // Description
-    
+        .setName('time-slots')
+        .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),
+
     async execute(interaction, reactionPostsManager) {
-        // Check if the user has the required role or ID
-        const member = interaction.guild.members.cache.get(interaction.user.id);
-
-        // Check if the member has any of the allowed roles or matching ID
-        const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.name)); // Changed to role.name
-        const isAllowedUser = config.allowedUserIds.includes(interaction.user.id); // Changed to allowedUserIds
-
-        if (!hasRequiredRole && !isAllowedUser) {
-            return interaction.reply({ content: "❌ You don't have the required role or ID to use this command.", ephemeral: true });
-        }
-
         try {
-            const targetChannel = interaction.channel; // Use the current channel
+            // --- Role / user permission check ---
+            const member = await interaction.guild.members.fetch(interaction.user.id);
+            const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.id)); // <-- swapped to role.id
+            const isAllowedUser = config.allowedUserIds.includes(interaction.user.id);
 
-            // Ensure lists are the same length
+            if (!hasRequiredRole && !isAllowedUser) {
+                return interaction.reply({ content: "❌ You don't have the required role or ID to use this command.", ephemeral: true });
+            }
+
+            const targetChannel = interaction.channel;
+
+            // --- Validate timeSlots / emojis length ---
             if (config.timeSlots.length !== config.emojis.length) {
                 console.warn("⚠️ Warning: The number of emojis does not match the number of time slots.");
             }
 
-            // Acknowledge command first
+            // --- Send a public processing message so it can be deleted later ---
             const responseMessage = await interaction.reply({ 
                 content: "Posting time slot sign-up messages...", 
-                ephemeral: true 
+                fetchReply: true // important for deleting later
             });
 
-            // 🔹 Post an **Introductory Embed** before the time slot messages
+            // --- Post introductory embed ---
             const introEmbed = new EmbedBuilder()
                 .setColor('#ff0000')
                 .setTitle("Hoedown Showdown Time Slot Sign-Ups")
@@ -42,10 +40,10 @@ module.exports = {
 
             await targetChannel.send({ embeds: [introEmbed] });
 
-            // Loop through each time slot and emoji
+            // --- Post each time slot ---
             for (let i = 0; i < config.timeSlots.length; i++) {
                 const timeSlot = config.timeSlots[i];
-                const emoji = config.emojis[i]; // Pick matching emoji for this time slot
+                const emoji = config.emojis[i];
 
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
@@ -57,17 +55,19 @@ module.exports = {
 
                 console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
 
-                await message.react(emoji); // React with corresponding emoji
-
-                // ⏳ Add a small delay (1 second) before posting the next message
+                await message.react(emoji);
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
-            // 🔥 Delete the original bot response after all messages are posted
-            await responseMessage.delete();
+            // --- Delete processing message after all posts ---
+            if (responseMessage) {
+                setTimeout(async () => {
+                    try { await responseMessage.delete(); } catch (err) { console.error(err); }
+                }, 5000);
+            }
 
         } catch (error) {
-            console.error("Error executing timeslots command:", error);
+            console.error("Error executing time-slots command:", error);
             await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
         }
     }
