@@ -18,6 +18,7 @@ module.exports = {
             // --- Permission check ---
             const permissionError = await checkPermissions(interaction);
             if (permissionError) {
+                console.log("Permission check failed:", permissionError);
                 return interaction.reply({ content: String(permissionError), ephemeral: true });
             }
 
@@ -32,6 +33,7 @@ module.exports = {
                     fetchReply: true,
                     ephemeral: true
                 });
+                console.log("Sent ephemeral processing message.");
             } catch (err) {
                 console.error("Error sending processing reply:", err);
             }
@@ -42,7 +44,7 @@ module.exports = {
                 const botMessages = fetchedMessages.filter(msg => msg.author.bot);
                 if (botMessages.size > 0) {
                     await interaction.channel.bulkDelete(botMessages, true);
-                    console.log(`Deleted ${botMessages.size} bot messages.`);
+                    console.log(`Deleted ${botMessages.size} previous bot messages.`);
                 }
             } catch (clearError) {
                 console.error("❌ Error clearing bot messages:", clearError);
@@ -52,18 +54,16 @@ module.exports = {
             try {
                 const triggerUrl = process.env.Google_Apps_Script_URL;
                 if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-                await axios.post(triggerUrl, {
-                    command: "approve-round",
-                    round: round
-                });
-
-                console.log("Approval request sent to Google Apps Script.");
+                
+                console.log(`Sending POST to Google Apps Script: ${triggerUrl}`);
+                const response = await axios.post(triggerUrl, { command: "approve-round", round });
+                console.log("Google Apps Script responded:", response.data);
 
                 // --- Log to log channel ---
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
                 if (logChannel) {
                     await logChannel.send(`✅ Round #${round} has been approved.`);
+                    console.log("Logged approval in log channel.");
                 }
 
                 // --- Update ephemeral message to success and delete after 5s ---
@@ -75,7 +75,7 @@ module.exports = {
                 }
 
             } catch (error) {
-                console.error("Error with Google Apps Script:", error);
+                console.error("❌ Error with Google Apps Script:", error);
 
                 if (replyMessage) {
                     await replyMessage.edit(`❌ There was an error triggering the Apps Script.`);
