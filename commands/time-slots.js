@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder } = require('discord.js');
-const config = require('../config.json'); // Load config
+const config = require('../config.json');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -12,8 +12,7 @@ module.exports = {
             // --- Role / user permission check ---
             const member = await interaction.guild.members.fetch(interaction.user.id);
             const allowedRoles = config.allowedRoles;
-            const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.id)); // <-- swapped to role.id
-            const isAllowedUser = config.allowedUserIds.includes(interaction.user.id);
+            const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.id));
 
             if (!hasRequiredRole && !isAllowedUser) {
                 return interaction.reply({ content: "❌ You don't have the required role or ID to use this command.", ephemeral: true });
