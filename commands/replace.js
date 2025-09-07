@@ -40,17 +40,6 @@ module.exports = {
 
             console.log(`Received replace command: round=${round}, remove=${removeUser.tag}, add=${addUser.tag}`);
 
-            // --- Send ephemeral "processing" message ---
-            let replyMessage;
-            try {
-                replyMessage = await interaction.reply({
-                    content: `🔄 Processing replacement for Round #${round}...`,
-                    fetchReply: true
-                });
-            } catch (err) {
-                console.error("Error sending processing reply:", err);
-            }
-
             // --- Clear previous bot messages in channel ---
             try {
                 const fetchedMessages = await interaction.channel.messages.fetch({ limit: 100 });
@@ -62,6 +51,17 @@ module.exports = {
                 }
             } catch (clearError) {
                 console.error("❌ Error clearing bot messages:", clearError);
+            }
+
+            // --- Send ephemeral "processing" message ---
+            let replyMessage;
+            try {
+                replyMessage = await interaction.reply({
+                    content: `🔄 Processing replacement for Round #${round}...`,
+                    fetchReply: true
+                });
+            } catch (err) {
+                console.error("Error sending processing reply:", err);
             }
 
             // --- Send replacement data to Google Apps Script ---
