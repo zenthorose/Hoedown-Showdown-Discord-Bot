@@ -5,11 +5,11 @@ const { checkPermissions } = require('../permissions');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('approve-teams')
-        .setDescription('Approves a team set for use.')
+        .setName('approve-round')
+        .setDescription('Approves a round for use.')
         .addIntegerOption(option =>
-            option.setName('teamset')
-                .setDescription('The team set number to approve')
+            option.setName('round')
+                .setDescription('The round number to approve')
                 .setRequired(true)
         ),
 
@@ -21,19 +21,31 @@ module.exports = {
                 return interaction.reply({ content: String(permissionError), ephemeral: true });
             }
 
-            const teamSet = interaction.options.getInteger('teamset');
-            console.log(`Received approve-teams command: teamSet=${teamSet}`);
+            const round = interaction.options.getInteger('round');
+            console.log(`Received approve-round command: round=${round}`);
 
-            // --- Send ephemeral processing message ---
+            // --- Send ephemeral "processing" message ---
             let replyMessage;
             try {
                 replyMessage = await interaction.reply({
-                    content: `🔄 Processing approval for Team Set #${teamSet}...`,
+                    content: `🔄 Processing approval for Round #${round}...`,
                     fetchReply: true,
                     ephemeral: true
                 });
             } catch (err) {
                 console.error("Error sending processing reply:", err);
+            }
+
+            // --- Clear previous bot messages in the channel ---
+            try {
+                const fetchedMessages = await interaction.channel.messages.fetch({ limit: 100 });
+                const botMessages = fetchedMessages.filter(msg => msg.author.bot);
+                if (botMessages.size > 0) {
+                    await interaction.channel.bulkDelete(botMessages, true);
+                    console.log(`Deleted ${botMessages.size} bot messages.`);
+                }
+            } catch (clearError) {
+                console.error("❌ Error clearing bot messages:", clearError);
             }
 
             // --- Send approval request to Google Apps Script ---
@@ -42,8 +54,8 @@ module.exports = {
                 if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
                 await axios.post(triggerUrl, {
-                    command: "approve-teams",
-                    teamSet: teamSet
+                    command: "approve-round",
+                    round: round
                 });
 
                 console.log("Approval request sent to Google Apps Script.");
@@ -51,12 +63,12 @@ module.exports = {
                 // --- Log to log channel ---
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
                 if (logChannel) {
-                    await logChannel.send(`✅ Team set "${teamSet}" has been approved.`);
+                    await logChannel.send(`✅ Round #${round} has been approved.`);
                 }
 
-                // --- Send success message and delete after 5 seconds ---
+                // --- Update ephemeral message to success and delete after 5s ---
                 if (replyMessage) {
-                    await replyMessage.edit(`✅ Team Set #${teamSet} approved successfully!`);
+                    await replyMessage.edit(`✅ Round #${round} approved successfully!`);
                     setTimeout(async () => {
                         try { await replyMessage.delete(); } catch (err) { console.error(err); }
                     }, 5000);
