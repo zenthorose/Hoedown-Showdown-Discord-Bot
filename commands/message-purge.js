@@ -4,57 +4,54 @@ const { checkPermissions } = require('../permissions');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('message-purge')
-    .setDescription('Deletes all messages in this channel sent by the bot.'),
+    .setDescription('Deletes all messages in this channel sent by the bot.')
+    .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
   async execute(interaction) {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      const messageContent = String(content); // ensure string
       if (replied || interaction.deferred) {
-        return interaction.followUp({
-          content: messageContent,
-          ephemeral: isEphemeral,
-        });
+        return interaction.followUp({ content: String(content), ephemeral: isEphemeral });
       } else {
         replied = true;
-        return interaction.reply({
-          content: messageContent,
-          ephemeral: isEphemeral,
-        });
+        return interaction.reply({ content: String(content), ephemeral: isEphemeral });
       }
     }
 
     try {
-      // Check permissions using your existing permissions function
-      const hasPermission = await checkPermissions(interaction);
-      if (!hasPermission) {
-        return safeReply('❌ You do not have permission to use this command!', true);
+      // --- Permission check ---
+      const permResult = await checkPermissions(interaction);
+      if (typeof permResult === 'string') {
+        return safeReply(permResult, true); // Send error message if string
       }
 
-      // Check if bot has Manage Messages
+      // Ensure bot has Manage Messages permission
       if (!interaction.channel.permissionsFor(interaction.client.user).has('ManageMessages')) {
         return safeReply("❌ I don't have permission to delete messages in this channel.", true);
       }
 
-      // Defer to avoid timeout
+      // Defer reply to avoid interaction timeout
       await interaction.deferReply({ ephemeral: true });
 
       // Fetch last 100 messages
       const messages = await interaction.channel.messages.fetch({ limit: 100 });
       const botMessages = messages.filter(msg => msg.author.bot);
 
-      if (!botMessages.size) {
-        return safeReply('✅ No bot messages found to delete.');
+      if (botMessages.size === 0) {
+        return interaction.editReply("✅ No bot messages found to delete.");
       }
 
-      // Bulk delete (ignore errors for messages older than 14 days)
+      // Bulk delete
       await interaction.channel.bulkDelete(botMessages, true);
-
-      return safeReply(`✅ Deleted ${botMessages.size} bot messages!`);
+      return interaction.editReply(`✅ Deleted ${botMessages.size} bot messages!`);
     } catch (error) {
-      console.error('❌ Error deleting messages:', error);
-      return safeReply('❌ Failed to delete bot messages. Make sure messages are not older than 14 days.', true);
+      console.error("❌ Error deleting messages:", error);
+      try {
+        await safeReply("❌ Failed to delete bot messages. Make sure messages are not older than 14 days.", true);
+      } catch (err) {
+        console.error("❌ Failed to send error reply:", err);
+      }
     }
   },
 };
