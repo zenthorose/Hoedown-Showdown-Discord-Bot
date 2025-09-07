@@ -14,10 +14,15 @@ module.exports = {
         ),
 
     async execute(interaction) {
+        let replyMessage;
+
         try {
             // --- Permission check ---
             const permissionError = await checkPermissions(interaction);
-            if (permissionError) {
+            if (permissionError === true) {
+                console.log("Permission check failed: user lacks permission");
+                return interaction.reply({ content: "❌ You do not have permission to use this command.", ephemeral: true });
+            } else if (permissionError) {
                 console.log("Permission check failed:", permissionError);
                 return interaction.reply({ content: String(permissionError), ephemeral: true });
             }
@@ -26,7 +31,6 @@ module.exports = {
             console.log(`Received approve-round command: round=${round}`);
 
             // --- Send ephemeral "processing" message ---
-            let replyMessage;
             try {
                 replyMessage = await interaction.reply({
                     content: `🔄 Processing approval for Round #${round}...`,
@@ -54,16 +58,20 @@ module.exports = {
             try {
                 const triggerUrl = process.env.Google_Apps_Script_URL;
                 if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-                
+
                 console.log(`Sending POST to Google Apps Script: ${triggerUrl}`);
                 const response = await axios.post(triggerUrl, { command: "approve-round", round });
                 console.log("Google Apps Script responded:", response.data);
 
                 // --- Log to log channel ---
-                const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                if (logChannel) {
-                    await logChannel.send(`✅ Round #${round} has been approved.`);
-                    console.log("Logged approval in log channel.");
+                try {
+                    const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+                    if (logChannel) {
+                        await logChannel.send(`✅ Round #${round} has been approved.`);
+                        console.log("Logged approval in log channel.");
+                    }
+                } catch (logError) {
+                    console.error("❌ Error logging approval to log channel:", logError);
                 }
 
                 // --- Update ephemeral message to success and delete after 5s ---
@@ -74,8 +82,8 @@ module.exports = {
                     }, 5000);
                 }
 
-            } catch (error) {
-                console.error("❌ Error with Google Apps Script:", error);
+            } catch (gasError) {
+                console.error("❌ Error with Google Apps Script:", gasError);
 
                 if (replyMessage) {
                     await replyMessage.edit(`❌ There was an error triggering the Apps Script.`);
@@ -84,13 +92,17 @@ module.exports = {
                     }, 5000);
                 }
 
-                const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                if (logChannel) await logChannel.send(`❌ Error with Google Apps Script: ${error.message}`);
+                try {
+                    const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+                    if (logChannel) await logChannel.send(`❌ Error with Google Apps Script: ${gasError.message}`);
+                } catch (logErr) {
+                    console.error("❌ Failed to log GAS error:", logErr);
+                }
             }
 
         } catch (error) {
-            console.error("❌ Error checking permissions:", error);
-            return interaction.reply({ content: "❌ Error checking permissions.", ephemeral: true });
+            console.error("❌ Unexpected error:", error);
+            return interaction.reply({ content: "❌ An unexpected error occurred.", ephemeral: true });
         }
     }
 };
