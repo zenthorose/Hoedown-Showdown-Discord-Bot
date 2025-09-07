@@ -11,6 +11,7 @@ module.exports = {
         try {
             // --- Role / user permission check ---
             const member = await interaction.guild.members.fetch(interaction.user.id);
+            const allowedRoles = config.allowedRoles;
             const hasRequiredRole = member && member.roles.cache.some(role => config.allowedRoles.includes(role.id)); // <-- swapped to role.id
             const isAllowedUser = config.allowedUserIds.includes(interaction.user.id);
 
