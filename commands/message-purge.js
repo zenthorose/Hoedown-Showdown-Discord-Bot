@@ -1,46 +1,60 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const config = require('../config.json'); // Import the config file
-const { checkPermissions } = require('../permissions'); // Import the permissions check
+const { checkPermissions } = require('../permissions');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('message-purge')
-        .setDescription('Deletes all messages in this channel sent by the bot.')
-        .setDefaultMemberPermissions(0), // Requires Manage Messages permission
+  data: new SlashCommandBuilder()
+    .setName('message-purge')
+    .setDescription('Deletes all messages in this channel sent by the bot.'),
 
-    async execute(interaction) {
-        // Use the checkPermissions function to validate the user’s role or ID
-        const permissionError = await checkPermissions(interaction);
-        if (permissionError) {
-            return interaction.reply({
-                content: permissionError,
-                ephemeral: true
-            });
-        }
+  async execute(interaction) {
+    let replied = false;
 
-        // Ensure the bot has permissions to delete messages
-        if (!interaction.channel.permissionsFor(interaction.client.user).has("ManageMessages")) {
-            return interaction.reply({ content: "❌ I don't have permission to delete messages in this channel.", ephemeral: true });
-        }
-
-        // Defer the reply to avoid interaction timeout
-        await interaction.deferReply({ ephemeral: true });
-
-        try {
-            const messages = await interaction.channel.messages.fetch({ limit: 100 });
-
-            const botMessages = messages.filter(msg => msg.author.bot);
-
-            if (botMessages.size === 0) {
-                return interaction.editReply("✅ No bot messages found to delete.");
-            }
-
-            await interaction.channel.bulkDelete(botMessages, true);
-
-            interaction.editReply(`✅ Deleted ${botMessages.size} bot messages!`);
-        } catch (error) {
-            console.error("❌ Error deleting messages:", error);
-            interaction.editReply("❌ Failed to delete bot messages. Make sure messages are not older than 14 days.");
-        }
+    async function safeReply(content, isEphemeral = false) {
+      const messageContent = String(content); // ensure string
+      if (replied || interaction.deferred) {
+        return interaction.followUp({
+          content: messageContent,
+          ephemeral: isEphemeral,
+        });
+      } else {
+        replied = true;
+        return interaction.reply({
+          content: messageContent,
+          ephemeral: isEphemeral,
+        });
+      }
     }
+
+    try {
+      // Check permissions using your existing permissions function
+      const hasPermission = await checkPermissions(interaction);
+      if (!hasPermission) {
+        return safeReply('❌ You do not have permission to use this command!', true);
+      }
+
+      // Check if bot has Manage Messages
+      if (!interaction.channel.permissionsFor(interaction.client.user).has('ManageMessages')) {
+        return safeReply("❌ I don't have permission to delete messages in this channel.", true);
+      }
+
+      // Defer to avoid timeout
+      await interaction.deferReply({ ephemeral: true });
+
+      // Fetch last 100 messages
+      const messages = await interaction.channel.messages.fetch({ limit: 100 });
+      const botMessages = messages.filter(msg => msg.author.bot);
+
+      if (!botMessages.size) {
+        return safeReply('✅ No bot messages found to delete.');
+      }
+
+      // Bulk delete (ignore errors for messages older than 14 days)
+      await interaction.channel.bulkDelete(botMessages, true);
+
+      return safeReply(`✅ Deleted ${botMessages.size} bot messages!`);
+    } catch (error) {
+      console.error('❌ Error deleting messages:', error);
+      return safeReply('❌ Failed to delete bot messages. Make sure messages are not older than 14 days.', true);
+    }
+  },
 };
