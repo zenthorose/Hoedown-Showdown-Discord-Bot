@@ -8,7 +8,7 @@ module.exports = {
         .setDescription('Approves a round for use.')
         .addIntegerOption(option =>
             option.setName('round')
-                .setDescription('The round number to approve')
+                .setDescription('The round number to approve (1–16)')
                 .setRequired(true)
         ),
 
@@ -28,6 +28,15 @@ module.exports = {
             }
 
             const round = interaction.options.getInteger('round');
+
+            // --- Validate round is between 1 and 16 ---
+            if (isNaN(round) || round < 1 || round > 16) {
+                return interaction.reply({
+                    content: '❌ Invalid round number. Please enter a number between 1 and 16.',
+                    ephemeral: true
+                });
+            }
+
             console.log(`✅ Received approve-round command for Round #${round}`);
 
             // --- Clear previous bot messages in the channel ---
@@ -56,14 +65,27 @@ module.exports = {
                 const response = await axios.post(triggerUrl, { command: "approve-round", round });
                 console.log("✅ Google Apps Script responded:", response.data);
 
-                // --- Log in the log channel ---
+                // --- Handle response cases ---
+                if (response.data?.status === "not_found") {
+                    // Round missing
+                    if (replyMessage) {
+                        await replyMessage.edit(`❌ Round #${round} can't be found.`);
+                        setTimeout(async () => {
+                            try { await replyMessage.delete(); } catch (err) { console.error(err); }
+                        }, 5000);
+                    }
+                    const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+                    if (logChannel) await logChannel.send(`❌ Round #${round} can't be found.`);
+                    return;
+                }
+
+                // --- Normal success ---
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
                 if (logChannel) {
                     await logChannel.send(`✅ Round #${round} has been approved.`);
                     console.log("✅ Logged approval in log channel.");
                 }
 
-                // --- Update success message and delete after 5s ---
                 if (replyMessage) {
                     await replyMessage.edit(`✅ Round #${round} approved successfully!`);
                     setTimeout(async () => {
