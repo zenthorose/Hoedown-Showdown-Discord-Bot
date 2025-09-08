@@ -8,7 +8,7 @@ module.exports = {
         .setDescription('Approves a round for use.')
         .addIntegerOption(option =>
             option.setName('round')
-                .setDescription('The round number to approve (1–16)')
+                .setDescription('The round number to approve')
                 .setRequired(true)
         ),
 
@@ -29,7 +29,7 @@ module.exports = {
 
             const round = interaction.options.getInteger('round');
 
-            // --- Validate round is between 1 and 16 ---
+            // --- Validate input manually (1–16 only) ---
             if (isNaN(round) || round < 1 || round > 16) {
                 return interaction.reply({
                     content: '❌ Invalid round number. Please enter a number between 1 and 16.',
@@ -51,7 +51,7 @@ module.exports = {
                 console.error("❌ Error clearing bot messages:", clearError);
             }
 
-            // --- Send "processing" message (public, not ephemeral) ---
+            // --- Send "processing" message ---
             replyMessage = await interaction.reply({
                 content: `🔄 Processing approval for Round #${round}...`,
                 fetchReply: true
@@ -65,29 +65,45 @@ module.exports = {
                 const response = await axios.post(triggerUrl, { command: "approve-round", round });
                 console.log("✅ Google Apps Script responded:", response.data);
 
-                // --- Handle response cases ---
-                if (response.data?.status === "not_found") {
-                    // Round missing
-                    if (replyMessage) {
-                        await replyMessage.edit(`❌ Round #${round} can't be found.`);
-                        setTimeout(async () => {
-                            try { await replyMessage.delete(); } catch (err) { console.error(err); }
-                        }, 5000);
+                const { success, reason } = response.data;
+
+                let logMessage;
+                let displayMessage;
+
+                if (success) {
+                    displayMessage = `✅ Round #${round} approved successfully!`;
+                    logMessage = `✅ Round #${round} has been approved.`;
+                } else {
+                    switch (reason) {
+                        case "not_found":
+                            displayMessage = `❌ Round #${round} can't be found.`;
+                            logMessage = displayMessage;
+                            break;
+                        case "no_data":
+                            displayMessage = `❌ Round #${round} has no team data.`;
+                            logMessage = displayMessage;
+                            break;
+                        case "discord_error":
+                            displayMessage = `❌ Error posting Round #${round} to Discord.`;
+                            logMessage = displayMessage;
+                            break;
+                        default:
+                            displayMessage = `❌ Unknown error occurred while approving Round #${round}.`;
+                            logMessage = displayMessage;
+                            break;
                     }
-                    const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-                    if (logChannel) await logChannel.send(`❌ Round #${round} can't be found.`);
-                    return;
                 }
 
-                // --- Normal success ---
+                // --- Log in log channel ---
                 const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
                 if (logChannel) {
-                    await logChannel.send(`✅ Round #${round} has been approved.`);
-                    console.log("✅ Logged approval in log channel.");
+                    await logChannel.send(logMessage);
+                    console.log("✅ Logged result in log channel.");
                 }
 
+                // --- Update reply & delete after 5s ---
                 if (replyMessage) {
-                    await replyMessage.edit(`✅ Round #${round} approved successfully!`);
+                    await replyMessage.edit(displayMessage);
                     setTimeout(async () => {
                         try { await replyMessage.delete(); } catch (err) { console.error(err); }
                     }, 5000);
