@@ -41,20 +41,22 @@ module.exports = {
             // --- Post introductory embed ---
             const introEmbed = new EmbedBuilder()
                 .setColor('#ff0000')
-                .setTitle("Hoedown Showdown Time Slot Sign-Ups")
+                .setTitle("Hoedown Showdown <t:1761440940:D> Time Slot Sign-Ups")
                 .setDescription("React to the messages below to sign up for a time slot. Make sure to remove your reaction if you are no longer available.")
                 .setTimestamp();
 
             await targetChannel.send({ embeds: [introEmbed] });
 
             // --- Post each time slot ---
+            let roundNumber = 1; // start round at 1
             for (let i = 0; i < config.timeSlots.length; i++) {
                 const timeSlot = config.timeSlots[i];
                 const emoji = config.emojis[i];
 
                 const exampleEmbed = new EmbedBuilder()
                     .setColor('#444444')
-                    .setTitle(`React to the emoji below to join the ${timeSlot} time slot!`)
+                    .setTitle(`Round ${roundNumber}!`) // use the incrementing round
+                    .setDescription(`React to the emoji below to join the ${timeSlot} time slot!`)
                     .setTimestamp(); 
 
                 const message = await targetChannel.send({ embeds: [exampleEmbed] });
@@ -66,6 +68,8 @@ module.exports = {
 
                 await message.react(emoji);
                 await new Promise(resolve => setTimeout(resolve, 1000));
+
+                roundNumber++; // increment round for next iteration
             }
 
             // --- Delete processing message after all posts ---
