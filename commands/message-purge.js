@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { checkPermissions } = require('../permissions');
+const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,15 +20,33 @@ module.exports = {
       }
     }
 
+    async function logUsage(extra = "") {
+      try {
+        const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+        if (logChannel) {
+          const userTag = interaction.user.tag;
+          const userId = interaction.user.id;
+          const channelName = interaction.channel?.name || "DM/Unknown";
+          await logChannel.send(
+            `🧹 **/message-purge** used by **${userTag}** (${userId}) in **#${channelName}** ${extra}`
+          );
+        }
+      } catch (err) {
+        console.error("❌ Failed to log usage:", err);
+      }
+    }
+
     try {
       // --- Permission check ---
       const permResult = await checkPermissions(interaction);
       if (typeof permResult === 'string') {
-        return safeReply(permResult, true); // Send error message if string
+        await logUsage(`❌ Permission denied (${permResult})`);
+        return safeReply(permResult, true);
       }
 
       // Ensure bot has Manage Messages permission
       if (!interaction.channel.permissionsFor(interaction.client.user).has('ManageMessages')) {
+        await logUsage("❌ Missing Manage Messages permission");
         return safeReply("❌ I don't have permission to delete messages in this channel.", true);
       }
 
@@ -39,12 +58,18 @@ module.exports = {
       const botMessages = messages.filter(msg => msg.author.bot);
 
       if (botMessages.size === 0) {
-        return interaction.editReply("✅ No bot messages found to delete.");
+        await interaction.editReply("✅ No bot messages found to delete.");
+        await logUsage("✅ No bot messages found");
+        return;
       }
 
       // Bulk delete
       await interaction.channel.bulkDelete(botMessages, true);
-      return interaction.editReply(`✅ Deleted ${botMessages.size} bot messages!`);
+
+      const resultMsg = `✅ Deleted ${botMessages.size} bot messages!`;
+      await interaction.editReply(resultMsg);
+      await logUsage(`✅ Deleted ${botMessages.size} bot messages`);
+
     } catch (error) {
       console.error("❌ Error deleting messages:", error);
       try {
@@ -52,6 +77,7 @@ module.exports = {
       } catch (err) {
         console.error("❌ Failed to send error reply:", err);
       }
+      await logUsage(`❌ Error: ${error.message}`);
     }
   },
 };

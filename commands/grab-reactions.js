@@ -1,88 +1,109 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
-const config = require('../config.json'); // Import the config file
+const { checkPermissions } = require('../permissions');
+const config = require('../config.json');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('grab-reactions')  // Command name
-        .setDescription('Grabs people that reacted to the message to form teams out of them.')
-        .addStringOption(option =>
-            option.setName('messageid')
-                .setDescription('The ID of the message to check reactions for')
-                .setRequired(true)
-        ),
+  data: new SlashCommandBuilder()
+    .setName('grab-reactions')
+    .setDescription('Grabs people that reacted to the message to form teams out of them.')
+    .addStringOption(option =>
+      option
+        .setName('messageid')
+        .setDescription('The ID of the message to check reactions for')
+        .setRequired(true)
+    ),
 
-    async execute(interaction) {
-        const allowedRoles = config.allowedRoles;
-        const member = await interaction.guild.members.fetch(interaction.user.id);
-        const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
+  async execute(interaction) {
+    let replyMessage;
 
-        if (!hasRequiredRole) {
-            return interaction.reply({
-                content: '❌ You do not have permission to use this command!',
-                ephemeral: true
-            });
+    async function logUsage(extra = "") {
+      try {
+        const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+        if (logChannel) {
+          const userTag = interaction.user.tag;
+          const channelName = interaction.channel?.name || "DM/Unknown";
+          await logChannel.send(
+            `📝 **/grab-reactions** used by **${userTag}** in **#${channelName}** ${extra}`
+          );
         }
+      } catch (err) {
+        console.error("❌ Failed to log usage:", err);
+      }
+    }
 
-        let replyMessage;
-        try {
-            replyMessage = await interaction.reply({
-                content: 'Grabbing reactions... Please wait.',
-                fetchReply: true
+    try {
+      const hasPermission = await checkPermissions(interaction);
+      const messageId = interaction.options.getString('messageid');
+
+      // Always log attempt
+      await logUsage(`(messageId: ${messageId})`);
+
+      if (!hasPermission) {
+        await logUsage("❌ Permission denied");
+        return interaction.reply({
+          content: '❌ You do not have permission to use this command!',
+          ephemeral: true
+        });
+      }
+
+      replyMessage = await interaction.reply({
+        content: '🔄 Grabbing reactions... Please wait.',
+        fetchReply: true
+      });
+
+      const channelId = config.OptInChannelID;
+      if (!channelId) throw new Error('OptInChannelID is not defined in config.json');
+
+      const channel = await interaction.guild.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) throw new Error(`Invalid or non-text channel: ${channelId}`);
+
+      const message = await channel.messages.fetch(messageId);
+      if (!message) throw new Error('Message not found in the specified channel.');
+
+      // Collect unique players
+      const uniquePlayers = new Map();
+      for (const [, reaction] of message.reactions.cache) {
+        const users = await reaction.users.fetch();
+        users.forEach(user => {
+          if (!user.bot && !uniquePlayers.has(user.id)) {
+            uniquePlayers.set(user.id, {
+              id: user.id,
+              name: user.username
             });
+          }
+        });
+      }
 
-            const messageId = interaction.options.getString('messageid');
-            console.log("✅ Message ID received:", messageId);
+      console.log("✅ Unique players collected:", Array.from(uniquePlayers.values()));
 
-            // Fetch OptInChannelID from config
-            const channelId = config.OptInChannelID;
-            if (!channelId) throw new Error('OptInChannelID is not defined in config properties.');
+      // Send to Google Apps Script
+      const triggerUrl = process.env.Google_Apps_Script_URL;
+      if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-            console.log(`✅ Found OptInChannelID from config properties: ${channelId}`);
+      await axios.post(triggerUrl, {
+        command: 'grab-reactions',
+        discordPlayers: Array.from(uniquePlayers.values())
+      });
 
-            // Fetch the specific channel by ID
-            const channel = await interaction.guild.channels.fetch(channelId);
-            if (!channel || !channel.isTextBased()) throw new Error(`Invalid or non-text channel: ${channelId}`);
+      await logUsage(`✅ Sent ${uniquePlayers.size} players to Google Sheets`);
+      await interaction.channel.send("✅ Reaction user list update triggered in Google Sheets!");
 
-            // Fetch the message in the specific channel
-            const message = await channel.messages.fetch(messageId);
-            if (!message) throw new Error('Message not found in the specified channel.');
+      if (replyMessage) await replyMessage.delete();
 
-            // Collect unique players (IDs as primary key, names for display/logging)
-            const uniquePlayers = new Map(); // key: user.id, value: { id, name }
-            for (const [_, reaction] of message.reactions.cache) {
-                const users = await reaction.users.fetch();
-                users.forEach(user => {
-                    if (!user.bot && !uniquePlayers.has(user.id)) {
-                        uniquePlayers.set(user.id, {
-                            id: user.id,
-                            name: user.username // or user.globalName/displayName if you prefer
-                        });
-                    }
-                });
-            }
+    } catch (error) {
+      console.error("❌ Error in grab-reactions:", error);
+      await logUsage(`❌ Error: ${error.message}`);
 
-            console.log("✅ Unique players collected:", Array.from(uniquePlayers.values()));
+      try {
+        await interaction.channel.send("❌ Failed to trigger Google Apps Script.");
+      } catch (err) {
+        console.error("❌ Failed to notify channel:", err);
+      }
 
-            // Send the reaction data to Google Apps Script
-            const triggerUrl = process.env.Google_Apps_Script_URL;
-            if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-            await axios.post(triggerUrl, {
-                command: 'grab-reactions',
-                discordPlayers: Array.from(uniquePlayers.values()) // send [{id, name}, ...]
-            });
-
-            await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send("✅ Reaction user list update triggered!");
-            await interaction.channel.send("✅ Reaction user list update triggered in Google Sheets!");
-
-            if (replyMessage) await replyMessage.delete();
-        } catch (error) {
-            console.error("❌ Error in grab-reactions command:", error);
-            await interaction.client.channels.cache.get(config.LOG_CHANNEL_ID).send(`❌ Error in grab-reactions command: ${error.message}`);
-            await interaction.channel.send("❌ Failed to trigger Google Apps Script.");
-
-            if (replyMessage) await replyMessage.delete();
-        }
-    },
+      if (replyMessage) {
+        try { await replyMessage.delete(); } catch {}
+      }
+    }
+  }
 };

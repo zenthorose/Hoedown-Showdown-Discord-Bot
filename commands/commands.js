@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { checkPermissions } = require('../permissions');
+const config = require('../config.json'); // 👈 make sure LOG_CHANNEL_ID is inside config.json
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -34,11 +35,30 @@ module.exports = {
       }
     }
 
+    async function logUsage(extra = "") {
+      try {
+        const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+        if (logChannel) {
+          const userTag = interaction.user.tag;
+          const channelName = interaction.channel?.name || "DM/Unknown";
+          await logChannel.send(
+            `📝 **/commands** used by **${userTag}** in **#${channelName}** ${extra}`
+          );
+        }
+      } catch (logError) {
+        console.error("❌ Failed to send log message:", logError);
+      }
+    }
+
     try {
       const type = interaction.options.getString('type');
       const hasPermission = await checkPermissions(interaction);
 
+      // Always log the attempt
+      await logUsage(`(type: ${type})`);
+
       if (!hasPermission) {
+        await logUsage("❌ Permission denied");
         return safeReply('❌ You do not have permission to view command lists!', true);
       }
 
@@ -64,16 +84,19 @@ module.exports = {
 
       if (type === 'general') {
         commandList = generalCommands.map(cmd => `"${cmd.name}" - ${cmd.description}`).join('\n');
+        await logUsage("✅ Returned general commands");
         return safeReply(`\`\`\`\nHere are the general commands:\n\n${commandList}\n\`\`\``);
       }
 
       if (type === 'admin') {
         commandList = adminCommands.map(cmd => `"${cmd.name}" - ${cmd.description}`).join('\n');
+        await logUsage("✅ Returned admin commands");
         return safeReply(`\`\`\`\nHere are the admin commands:\n\n${commandList}\n\`\`\``);
       }
 
     } catch (error) {
       console.error("❌ Error executing /commands:", error);
+      await logUsage("❌ Unexpected error");
       try {
         if (replied || interaction.deferred) {
           await interaction.followUp({
