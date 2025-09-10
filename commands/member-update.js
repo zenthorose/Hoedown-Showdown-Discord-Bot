@@ -6,7 +6,8 @@ const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('member-update')
-    .setDescription('Updates member list in Google Sheets and resets nicknames to usernames.'),
+    .setDescription('Updates member list in Google Sheets and resets nicknames to usernames.')
+    .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
   async execute(interaction) {
     async function logUsage(extra = "") {

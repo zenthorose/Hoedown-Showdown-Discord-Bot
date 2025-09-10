@@ -6,6 +6,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('commands')
     .setDescription('Shows a list of commands')
+    .setDefaultMemberPermissions(0) // Requires Manage Messages permission
     .addStringOption(option =>
       option
         .setName('type')

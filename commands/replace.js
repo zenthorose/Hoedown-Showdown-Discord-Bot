@@ -6,6 +6,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('replace')
     .setDescription('Replace a player in a round.')
+    .setDefaultMemberPermissions(0) // Requires Manage Messages permission
     .addIntegerOption(option =>
       option.setName('round')
         .setDescription('The round number')

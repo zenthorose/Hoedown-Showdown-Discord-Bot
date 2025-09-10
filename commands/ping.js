@@ -4,7 +4,8 @@ const { checkPermissions } = require('../permissions'); // Assume this is a help
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ping')
-        .setDescription('Replies with Pong!'),
+        .setDescription('Replies with Pong!')
+        .setDefaultMemberPermissions(0), // Requires Manage Messages permission
     async execute(interaction) {
         try {
             // Check if the user has permission to run the command

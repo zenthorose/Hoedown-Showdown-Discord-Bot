@@ -5,7 +5,8 @@ const config = require('../config.json');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('muffin-button')
-        .setDescription('Sends a muffin button for users to click!'),
+        .setDescription('Sends a muffin button for users to click!')
+        .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
     async execute(interaction) {
         try {

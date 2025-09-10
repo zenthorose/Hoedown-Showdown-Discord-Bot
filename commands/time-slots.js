@@ -5,7 +5,8 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('time-slots')
-    .setDescription('Send an announcement followed by multiple time slot sign-up messages!'),
+    .setDescription('Send an announcement followed by multiple time slot sign-up messages!')
+    .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
   async execute(interaction, reactionPostsManager) {
     async function logUsage(extra = "") {

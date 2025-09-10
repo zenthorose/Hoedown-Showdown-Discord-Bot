@@ -7,6 +7,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('approve-round')
     .setDescription('Approves a round for use.')
+    .setDefaultMemberPermissions(0) // Requires Manage Messages permission
     .addIntegerOption(option =>
       option.setName('round')
         .setDescription('The round number to approve')

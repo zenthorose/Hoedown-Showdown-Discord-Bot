@@ -7,6 +7,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('grab-reactions')
     .setDescription('Grabs people that reacted to the message to form teams out of them.')
+    .setDefaultMemberPermissions(0) // Requires Manage Messages permission
     .addStringOption(option =>
       option
         .setName('messageid')
