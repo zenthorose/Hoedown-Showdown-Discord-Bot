@@ -1,155 +1,163 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const axios = require('axios');
 const config = require('../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('update-info')
-    .setDescription('Update your registration info using a form'),
+    .setDescription('Update one piece of your registration info.')
+
+    // --- REGION SUBCOMMAND ---
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('region')
+        .setDescription('Update your region')
+        .addStringOption(option =>
+          option.setName('region')
+            .setDescription('Select your region')
+            .setRequired(true)
+            .addChoices(
+              { name: 'East', value: 'East' },
+              { name: 'West', value: 'West' },
+              { name: 'Both', value: 'Both' }
+            )
+        )
+    )
+
+    // --- STEAM ID SUBCOMMAND ---
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('steamid')
+        .setDescription('Update your Steam Friend Code')
+        .addStringOption(option =>
+          option.setName('friendcode')
+            .setDescription('Enter your Steam Friend Code')
+            .setRequired(true)
+        )
+    )
+
+    // --- STREAM LINK SUBCOMMAND ---
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('streamlink')
+        .setDescription('Update your Twitch or Kick stream link')
+        .addStringOption(option =>
+          option.setName('link')
+            .setDescription('Enter your Twitch or Kick link')
+            .setRequired(true)
+        )
+    ),
 
   async execute(interaction) {
+    const subcommand = interaction.options.getSubcommand();
     const member = interaction.member;
+    const triggerUrl = process.env.Google_Apps_Script_URL;
 
-    // --- Check Registered role ---
-    const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');
-    if (!registeredRole || !member.roles.cache.has(registeredRole.id)) {
-      return interaction.reply({
-        content: '❌ You must be registered to use this command. Use `/register` first.',
-        ephemeral: true
-      });
-    }
-
-    // --- Log usage ---
-    async function logUsage(extra = '') {
+    async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
         if (logChannel) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
-          const channelName = interaction.channel?.name || 'DM/Unknown';
-          await logChannel.send(`📝 **/update-info** used by **${userTag}** (${userId}) in **#${channelName}** ${extra}`);
+          const channelName = interaction.channel?.name || "DM/Unknown";
+          await logChannel.send(
+            `📝 **/update-info** used by **${userTag}** (${userId}) in **#${channelName}** ${extra}`
+          );
         }
       } catch (err) {
-        console.error('❌ Failed to log usage:', err);
+        console.error("❌ Failed to log usage:", err);
       }
     }
 
-    // --- Show modal ---
-    const modal = new ModalBuilder()
-      .setCustomId('updateInfoModal')
-      .setTitle('Update Your Info');
-
-    // Region select menu
-    const regionSelect = new StringSelectMenuBuilder()
-      .setCustomId('region')
-      .setPlaceholder('Select your region (optional)')
-      .addOptions(
-        { label: 'East', value: 'East' },
-        { label: 'West', value: 'West' },
-        { label: 'Both', value: 'Both' }
-      );
-
-    const regionRow = new ActionRowBuilder().addComponents(regionSelect);
-
-    // Steam ID input
-    const steamInput = new TextInputBuilder()
-      .setCustomId('steamid')
-      .setLabel('Steam ID (numbers only)')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Enter your Steam ID')
-      .setRequired(false);
-
-    const steamRow = new ActionRowBuilder().addComponents(steamInput);
-
-    // Stream link input
-    const streamInput = new TextInputBuilder()
-      .setCustomId('streamlink')
-      .setLabel('Stream Link')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Twitch, Kick, YouTube, or TikTok link')
-      .setRequired(false);
-
-    const streamRow = new ActionRowBuilder().addComponents(streamInput);
-
-    modal.addComponents(regionRow, steamRow, streamRow);
-
-    await interaction.showModal(modal);
-  }
-};
-
-// --- Handle modal submissions ---
-module.exports.handleModalSubmit = async (interaction) => {
-  if (!interaction.isModalSubmit()) return;
-  if (interaction.customId !== 'updateInfoModal') return;
-
-  const member = interaction.member;
-  const triggerUrl = process.env.Google_Apps_Script_URL;
-  if (!triggerUrl) {
-    return interaction.reply({ content: '❌ Google Apps Script URL not set.', ephemeral: true });
-  }
-
-  // Get values
-  const region = interaction.fields.getTextInputValue('region');
-  const steamId = interaction.fields.getTextInputValue('steamid');
-  const streamLink = interaction.fields.getTextInputValue('streamlink');
-
-  // --- Validate Steam ID ---
-  if (steamId && !/^\d+$/.test(steamId)) {
-    await logModalUsage(interaction, '❌ Invalid Steam ID');
-    return interaction.reply({ content: '❌ Invalid Steam ID. Must only contain numbers.', ephemeral: true });
-  }
-
-  // --- Validate stream link ---
-  if (streamLink && !/^https?:\/\/(www\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+$/i.test(streamLink)) {
-    await logModalUsage(interaction, '❌ Invalid stream link');
-    return interaction.reply({ content: '❌ Invalid stream link. Must be Twitch, Kick, YouTube, or TikTok.', ephemeral: true });
-  }
-
-  // --- Update region roles ---
-  if (region) {
-    const allRegionRoles = ['East', 'West', 'Both'];
-    for (const roleName of allRegionRoles) {
-      const role = interaction.guild.roles.cache.find(r => r.name === roleName);
-      if (role && member.roles.cache.has(role.id)) await member.roles.remove(role);
+    if (!triggerUrl) {
+      await interaction.reply({
+        content: '❌ Error: Google Apps Script URL is not set in environment variables.',
+        ephemeral: true
+      });
+      await logUsage("❌ Failed - Missing Google Apps Script URL.");
+      return;
     }
-    const newRole = interaction.guild.roles.cache.find(r => r.name === region);
-    if (newRole) await member.roles.add(newRole);
-  }
 
-  // --- Prepare updates for Google Sheets ---
-  const updates = [];
-  if (region) updates.push(['region', region]);
-  if (steamId) updates.push(['steamid', steamId]);
-  if (streamLink) updates.push(['streamlink', streamLink]);
+    // --- Require Registered role ---
+    const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');
+    if (!registeredRole || !member.roles.cache.has(registeredRole.id)) {
+      await interaction.reply({
+        content: "❌ You must be registered to use this command. Use `/register` first.",
+        ephemeral: true
+      });
+      await logUsage("❌ Permission denied - not registered.");
+      return;
+    }
 
-  try {
-    for (const [infoType, newValue] of updates) {
-      await axios.post(triggerUrl, {
+    try {
+      await interaction.reply({ content: '⏳ Processing your update…', ephemeral: true });
+    } catch {}
+
+    let infoType, newValue;
+
+    if (subcommand === 'region') {
+      infoType = 'region';
+      newValue = interaction.options.getString('region');
+
+      // Remove old region roles
+      const allRegionRoles = ['East', 'West', 'Both'];
+      for (const roleName of allRegionRoles) {
+        const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+        if (role && member.roles.cache.has(role.id)) {
+          await member.roles.remove(role);
+        }
+      }
+
+      // Assign new region role
+      const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
+      if (newRole) {
+        await member.roles.add(newRole);
+      }
+    }
+
+    if (subcommand === 'steamid') {
+      infoType = 'steamid';
+      newValue = interaction.options.getString('friendcode');
+
+      // Only digits allowed, no length restriction
+      if (!/^\d+$/.test(newValue)) {
+        await interaction.editReply({ content: '❌ Invalid Steam ID. Must only contain numbers.' });
+        await logUsage("❌ Failed - Invalid Steam ID.");
+        return;
+      }
+    }
+
+    if (subcommand === 'streamlink') {
+      infoType = 'streamlink';
+      newValue = interaction.options.getString('link');
+
+      const validLinkRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+$/i;
+
+      if (!validLinkRegex.test(newValue)) {
+        await interaction.editReply({ content: '❌ Invalid link. Must be Twitch, Kick, YouTube, or TikTok.' });
+        await logUsage("❌ Failed - Invalid stream link.");
+        return;
+      }
+    }
+
+    try {
+      const updateData = {
         command: 'update',
         updateData: [[member.user.id, infoType, newValue]]
-      });
+      };
+
+      await axios.post(triggerUrl, updateData);
+
+      try {
+        await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue}**!` });
+        await logUsage(`✅ Successfully updated **${infoType}** → **${newValue}**.`);
+      } catch {}
+    } catch (error) {
+      console.error("❌ Error updating info:", error);
+      try {
+        await interaction.editReply({ content: '❌ Failed to update your info.' });
+      } catch {}
+      await logUsage(`❌ Error: ${error.message}`);
     }
-    await logModalUsage(interaction, `✅ Updated ${updates.map(u => u[0]).join(', ')}`);
-    await interaction.reply({ content: '✅ Your info has been updated!', ephemeral: true });
-  } catch (err) {
-    console.error(err);
-    await logModalUsage(interaction, `❌ Failed update: ${err.message}`);
-    await interaction.reply({ content: '❌ Failed to update your info.', ephemeral: true });
   }
 };
-
-// --- Logging helper ---
-async function logModalUsage(interaction, extra = '') {
-  try {
-    const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-    if (logChannel) {
-      const userTag = interaction.user.tag;
-      const userId = interaction.user.id;
-      const channelName = interaction.channel?.name || 'DM/Unknown';
-      await logChannel.send(`📝 **/update-info modal** used by **${userTag}** (${userId}) in **#${channelName}** ${extra}`);
-    }
-  } catch (err) {
-    console.error('❌ Failed to log modal usage:', err);
-  }
-}
