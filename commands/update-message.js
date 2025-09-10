@@ -4,19 +4,19 @@ const { checkPermissions } = require('../permissions'); // Import the permission
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('message')
-        .setDescription('Updates a message previously sent by the bot.')
+        .setDescription('Create or update a message with an embed.')
         .setDefaultMemberPermissions(0) // Requires Manage Messages permission
         .addStringOption(option =>
             option.setName('channelid')
-                .setDescription('The ID of the channel where the message was sent')
+                .setDescription('The ID of the channel where the message will be sent/edited')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('messageid')
-                .setDescription('The ID of the message to update')
-                .setRequired(true))
+                .setDescription('The ID of the message to update (leave blank to create new)')
+                .setRequired(false))
         .addStringOption(option =>
             option.setName('newcontent')
-                .setDescription('The new embed description')
+                .setDescription('The embed description')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('color')
@@ -54,12 +54,12 @@ module.exports = {
         }
 
         const channelId = interaction.options.getString('channelid');
-        const messageId = interaction.options.getString('messageid');
+        const messageId = interaction.options.getString('messageid'); // optional
         const newContent = interaction.options.getString('newcontent');
         const colorChoice = interaction.options.getString('color');
         const pingEveryone = interaction.options.getString('pingeveryone');
 
-        console.log(`[message] Options received: channelId=${channelId}, messageId=${messageId}, color=${colorChoice}, pingEveryone=${pingEveryone}`);
+        console.log(`[message] Options received: channelId=${channelId}, messageId=${messageId || "NEW"}, color=${colorChoice}, pingEveryone=${pingEveryone}`);
 
         // Map color choices to hex codes
         const colorMap = {
@@ -76,32 +76,39 @@ module.exports = {
         const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
         if (!channel) {
             console.log(`[message] Invalid channel ID: ${channelId}`);
-            return interaction.reply({ content: "Invalid channel ID.", ephemeral: true });
-        }
-
-        const message = await channel.messages.fetch(messageId).catch(() => null);
-        if (!message) {
-            console.log(`[message] Message not found: ${messageId}`);
-            return interaction.reply({ content: "Message not found.", ephemeral: true });
-        }
-
-        if (!message.editable) {
-            console.log(`[message] Message not editable: ${messageId}`);
-            return interaction.reply({ content: "I can't edit this message.", ephemeral: true });
+            return interaction.reply({ content: "❌ Invalid channel ID.", ephemeral: true });
         }
 
         // Build the embed
-        const newEmbed = new EmbedBuilder()
+        const embed = new EmbedBuilder()
             .setDescription(newContent)
             .setColor(embedColor)
             .setTimestamp();
 
-        // Check if we need to ping everyone
         const content = pingEveryone === 'yes' ? '@everyone' : '';
 
-        await message.edit({ content, embeds: [newEmbed] });
-        console.log(`[message] Message ${messageId} updated successfully in channel ${channelId}`);
+        if (messageId) {
+            // --- UPDATE EXISTING MESSAGE ---
+            const message = await channel.messages.fetch(messageId).catch(() => null);
+            if (!message) {
+                console.log(`[message] Message not found: ${messageId}`);
+                return interaction.reply({ content: "❌ Message not found.", ephemeral: true });
+            }
 
-        interaction.reply({ content: "✅ Message updated successfully!", ephemeral: true });
+            if (!message.editable) {
+                console.log(`[message] Message not editable: ${messageId}`);
+                return interaction.reply({ content: "❌ I can't edit this message.", ephemeral: true });
+            }
+
+            await message.edit({ content, embeds: [embed] });
+            console.log(`[message] Message ${messageId} updated successfully in channel ${channelId}`);
+            interaction.reply({ content: "✅ Message updated successfully!", ephemeral: true });
+
+        } else {
+            // --- CREATE NEW MESSAGE ---
+            const sentMessage = await channel.send({ content, embeds: [embed] });
+            console.log(`[message] New message ${sentMessage.id} sent successfully in channel ${channelId}`);
+            interaction.reply({ content: `✅ Message sent successfully! (ID: ${sentMessage.id})`, ephemeral: true });
+        }
     }
 };
