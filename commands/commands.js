@@ -66,19 +66,21 @@ module.exports = {
       // Command lists
       const generalCommands = [
         { name: '/info-check', description: 'See what info you’ve submitted.' },
-        { name: '/register', description: 'Register your information with the bot.' },
+        { name: '/register', description: 'Register your information for the first time.' },
         { name: '/update-info', description: 'Update your registered information.' },
       ];
 
       const adminCommands = [
-        { name: '/commands', description: 'Provides bot information (this list).' },
+        { name: '/commands', description: 'Provides bot command information for general or admin commands.' },
+        { name: '/message', description: 'Will let you send/edit a message from the bot in an embeded format with the provided channel and message ID’s.' },
         { name: '/ping', description: 'Keeps the bot alive.' },
-        { name: '/member-update', description: 'Syncs members with Google Sheets.' },
+        { name: '/member-update', description: 'Syncs members and names with Google Sheets.' },
         { name: '/message-purge', description: 'Deletes bot messages from the current channel.' },
-        { name: '/time-slots', description: 'Posts timeslot messages for opt-in/out.' },
-        { name: '/grab-reactions', description: 'Collects reactions for team creation.' },
-        { name: '/swap', description: 'Swap team members before posting.' },
-        { name: '/approve-teams', description: 'Publishes the final Team List.' },
+        { name: '/time-slots', description: 'Posts timeslot messages for opt-in into the opt-in channel.' },
+        { name: '/grab-reactions', description: 'Start’s the team creation process. Will post the review list into the team-check channel.' },
+        { name: '/replace', description: 'You must enter the Round #, the person to remove from the list and then person to add that isn’t on the list.' },
+        { name: '/swap', description: 'Swap’s the postion of two people on the list.' },
+        { name: '/approve-round', description: 'Publishes the final Team List to the correct round channel and @’s everyone for that round.' },
       ];
 
       let commandList;
