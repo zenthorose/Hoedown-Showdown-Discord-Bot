@@ -21,7 +21,6 @@ module.exports = {
         .setRequired(true)),
 
   async execute(interaction) {
-    // --- Block DMs ---
     if (!interaction.guild) {
       return interaction.reply({ content: "❌ This command can't be used in DMs.", ephemeral: true });
     }
@@ -30,7 +29,6 @@ module.exports = {
     const removeUser = interaction.options.getUser('removeplayer');
     const addUser = interaction.options.getUser('addplayer');
 
-    // --- Log helper ---
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
@@ -39,7 +37,7 @@ module.exports = {
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
-            `📝 **/replace** used by **${userTag}** (${userId}) in **#${channelName}** for Round #${round} | Removed: ${removeUser.tag}, Added: ${addUser.tag} ${extra}`
+            `📝 **/replace** by **${userTag}** (${userId}) in **#${channelName}** for Round #${round} | Removed: ${removeUser.tag}, Added: ${addUser.tag} ${extra}`
           );
         }
       } catch (err) {
@@ -88,23 +86,57 @@ module.exports = {
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-      await axios.post(triggerUrl, {
+      const { data } = await axios.post(triggerUrl, {
         command: "replace",
         round: round,
         removePlayer: { username: removeUser.username, id: removeUser.id },
         addPlayer: { username: addUser.username, id: addUser.id }
       });
 
-      console.log("✅ Replacement data sent to Google Apps Script.");
+      console.log("✅ GAS response:", data);
 
-      if (replyMessage) {
-        await replyMessage.edit(`✅ Replacement completed! Player **${removeUser.username}** has been replaced with **${addUser.username}** in Round #${round}.`);
-        setTimeout(async () => {
-          try { await replyMessage.delete(); } catch (err) { console.error(err); }
-        }, 5000);
+      // --- Interpret GAS response ---
+      let userMessage;
+      let logSuffix;
+
+      switch (data.type) {
+        case "success":
+          userMessage = `✅ Replacement completed! **${removeUser.username}** ➝ **${addUser.username}** in Round #${round}.`;
+          logSuffix = "✅ Replacement successful.";
+          break;
+        case "duplicate":
+          userMessage = `⚠️ Cannot replace: **${addUser.username}** is already in Round #${round}.`;
+          logSuffix = "⚠️ Duplicate detected.";
+          break;
+        case "player_not_found":
+          userMessage = `❌ Player not found in Discord Member List.`;
+          if (data.missing?.removeMissing) userMessage += ` Missing removePlayer: **${removeUser.username}**.`;
+          if (data.missing?.addMissing) userMessage += ` Missing addPlayer: **${addUser.username}**.`;
+          logSuffix = "❌ Player not found in member list.";
+          break;
+        case "remove_not_found":
+          userMessage = `❌ Could not find **${removeUser.username}** in Round #${round}.`;
+          logSuffix = "❌ Remove player not in round.";
+          break;
+        case "round_missing":
+          userMessage = `❌ Round #${round} not found in sheet.`;
+          logSuffix = "❌ Round missing.";
+          break;
+        default:
+          userMessage = `❌ Unexpected error.`;
+          logSuffix = `❌ Unexpected GAS response: ${JSON.stringify(data)}`;
+          break;
       }
 
-      await logUsage("✅ Replacement completed successfully.");
+      // --- Edit original reply ---
+      if (replyMessage) {
+        await replyMessage.edit(userMessage);
+        setTimeout(async () => {
+          try { await replyMessage.delete(); } catch (err) { console.error(err); }
+        }, 8000);
+      }
+
+      await logUsage(logSuffix);
 
     } catch (error) {
       console.error("❌ Error in replace command:", error);
