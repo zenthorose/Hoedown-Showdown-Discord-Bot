@@ -40,11 +40,11 @@ module.exports = {
       option.setName('title')
         .setDescription('Optional embed title')
         .setRequired(false))
-    .addStringOption(option =>
+    .addIntegerOption(option =>
       option.setName('channelid')
         .setDescription('Optional target channel ID (defaults to current channel)')
         .setRequired(false))
-    .addStringOption(option =>
+    .addIntegerOption(option =>
       option.setName('messageid')
         .setDescription('Optional message ID to edit (defaults to last bot message in the channel)')
         .setRequired(false)),
@@ -64,8 +64,8 @@ module.exports = {
     const colorChoice = interaction.options.getString('color');
     const pingEveryone = interaction.options.getString('pingeveryone');
     const title = interaction.options.getString('title');
-    const channelId = interaction.options.getString('channelid');
-    const messageId = interaction.options.getString('messageid');
+    const channelId = interaction.options.getInteger('channelid')?.toString(); // Convert integer to string for Discord API
+    const messageId = interaction.options.getInteger('messageid')?.toString();
 
     console.log(`[message] Options received: channelId=${channelId}, messageId=${messageId}, title=${title}, color=${colorChoice}, pingEveryone=${pingEveryone}`);
 
