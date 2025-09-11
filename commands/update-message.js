@@ -15,7 +15,11 @@ module.exports = {
                 .setDescription('The ID of the message to update (leave blank to create new)')
                 .setRequired(false))
         .addStringOption(option =>
-            option.setName('newcontent')
+            option.setName('title')
+                .setDescription('The embed title')
+                .setRequired(false))
+        .addStringOption(option =>
+            option.setName('description')
                 .setDescription('The embed description')
                 .setRequired(true))
         .addStringOption(option =>
@@ -55,11 +59,12 @@ module.exports = {
 
         const channelId = interaction.options.getString('channelid');
         const messageId = interaction.options.getString('messageid'); // optional
-        const newContent = interaction.options.getString('newcontent');
+        const title = interaction.options.getString('title') || null;
+        const description = interaction.options.getString('description');
         const colorChoice = interaction.options.getString('color');
         const pingEveryone = interaction.options.getString('pingeveryone');
 
-        console.log(`[message] Options received: channelId=${channelId}, messageId=${messageId || "NEW"}, color=${colorChoice}, pingEveryone=${pingEveryone}`);
+        console.log(`[message] Options: channelId=${channelId}, messageId=${messageId || "NEW"}, title=${title}, color=${colorChoice}, pingEveryone=${pingEveryone}`);
 
         // Map color choices to hex codes
         const colorMap = {
@@ -81,9 +86,11 @@ module.exports = {
 
         // Build the embed
         const embed = new EmbedBuilder()
-            .setDescription(newContent)
             .setColor(embedColor)
             .setTimestamp();
+
+        if (title) embed.setTitle(title);
+        if (description) embed.setDescription(description);
 
         const content = pingEveryone === 'yes' ? '@everyone' : '';
 
