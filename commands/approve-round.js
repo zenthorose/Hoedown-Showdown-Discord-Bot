@@ -10,7 +10,7 @@ module.exports = {
     .setDefaultMemberPermissions(0) // Requires Manage Messages permission
     .addIntegerOption(option =>
       option.setName('round')
-        .setDescription('The round number to approve')
+        .setDescription('The round number to approve (1–16)')
         .setRequired(true)
     ),
 
@@ -58,25 +58,32 @@ module.exports = {
       console.log(`✅ Received approve-round command for Round #${round}`);
       await logUsage(`(Round: ${round})`);
 
-      // --- Clear previous bot messages in the channel ---
-      try {
-        const fetchedMessages = await interaction.channel.messages.fetch({ limit: 100 });
-        const botMessages = fetchedMessages.filter(msg => msg.author.bot);
-        if (botMessages.size > 0) {
-          await interaction.channel.bulkDelete(botMessages, true);
-          console.log(`Deleted ${botMessages.size} previous bot messages.`);
-        }
-      } catch (clearError) {
-        console.error("❌ Error clearing bot messages:", clearError);
-      }
-
       // --- Send "processing" message ---
       replyMessage = await interaction.reply({
         content: `🔄 Processing approval for Round #${round}...`,
         fetchReply: true
       });
 
-      // --- Send approval request to Google Apps Script ---
+      // --- Step 1: Update Discord channel permissions ---
+      try {
+        const channelId = config.roundChannels[round];
+        if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
+
+        const channel = await interaction.client.channels.fetch(channelId);
+        if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
+
+        // Allow @everyone (guildId) to view this channel
+        await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+          ViewChannel: true,
+        });
+
+        console.log(`✅ Set @everyone permissions to view Round #${round} channel.`);
+      } catch (permError) {
+        console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
+        await logUsage(`❌ Failed to update permissions for Round #${round}`);
+      }
+
+      // --- Step 2: Send approval request to Google Apps Script ---
       try {
         const triggerUrl = process.env.Google_Apps_Script_URL;
         if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
