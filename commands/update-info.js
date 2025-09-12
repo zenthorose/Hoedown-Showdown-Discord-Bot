@@ -40,10 +40,10 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('streamlink')
-        .setDescription('Update your Twitch or Kick stream link')
+        .setDescription('Update your stream link')
         .addStringOption(option =>
           option.setName('link')
-            .setDescription('Enter your Twitch or Kick link')
+            .setDescription('Enter your stream link')
             .setRequired(true)
         )
     ),
@@ -149,8 +149,8 @@ module.exports = {
       await axios.post(triggerUrl, updateData);
 
       try {
-        await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue}**!` });
-        await logUsage(`✅ Successfully updated **${infoType}** → **${newValue}**.`);
+        await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to ${newValue}!` });
+        await logUsage(`✅ Successfully updated **${infoType}** → ${newValue}.`);
       } catch {}
     } catch (error) {
       console.error("❌ Error updating info:", error);

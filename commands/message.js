@@ -40,11 +40,11 @@ module.exports = {
       option.setName('title')
         .setDescription('Optional embed title')
         .setRequired(false))
-    .addIntegerOption(option =>
+    .addStringOption(option =>
       option.setName('channelid')
         .setDescription('Optional target channel ID (defaults to current channel)')
         .setRequired(false))
-    .addIntegerOption(option =>
+    .addStringOption(option =>
       option.setName('messageid')
         .setDescription('Optional message ID to edit (defaults to last bot message in the channel)')
         .setRequired(false)),
@@ -64,8 +64,16 @@ module.exports = {
     const colorChoice = interaction.options.getString('color');
     const pingEveryone = interaction.options.getString('pingeveryone');
     const title = interaction.options.getString('title');
-    const channelId = interaction.options.getInteger('channelid')?.toString(); // Convert integer to string for Discord API
-    const messageId = interaction.options.getInteger('messageid')?.toString();
+    const channelId = interaction.options.getString('channelid');
+    const messageId = interaction.options.getString('messageid');
+
+    // Validate numeric-only for IDs
+    if (channelId && !/^\d+$/.test(channelId)) {
+      return interaction.reply({ content: '❌ Channel ID must contain only numbers.', ephemeral: true });
+    }
+    if (messageId && !/^\d+$/.test(messageId)) {
+      return interaction.reply({ content: '❌ Message ID must contain only numbers.', ephemeral: true });
+    }
 
     console.log(`[message] Options received: channelId=${channelId}, messageId=${messageId}, title=${title}, color=${colorChoice}, pingEveryone=${pingEveryone}`);
 
@@ -86,15 +94,15 @@ module.exports = {
       ? await interaction.client.channels.fetch(channelId).catch(() => null)
       : interaction.channel;
 
-    if (!targetChannel) return interaction.reply({ content: 'Invalid channel ID.', ephemeral: true });
+    if (!targetChannel) return interaction.reply({ content: '❌ Invalid channel ID.', ephemeral: true });
 
     let targetMessage;
 
     if (messageId) {
       // Fetch specific message
       targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
-      if (!targetMessage) return interaction.reply({ content: 'Message not found.', ephemeral: true });
-      if (!targetMessage.editable) return interaction.reply({ content: "I can't edit this message.", ephemeral: true });
+      if (!targetMessage) return interaction.reply({ content: '❌ Message not found.', ephemeral: true });
+      if (!targetMessage.editable) return interaction.reply({ content: "❌ I can't edit this message.", ephemeral: true });
     } else {
       // Fetch last bot message
       const messages = await targetChannel.messages.fetch({ limit: 50 });
