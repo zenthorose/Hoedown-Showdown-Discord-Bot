@@ -40,7 +40,7 @@ module.exports = {
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
-            `📝 **/register** used by **${userTag}** (${userId}) in **#${channelName}** ${extra}`
+            `📝 **/register** used by **${userTag}** (${userId}) in **#${channelName} ** ${extra}`
           );
         }
       } catch (err) {

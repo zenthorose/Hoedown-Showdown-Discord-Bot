@@ -149,8 +149,8 @@ module.exports = {
       await axios.post(triggerUrl, updateData);
 
       try {
-        await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to ${newValue}!` });
-        await logUsage(`✅ Successfully updated **${infoType}** → ${newValue}.`);
+        await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue} **!` });
+        await logUsage(`✅ Successfully updated **${infoType}** → **${newValue} **.`);
       } catch {}
     } catch (error) {
       console.error("❌ Error updating info:", error);
