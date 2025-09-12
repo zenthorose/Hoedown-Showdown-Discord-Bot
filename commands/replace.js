@@ -5,7 +5,7 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('replace')
-    .setDescription('Replace a player in a round.')
+    .setDescription('Replace a player or filler in a round.')
     .setDefaultMemberPermissions(0) // Requires Manage Messages permission
     .addIntegerOption(option =>
       option.setName('round')
@@ -13,12 +13,20 @@ module.exports = {
         .setRequired(true))
     .addUserOption(option =>
       option.setName('removeplayer')
-        .setDescription('The player to be removed')
-        .setRequired(true))
+        .setDescription('The player to be removed (Discord user)')
+        .setRequired(false))
+    .addStringOption(option =>
+      option.setName('removefiller')
+        .setDescription('The filler to be removed (e.g., Filler 1)')
+        .setRequired(false))
     .addUserOption(option =>
       option.setName('addplayer')
-        .setDescription('The player to be added')
-        .setRequired(true)),
+        .setDescription('The player to be added (Discord user)')
+        .setRequired(false))
+    .addStringOption(option =>
+      option.setName('addfiller')
+        .setDescription('The filler to be added (e.g., Filler 1)')
+        .setRequired(false)),
 
   async execute(interaction) {
     if (!interaction.guild) {
@@ -27,7 +35,29 @@ module.exports = {
 
     const round = interaction.options.getInteger('round');
     const removeUser = interaction.options.getUser('removeplayer');
+    const removeFiller = interaction.options.getString('removefiller');
     const addUser = interaction.options.getUser('addplayer');
+    const addFiller = interaction.options.getString('addfiller');
+
+    // --- Validation ---
+    if (!(removeUser || removeFiller)) {
+      return interaction.reply({ content: '❌ You must specify either a player or a filler to remove.', ephemeral: true });
+    }
+    if (!(addUser || addFiller)) {
+      return interaction.reply({ content: '❌ You must specify either a player or a filler to add.', ephemeral: true });
+    }
+
+    // --- Build payload for GAS ---
+    const payload = {
+      command: "replace",
+      round,
+      removePlayer: removeUser
+        ? { username: removeUser.username, id: removeUser.id }
+        : { username: removeFiller, id: null, filler: true },
+      addPlayer: addUser
+        ? { username: addUser.username, id: addUser.id }
+        : { username: addFiller, id: null, filler: true }
+    };
 
     async function logUsage(extra = "") {
       try {
@@ -37,7 +67,7 @@ module.exports = {
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
-            `📝 **/replace** by **${userTag}** (${userId}) in **#${channelName}** for Round #${round} | Removed: ${removeUser.tag}, Added: ${addUser.tag} ${extra}`
+            `📝 **/replace** by **${userTag}** (${userId}) in **#${channelName}** for Round #${round} | Removed: ${removeUser?.tag || removeFiller} ➝ Added: ${addUser?.tag || addFiller} ${extra}`
           );
         }
       } catch (err) {
@@ -57,7 +87,7 @@ module.exports = {
         return;
       }
 
-      console.log(`Received replace command: round=${round}, remove=${removeUser.tag}, add=${addUser.tag}`);
+      console.log(`Received replace command: round=${round}, remove=${removeUser?.tag || removeFiller}, add=${addUser?.tag || addFiller}`);
 
       // --- Clear old bot messages ---
       try {
@@ -86,12 +116,7 @@ module.exports = {
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-      const { data } = await axios.post(triggerUrl, {
-        command: "replace",
-        round: round,
-        removePlayer: { username: removeUser.username, id: removeUser.id },
-        addPlayer: { username: addUser.username, id: addUser.id }
-      });
+      const { data } = await axios.post(triggerUrl, payload);
 
       console.log("✅ GAS response:", data);
 
@@ -101,22 +126,22 @@ module.exports = {
 
       switch (data.type) {
         case "success":
-          userMessage = `✅ Replacement completed! **${removeUser.username}** ➝ **${addUser.username}** in Round #${round}.`;
+          userMessage = `✅ Replacement completed! **${removeUser?.username || removeFiller}** ➝ **${addUser?.username || addFiller}** in Round #${round}.`;
           logSuffix = "✅ Replacement successful.";
           break;
         case "duplicate":
-          userMessage = `⚠️ Cannot replace: **${addUser.username}** is already in Round #${round}.`;
+          userMessage = `⚠️ Cannot replace: **${addUser?.username || addFiller}** is already in Round #${round}.`;
           logSuffix = "⚠️ Duplicate detected.";
           break;
         case "player_not_found":
           userMessage = `❌ Player not found in Discord Member List.`;
-          if (data.missing?.removeMissing) userMessage += ` Missing removePlayer: **${removeUser.username}**.`;
-          if (data.missing?.addMissing) userMessage += ` Missing addPlayer: **${addUser.username}**.`;
+          if (data.missing?.removeMissing) userMessage += ` Missing remove: **${removeUser?.username || removeFiller}**.`;
+          if (data.missing?.addMissing) userMessage += ` Missing add: **${addUser?.username || addFiller}**.`;
           logSuffix = "❌ Player not found in member list.";
           break;
         case "remove_not_found":
-          userMessage = `❌ Could not find **${removeUser.username}** in Round #${round}.`;
-          logSuffix = "❌ Remove player not in round.";
+          userMessage = `❌ Could not find **${removeUser?.username || removeFiller}** in Round #${round}.`;
+          logSuffix = "❌ Remove target not in round.";
           break;
         case "round_missing":
           userMessage = `❌ Round #${round} not found in sheet.`;
