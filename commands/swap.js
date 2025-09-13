@@ -96,11 +96,15 @@ module.exports = {
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-      const { data } = await axios.post(triggerUrl, {
-        command: "swap",
-        round,
-        swaps
-      });
+      // --- Prepare payload for GAS ---
+      const payload = { command: "swap", round, swaps };
+
+      // --- Log payload to console and Discord ---
+      console.log("📤 Sending swap payload to GAS:", JSON.stringify(payload, null, 2));
+      await logUsage("📤 Payload sent to GAS:\n" + JSON.stringify(payload, null, 2));
+
+      // --- Send to Google Apps Script ---
+      const { data } = await axios.post(triggerUrl, payload);
 
       // Build message from GAS response
       let resultMsg = "";
