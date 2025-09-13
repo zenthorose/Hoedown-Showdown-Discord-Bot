@@ -12,61 +12,17 @@ module.exports = {
         .setDescription('The round number')
         .setRequired(true)
     )
-    // --- Swap #1 (required) ---
-    .addUserOption(option =>
-      option.setName('swap1player1')
-        .setDescription('First player in swap 1')
-        .setRequired(true)
-    )
-    .addUserOption(option =>
-      option.setName('swap1player2')
-        .setDescription('Second player in swap 1')
-        .setRequired(true)
-    )
-    // --- Swap #2 (optional) ---
-    .addUserOption(option =>
-      option.setName('swap2player1')
-        .setDescription('First player in swap 2')
-        .setRequired(false)
-    )
-    .addUserOption(option =>
-      option.setName('swap2player2')
-        .setDescription('Second player in swap 2')
-        .setRequired(false)
-    )
-    // --- Swap #3 (optional) ---
-    .addUserOption(option =>
-      option.setName('swap3player1')
-        .setDescription('First player in swap 3')
-        .setRequired(false)
-    )
-    .addUserOption(option =>
-      option.setName('swap3player2')
-        .setDescription('Second player in swap 3')
-        .setRequired(false)
-    )
-    // --- Swap #4 (optional) ---
-    .addUserOption(option =>
-      option.setName('swap4player1')
-        .setDescription('First player in swap 4')
-        .setRequired(false)
-    )
-    .addUserOption(option =>
-      option.setName('swap4player2')
-        .setDescription('Second player in swap 4')
-        .setRequired(false)
-    )
-    // --- Swap #5 (optional) ---
-    .addUserOption(option =>
-      option.setName('swap5player1')
-        .setDescription('First player in swap 5')
-        .setRequired(false)
-    )
-    .addUserOption(option =>
-      option.setName('swap5player2')
-        .setDescription('Second player in swap 5')
-        .setRequired(false)
-    ),
+    // Swap sets
+    .addUserOption(o => o.setName('swap1player1').setDescription('First player in swap 1').setRequired(true))
+    .addUserOption(o => o.setName('swap1player2').setDescription('Second player in swap 1').setRequired(true))
+    .addUserOption(o => o.setName('swap2player1').setDescription('First player in swap 2').setRequired(false))
+    .addUserOption(o => o.setName('swap2player2').setDescription('Second player in swap 2').setRequired(false))
+    .addUserOption(o => o.setName('swap3player1').setDescription('First player in swap 3').setRequired(false))
+    .addUserOption(o => o.setName('swap3player2').setDescription('Second player in swap 3').setRequired(false))
+    .addUserOption(o => o.setName('swap4player1').setDescription('First player in swap 4').setRequired(false))
+    .addUserOption(o => o.setName('swap4player2').setDescription('Second player in swap 4').setRequired(false))
+    .addUserOption(o => o.setName('swap5player1').setDescription('First player in swap 5').setRequired(false))
+    .addUserOption(o => o.setName('swap5player2').setDescription('Second player in swap 5').setRequired(false)),
 
   async execute(interaction) {
     if (!interaction.guild) {
@@ -92,32 +48,56 @@ module.exports = {
       return interaction.reply({ content: "❌ You must provide at least one swap.", ephemeral: true });
     }
 
-    // Permission check
-    const allowedRoles = config.allowedRoles || [];
-    const member = await interaction.guild.members.fetch(interaction.user.id);
-    const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
-    if (!hasRequiredRole) {
-      return interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
-    }
-
-    // Send to GAS
     try {
+      // Permission check
+      const allowedRoles = config.allowedRoles || [];
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
+      if (!hasRequiredRole) {
+        return interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
+      }
+
+      // ✅ Defer immediately to avoid Unknown interaction error
+      await interaction.deferReply({ ephemeral: false });
+
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-      await axios.post(triggerUrl, {
+      const { data } = await axios.post(triggerUrl, {
         command: "swap",
         round,
         swaps
       });
 
-      await interaction.reply(
-        `✅ Swap request sent for Round #${round}.\nPairs: ${swaps.map(s => `**${s.player1.username}** ↔ **${s.player2.username}**`).join(', ')}`
-      );
+      // Build message from GAS response
+      let resultMsg = "";
+      if (data && Array.isArray(data.results)) {
+        resultMsg = data.results.map((r, i) => {
+          if (r.success) {
+            return `✅ Swap #${i + 1}: **${swaps[i].player1.username}** ↔ **${swaps[i].player2.username}**`;
+          } else {
+            return `❌ Swap #${i + 1} failed: ${r.error || "Unknown error"}`;
+          }
+        }).join("\n");
+      } else {
+        resultMsg = `✅ Swap request sent for Round #${round}.\nPairs: ${swaps.map(s => `**${s.player1.username}** ↔ **${s.player2.username}**`).join(', ')}`;
+      }
+
+      await interaction.editReply(resultMsg);
+
+      // Optional: auto-delete after 8s like your replace command
+      setTimeout(async () => {
+        try { await interaction.deleteReply(); } catch (err) { console.error("Failed to delete reply:", err); }
+      }, 8000);
 
     } catch (err) {
-      console.error("❌ Error sending swap request:", err);
-      await interaction.reply({ content: "❌ Swap request failed.", ephemeral: true });
+      console.error("❌ Error in swap command:", err);
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply("❌ Swap request failed.");
+      } else {
+        await interaction.reply({ content: "❌ Swap request failed.", ephemeral: true });
+      }
     }
   }
 };
