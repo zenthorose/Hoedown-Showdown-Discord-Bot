@@ -48,16 +48,49 @@ module.exports = {
       return interaction.reply({ content: "❌ You must provide at least one swap.", ephemeral: true });
     }
 
+    // --- Log helper ---
+    async function logUsage(extra = "") {
+      try {
+        const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+        if (logChannel) {
+          const userTag = interaction.user.tag;
+          const userId = interaction.user.id;
+          const channelName = interaction.channel?.name || "DM/Unknown";
+          await logChannel.send(
+            `📝 **/swap** used by **${userTag}** (${userId}) in **#${channelName}** for Round #${round}\n` +
+            swaps.map((s, i) => `Swap #${i + 1}: ${s.player1.username} ↔ ${s.player2.username}`).join("\n") +
+            (extra ? `\n${extra}` : "")
+          );
+        }
+      } catch (err) {
+        console.error("❌ Failed to log usage:", err);
+      }
+    }
+
     try {
       // Permission check
       const allowedRoles = config.allowedRoles || [];
       const member = await interaction.guild.members.fetch(interaction.user.id);
       const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
       if (!hasRequiredRole) {
-        return interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
+        await interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
+        await logUsage("⚠️ Permission denied.");
+        return;
       }
 
-      // ✅ Defer immediately to avoid Unknown interaction error
+      // --- Clear old bot messages ---
+      try {
+        const fetchedMessages = await interaction.channel.messages.fetch({ limit: 100 });
+        const botMessages = fetchedMessages.filter(msg => msg.author.bot);
+        if (botMessages.size > 0) {
+          await interaction.channel.bulkDelete(botMessages, true);
+          console.log(`🧹 Deleted ${botMessages.size} bot messages.`);
+        }
+      } catch (clearError) {
+        console.error("❌ Error clearing bot messages:", clearError);
+      }
+
+      // ✅ Defer reply to avoid timeout
       await interaction.deferReply({ ephemeral: false });
 
       const triggerUrl = process.env.Google_Apps_Script_URL;
@@ -85,10 +118,12 @@ module.exports = {
 
       await interaction.editReply(resultMsg);
 
-      // Optional: auto-delete after 8s like your replace command
+      // Auto-delete reply after 8 seconds
       setTimeout(async () => {
         try { await interaction.deleteReply(); } catch (err) { console.error("Failed to delete reply:", err); }
       }, 8000);
+
+      await logUsage("✅ Swap completed successfully.");
 
     } catch (err) {
       console.error("❌ Error in swap command:", err);
@@ -98,6 +133,8 @@ module.exports = {
       } else {
         await interaction.reply({ content: "❌ Swap request failed.", ephemeral: true });
       }
+
+      await logUsage(`❌ Error: ${err.message}`);
     }
   }
 };
