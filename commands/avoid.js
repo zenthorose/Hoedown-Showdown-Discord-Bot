@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
-const config = require('../config.json');
 const { checkPermissions } = require('../permissions');
+const config = require('../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -31,16 +31,7 @@ module.exports = {
         .setDescription('Select an optional player')),
 
   async execute(interaction) {
-    let replied = false;
-
-    async function safeReply(content, isEphemeral = true) {
-      if (replied) {
-        return interaction.followUp({ content, ephemeral: isEphemeral });
-      } else {
-        replied = true;
-        return interaction.reply({ content, ephemeral: isEphemeral });
-      }
-    }
+    let replyMessage;
 
     async function logUsage(extra = "") {
       try {
@@ -52,6 +43,15 @@ module.exports = {
         }
       } catch (err) {
         console.error("❌ Failed to log usage:", err);
+      }
+    }
+
+    async function safeReply(content, isEphemeral = true) {
+      if (replyMessage) {
+        return interaction.followUp({ content, ephemeral: isEphemeral });
+      } else {
+        replyMessage = await interaction.reply({ content, ephemeral: isEphemeral, fetchReply: true });
+        return replyMessage;
       }
     }
 
@@ -75,15 +75,19 @@ module.exports = {
         return safeReply('❌ You must select at least 2 players.');
       }
 
-      console.log('📤 Sending avoid data to GAS:', JSON.stringify({ command: 'avoid', players: users }, null, 2));
+      console.log('📤 Sending avoid data to GAS:', JSON.stringify({ command: 'avoid', users }, null, 2));
 
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-      await axios.post(triggerUrl, { command: 'avoid', players: users });
+      // --- Trigger the GAS avoid function ---
+      const response = await axios.post(triggerUrl, { command: 'avoid', users });
+      console.log('✅ Google Apps Script response:', response.data);
 
-      await safeReply(`✅ Avoid list updated for ${users.length} players.`);
-      await logUsage(`✅ Avoid list updated for ${users.map(u => u.username).join(', ')}`);
+      const { success, addedPairs, skippedPairs } = response.data;
+
+      await safeReply(`✅ Avoid list updated. Added: ${addedPairs}, Skipped (existing): ${skippedPairs}`);
+      await logUsage(`✅ Avoid list updated. Added: ${addedPairs}, Skipped: ${skippedPairs}. Players: ${users.map(u => u.username).join(', ')}`);
 
     } catch (error) {
       console.error("❌ Error executing /avoid:", error);
