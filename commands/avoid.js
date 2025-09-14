@@ -10,24 +10,24 @@ module.exports = {
     .setDefaultMemberPermissions(0) // Requires Manage Messages
     .addUserOption(option =>
       option.setName('player1')
-        .setDescription('Select a player')
+        .setDescription('The person Avoiding')
         .setRequired(true))
     .addUserOption(option =>
       option.setName('player2')
-        .setDescription('Select another player')
+        .setDescription('Who’s being avoided')
         .setRequired(true))
     .addUserOption(option =>
       option.setName('player3')
-        .setDescription('Select an optional player'))
+        .setDescription('Who’s being avoided'))
     .addUserOption(option =>
       option.setName('player4')
-        .setDescription('Select an optional player'))
+        .setDescription('Who’s being avoided'))
     .addUserOption(option =>
       option.setName('player5')
-        .setDescription('Select an optional player'))
+        .setDescription('Who’s being avoided'))
     .addUserOption(option =>
       option.setName('player6')
-        .setDescription('Select an optional player')),
+        .setDescription('Who’s being avoided')),
 
   async execute(interaction) {
     let replyMessage;

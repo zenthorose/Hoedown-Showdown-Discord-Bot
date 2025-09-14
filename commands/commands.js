@@ -79,8 +79,10 @@ module.exports = {
         { name: '/time-slots', description: 'Posts timeslot messages for opt-in into the opt-in channel.' },
         { name: '/grab-reactions', description: 'Start’s the team creation process. Will post the review list into the team-check channel.' },
         { name: '/replace', description: 'You must enter the Round #, the person to remove from the list and then person to add that isn’t on the list.' },
-        { name: '/swap', description: 'Swap’s the postion of two people on the list.' },
+        { name: '/swap', description: 'Swap’s the postion of 2-10 people on the list.' },
         { name: '/approve-round', description: 'Publishes the final Team List to the correct round channel and @’s everyone for that round.' },
+        { name: '/avoid', description: 'Let’s you add up to 5 people to the avoid list.' },
+        { name: '/avoid-list', description: 'This allows you to pull the entire avoid list or just the list of a user if you add the name.' },
       ];
 
       let commandList;
