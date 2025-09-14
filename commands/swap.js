@@ -5,30 +5,73 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('swap')
-    .setDescription('Swap the positions of two players in a round.')
+    .setDescription('Swap the positions of up to 5 player pairs in a round.')
     .setDefaultMemberPermissions(0) // Requires Manage Messages permission
     .addIntegerOption(option =>
       option.setName('round')
         .setDescription('The round number')
         .setRequired(true))
+    // --- First swap set (required) ---
     .addUserOption(option =>
-      option.setName('player1')
-        .setDescription('The first player to swap')
+      option.setName('player1a')
+        .setDescription('First player of swap #1')
         .setRequired(true))
     .addUserOption(option =>
-      option.setName('player2')
-        .setDescription('The second player to swap')
-        .setRequired(true)),
+      option.setName('player2a')
+        .setDescription('Second player of swap #1')
+        .setRequired(true))
+    // --- Extra swap sets (optional) ---
+    .addUserOption(option =>
+      option.setName('player1b')
+        .setDescription('First player of swap #2'))
+    .addUserOption(option =>
+      option.setName('player2b')
+        .setDescription('Second player of swap #2'))
+    .addUserOption(option =>
+      option.setName('player1c')
+        .setDescription('First player of swap #3'))
+    .addUserOption(option =>
+      option.setName('player2c')
+        .setDescription('Second player of swap #3'))
+    .addUserOption(option =>
+      option.setName('player1d')
+        .setDescription('First player of swap #4'))
+    .addUserOption(option =>
+      option.setName('player2d')
+        .setDescription('Second player of swap #4'))
+    .addUserOption(option =>
+      option.setName('player1e')
+        .setDescription('First player of swap #5'))
+    .addUserOption(option =>
+      option.setName('player2e')
+        .setDescription('Second player of swap #5')),
 
   async execute(interaction) {
-    // --- Block DMs ---
     if (!interaction.guild) {
       return interaction.reply({ content: "❌ This command can't be used in DMs.", ephemeral: true });
     }
 
     const round = interaction.options.getInteger('round');
-    const player1 = interaction.options.getUser('player1');
-    const player2 = interaction.options.getUser('player2');
+
+    // --- Build swaps array ---
+    const swapPairs = ['a', 'b', 'c', 'd', 'e'];
+    const swaps = [];
+
+    for (const suffix of swapPairs) {
+      const p1 = interaction.options.getUser(`player1${suffix}`);
+      const p2 = interaction.options.getUser(`player2${suffix}`);
+      if (p1 && p2) {
+        swaps.push({
+          player1: { username: p1.username, id: p1.id },
+          player2: { username: p2.username, id: p2.id }
+        });
+      }
+    }
+
+    // Require at least one swap
+    if (swaps.length === 0) {
+      return interaction.reply({ content: "❌ You must specify at least one swap pair.", ephemeral: true });
+    }
 
     // --- Log helper ---
     async function logUsage(extra = "") {
@@ -39,7 +82,9 @@ module.exports = {
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
-            `📝 **/swap** used by **${userTag}** (${userId}) in **#${channelName}** for Round #${round} | Player1: ${player1.tag}, Player2: ${player2.tag} ${extra}`
+            `📝 **/swap** used by **${userTag}** (${userId}) in **#${channelName}** for Round #${round} | Swaps: ${swaps.map(
+              s => `${s.player1.username} ↔ ${s.player2.username}`
+            ).join(", ")} ${extra}`
           );
         }
       } catch (err) {
@@ -59,7 +104,7 @@ module.exports = {
         return;
       }
 
-      console.log(`Received swap command: round=${round}, player1=${player1.tag}, player2=${player2.tag}`);
+      console.log(`Received swap command: round=${round}, swaps=${JSON.stringify(swaps)}`);
 
       // --- Clear old bot messages ---
       try {
@@ -77,41 +122,31 @@ module.exports = {
       let replyMessage;
       try {
         replyMessage = await interaction.reply({
-          content: `🔄 Processing swap for Round #${round}...`,
+          content: `🔄 Processing ${swaps.length} swap(s) for Round #${round}...`,
           fetchReply: true
         });
       } catch (err) {
         console.error("Error sending processing reply:", err);
       }
 
-      // --- Build payload for GAS ---
+      // --- Send swap data to GAS ---
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-      // Add both flat and array-based swap formats
-      const testSwaps = [
-        {
-          player1: { username: player1.username, id: player1.id },
-          player2: { username: player2.username, id: player2.id }
-        }
-      ];
 
       const payload = {
         command: "swap",
         round: round,
-        player1: { username: player1.username, id: player1.id },
-        player2: { username: player2.username, id: player2.id },
-        test: testSwaps
+        swaps: swaps
       };
 
       console.log("📤 Sending payload to GAS:", JSON.stringify(payload, null, 2));
 
       await axios.post(triggerUrl, payload);
 
-      console.log("✅ Swap data (with test field) sent to Google Apps Script.");
+      console.log("✅ Swap data sent to Google Apps Script.");
 
       if (replyMessage) {
-        await replyMessage.edit(`✅ Swap completed! Players **${player1.username}** and **${player2.username}** have been swapped in Round #${round}.`);
+        await replyMessage.edit(`✅ ${swaps.length} swap(s) completed for Round #${round}.`);
         setTimeout(async () => {
           try { await replyMessage.delete(); } catch (err) { console.error(err); }
         }, 5000);
