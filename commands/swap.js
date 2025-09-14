@@ -84,18 +84,31 @@ module.exports = {
         console.error("Error sending processing reply:", err);
       }
 
-      // --- Send swap data to Google Apps Script ---
+      // --- Build payload for GAS ---
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-      await axios.post(triggerUrl, {
+      // Add both flat and array-based swap formats
+      const testSwaps = [
+        {
+          player1: { username: player1.username, id: player1.id },
+          player2: { username: player2.username, id: player2.id }
+        }
+      ];
+
+      const payload = {
         command: "swap",
         round: round,
         player1: { username: player1.username, id: player1.id },
-        player2: { username: player2.username, id: player2.id }
-      });
+        player2: { username: player2.username, id: player2.id },
+        test: testSwaps
+      };
 
-      console.log("✅ Swap data sent to Google Apps Script.");
+      console.log("📤 Sending payload to GAS:", JSON.stringify(payload, null, 2));
+
+      await axios.post(triggerUrl, payload);
+
+      console.log("✅ Swap data (with test field) sent to Google Apps Script.");
 
       if (replyMessage) {
         await replyMessage.edit(`✅ Swap completed! Players **${player1.username}** and **${player2.username}** have been swapped in Round #${round}.`);
