@@ -22,29 +22,21 @@ module.exports = {
         .setRequired(true))
     // --- Extra swap sets (optional) ---
     .addUserOption(option =>
-      option.setName('player1b')
-        .setDescription('First player of swap #2'))
+      option.setName('player1b').setDescription('First player of swap #2'))
     .addUserOption(option =>
-      option.setName('player2b')
-        .setDescription('Second player of swap #2'))
+      option.setName('player2b').setDescription('Second player of swap #2'))
     .addUserOption(option =>
-      option.setName('player1c')
-        .setDescription('First player of swap #3'))
+      option.setName('player1c').setDescription('First player of swap #3'))
     .addUserOption(option =>
-      option.setName('player2c')
-        .setDescription('Second player of swap #3'))
+      option.setName('player2c').setDescription('Second player of swap #3'))
     .addUserOption(option =>
-      option.setName('player1d')
-        .setDescription('First player of swap #4'))
+      option.setName('player1d').setDescription('First player of swap #4'))
     .addUserOption(option =>
-      option.setName('player2d')
-        .setDescription('Second player of swap #4'))
+      option.setName('player2d').setDescription('Second player of swap #4'))
     .addUserOption(option =>
-      option.setName('player1e')
-        .setDescription('First player of swap #5'))
+      option.setName('player1e').setDescription('First player of swap #5'))
     .addUserOption(option =>
-      option.setName('player2e')
-        .setDescription('Second player of swap #5')),
+      option.setName('player2e').setDescription('Second player of swap #5')),
 
   async execute(interaction) {
     if (!interaction.guild) {
@@ -68,12 +60,10 @@ module.exports = {
       }
     }
 
-    // Require at least one swap
     if (swaps.length === 0) {
       return interaction.reply({ content: "❌ You must specify at least one swap pair.", ephemeral: true });
     }
 
-    // --- Log helper ---
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
@@ -82,9 +72,8 @@ module.exports = {
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
-            `📝 **/swap** used by **${userTag}** (${userId}) in **#${channelName}** for Round #${round} | Swaps: ${swaps.map(
-              s => `${s.player1.username} ↔ ${s.player2.username}`
-            ).join(", ")} ${extra}`
+            `📝 **/swap** by **${userTag}** (${userId}) in **#${channelName}** for Round #${round}\n` +
+            `Swaps: ${swaps.map(s => `${s.player1.username} ↔ ${s.player2.username}`).join(", ")}\n${extra}`
           );
         }
       } catch (err) {
@@ -118,41 +107,45 @@ module.exports = {
         console.error("❌ Error clearing bot messages:", clearError);
       }
 
-      // --- Acknowledge Command ---
-      let replyMessage;
-      try {
-        replyMessage = await interaction.reply({
-          content: `🔄 Processing ${swaps.length} swap(s) for Round #${round}...`,
-          fetchReply: true
-        });
-      } catch (err) {
-        console.error("Error sending processing reply:", err);
-      }
+      // --- Initial Reply ---
+      let replyMessage = await interaction.reply({
+        content: `🔄 Processing ${swaps.length} swap(s) for Round #${round}...`,
+        fetchReply: true
+      });
 
       // --- Send swap data to GAS ---
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
-      const payload = {
-        command: "swap",
-        round: round,
-        swaps: swaps
-      };
-
+      const payload = { command: "swap", round, swaps };
       console.log("📤 Sending payload to GAS:", JSON.stringify(payload, null, 2));
 
-      await axios.post(triggerUrl, payload);
+      const response = await axios.post(triggerUrl, payload);
+      console.log("✅ GAS response:", response.data);
 
-      console.log("✅ Swap data sent to Google Apps Script.");
-
-      if (replyMessage) {
-        await replyMessage.edit(`✅ ${swaps.length} swap(s) completed for Round #${round}.`);
-        setTimeout(async () => {
-          try { await replyMessage.delete(); } catch (err) { console.error(err); }
-        }, 5000);
+      if (!response.data.success) {
+        await replyMessage.edit("❌ Swap request failed.");
+        await logUsage("❌ GAS returned failure.");
+        return;
       }
 
-      await logUsage("✅ Swap completed successfully.");
+      const results = response.data.results || [];
+      let successCount = results.filter(r => r.status === "ok").length;
+      let failCount = results.filter(r => r.status !== "ok").length;
+
+      const details = results.map((r, i) =>
+        `**${i + 1}.** ${r.pair[0]} ↔ ${r.pair[1]} → ${r.status === "ok" ? "✅ Success" : `❌ Failed (${r.reason || "unknown"})`}`
+      ).join("\n");
+
+      const finalMessage = `📋 Swap results for Round #${round}:\n${details}\n\n✅ ${successCount} succeeded | ❌ ${failCount} failed`;
+
+      await replyMessage.edit(finalMessage);
+      await logUsage(`✅ ${successCount} success | ❌ ${failCount} failed`);
+
+      // Optionally auto-delete after 15s
+      setTimeout(async () => {
+        try { await replyMessage.delete(); } catch {}
+      }, 15000);
 
     } catch (error) {
       console.error("❌ Error in swap command:", error);
