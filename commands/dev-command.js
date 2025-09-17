@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('@discordjs/builders');
+const { SlashCommandBuilder, AttachmentBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
 
@@ -89,7 +89,7 @@ module.exports = {
     try {
       let responseMessage = "";
 
-      // Handle TEST group
+      // --- TEST group ---
       if (group === 'test') {
         if (sub === 'echo') {
           const msg = interaction.options.getString('message');
@@ -107,18 +107,27 @@ module.exports = {
           }
 
           const jsonOutput = JSON.stringify({ teamChannels: mapped }, null, 2);
-
-          // Post in log channel for copy/paste
           const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+
           if (logChannel) {
-            await logChannel.send(`📋 **Team Channels IDs**\n\`\`\`json\n${jsonOutput}\n\`\`\``);
+            // If JSON too long, send as file
+            if (jsonOutput.length > 1900) {
+              const buffer = Buffer.from(jsonOutput, 'utf8');
+              const file = new AttachmentBuilder(buffer, { name: 'teamChannels.json' });
+              await logChannel.send({
+                content: "📋 **Team Channels IDs** (see attached file)",
+                files: [file]
+              });
+            } else {
+              await logChannel.send(`📋 **Team Channels IDs**\n\`\`\`json\n${jsonOutput}\n\`\`\``);
+            }
           }
 
-          responseMessage = "✅ Team channel IDs fetched and posted in the log channel.";
+          responseMessage = `✅ Fetched ${teamNames.length} team channel IDs and posted in the log channel.`;
         }
       }
 
-      // Handle RESET group
+      // --- RESET group ---
       else if (group === 'reset') {
         const action = sub === 'avoid-list' ? 'resetAvoidList' : 'resetMemberList';
         const triggerUrl = process.env.Google_Apps_Script_URL;
@@ -128,7 +137,7 @@ module.exports = {
         responseMessage = `✅ Reset ${sub}.\nResponse: \`\`\`json\n${JSON.stringify(res.data, null, 2)}\n\`\`\``;
       }
 
-      // Handle MISC group
+      // --- MISC group ---
       else if (group === 'misc' && sub === 'run') {
         const action = interaction.options.getString('action');
         let payload = interaction.options.getString('payload') || "";
@@ -150,6 +159,7 @@ module.exports = {
 
       await interaction.editReply(responseMessage);
       await logUsage("✅ Success");
+
     } catch (err) {
       console.error("❌ Error in /dev-command:", err);
       await interaction.editReply(`❌ Error: ${err.message}`);
