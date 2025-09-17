@@ -68,13 +68,6 @@ module.exports = {
         return;
       }
 
-      // --- Assign region + registered roles ---
-      const roleName = region === 'East' ? 'East' : region === 'West' ? 'West' : 'Both';
-      const role = interaction.guild.roles.cache.find(r => r.name === roleName);
-
-      if (role) await member.roles.add(role);
-      if (registeredRole) await member.roles.add(registeredRole);
-
       // --- Send registration data to Google Sheets ---
       const registerData = {
         command: 'register',
@@ -87,7 +80,30 @@ module.exports = {
         ]]
       };
 
-      await axios.post(process.env.Google_Apps_Script_URL, registerData);
+      const response = await axios.post(process.env.Google_Apps_Script_URL, registerData);
+
+      // --- Check GAS response ---
+      if (!response.data || response.data.error) {
+        const errorMsg = response.data?.error || "Unknown error from backend.";
+        await interaction.editReply(`❌ Registration failed: ${errorMsg}`);
+        await logUsage(`❌ Backend error: ${errorMsg}`);
+        return;
+      }
+
+      // --- Assign region + registered roles (only if GAS success) ---
+      const roleName = region === 'East' ? 'East' : region === 'West' ? 'West' : 'Both';
+      const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+
+      if (role) {
+        await member.roles.add(role).catch(err =>
+          console.error(`❌ Failed to add region role (${roleName}):`, err)
+        );
+      }
+      if (registeredRole) {
+        await member.roles.add(registeredRole).catch(err =>
+          console.error("❌ Failed to add Registered role:", err)
+        );
+      }
 
       await interaction.editReply('✅ You have been successfully registered!');
       await logUsage("✅ Registration successful.");
