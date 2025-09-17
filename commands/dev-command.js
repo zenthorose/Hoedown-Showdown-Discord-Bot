@@ -1,4 +1,5 @@
-const { SlashCommandBuilder, AttachmentBuilder } = require('@discordjs/builders');
+const { SlashCommandBuilder } = require('@discordjs/builders');
+const { AttachmentBuilder } = require('discord.js');
 const axios = require('axios');
 const config = require('../config.json');
 
