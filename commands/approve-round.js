@@ -73,11 +73,12 @@ module.exports = {
         if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
         // Allow @everyone (guildId) to view this channel
-        await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
-          ViewChannel: true,
-        });
+        //Disalowed during testing
+        //await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        //  ViewChannel: true,
+        //});
 
-        console.log(`✅ Set @everyone permissions to view Round #${round} channel.`);
+        //console.log(`✅ Set @everyone permissions to view Round #${round} channel.`);
       } catch (permError) {
         console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
         await logUsage(`❌ Failed to update permissions for Round #${round}`);
