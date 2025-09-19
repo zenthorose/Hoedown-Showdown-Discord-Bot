@@ -65,7 +65,7 @@ module.exports = {
         fetchReply: true
       });
 
-      // --- Step 2: Update round channel permissions ---
+      // --- Step 2: Update round channel permissions (optional global perms) ---
       try {
         const channelId = config.roundChannels[round];
         if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
@@ -73,7 +73,7 @@ module.exports = {
         const channel = await interaction.client.channels.fetch(channelId);
         if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
-        // Uncomment when ready
+        // Example: uncomment if you want @everyone to see the round channel
         // await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
         //   ViewChannel: true,
         // });
@@ -111,11 +111,13 @@ module.exports = {
           displayMessage = `✅ Round #${round} approved successfully!`;
           logMessage = `✅ Round #${round} has been approved.`;
 
-          // --- Step 4a: Clear old messages from all team channels ---
+          // --- Step 4a: Clear old messages & reset VC perms ---
           for (const [teamKey, channelId] of Object.entries(config.teamChannels)) {
             try {
               const channel = await interaction.client.channels.fetch(channelId);
-              if (channel && channel.isTextBased()) {
+
+              // Clear messages if it's a text channel
+              if (channel?.isTextBased()) {
                 let messages;
                 do {
                   messages = await channel.messages.fetch({ limit: 50 });
@@ -123,14 +125,27 @@ module.exports = {
                     await channel.bulkDelete(messages, true);
                     console.log(`🧹 Cleared ${messages.size} messages from ${teamKey}`);
                   }
-                } while (messages.size >= 2); // keep looping until under Discord’s bulkDelete min
+                } while (messages.size >= 2);
+              }
+
+              // Reset VC perms if it's a voice channel
+              if (channel?.type === 2) { // 2 = GuildVoice
+                const allowedIds = [interaction.guild.roles.everyone.id]; // keep @everyone
+                for (const overwrite of channel.permissionOverwrites.cache.values()) {
+                  if (!allowedIds.includes(overwrite.id)) {
+                    await overwrite.delete().catch(err =>
+                      console.error(`❌ Failed to remove overwrite in VC ${teamKey}:`, err)
+                    );
+                  }
+                }
+                console.log(`🔄 Reset permission overwrites in VC ${teamKey}`);
               }
             } catch (err) {
-              console.error(`❌ Failed to clear messages in ${teamKey} (${channelId}):`, err);
+              console.error(`❌ Failed to reset ${teamKey} (${channelId}):`, err);
             }
           }
 
-          // --- Step 4b: Send each team to its proper channel ---
+          // --- Step 4b: Send each team to its proper channel + set perms ---
           if (teams && typeof teams === 'object' && Object.keys(teams).length > 0) {
             for (const [teamName, players] of Object.entries(teams)) {
               let teamOutput = `📋 **Team ${teamName} for Round #${round}:**\n\n`;
@@ -139,7 +154,7 @@ module.exports = {
                 const name = player?.name || "Unknown";
                 const steamId = player?.steamId || "N/A";
                 const streamLink = player?.streamLink || "N/A";
-                teamOutput += `- ${name} | Steam Code: ${steamId} | Stream Link: ${streamLink}\n`;
+                teamOutput += `- ${name} | Steam: ${steamId} | Stream: ${streamLink}\n`;
               }
 
               const teamKey = `Team ${teamName}`;
@@ -149,8 +164,27 @@ module.exports = {
                 try {
                   const teamChannel = await interaction.client.channels.fetch(teamChannelId);
                   if (teamChannel) {
+                    // Send the team message
                     await teamChannel.send(teamOutput);
                     console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
+
+                    // Grant channel perms to each player
+                    for (const player of players) {
+                      if (!player?.discordId) {
+                        console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
+                        continue;
+                      }
+                      try {
+                        await teamChannel.permissionOverwrites.edit(player.discordId, {
+                          ViewChannel: true,
+                          SendMessages: true,
+                          ReadMessageHistory: true
+                        });
+                        console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
+                      } catch (permErr) {
+                        console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
+                      }
+                    }
                   } else {
                     console.warn(`⚠️ Could not fetch channel for ${teamKey} (${teamChannelId})`);
                   }
