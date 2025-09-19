@@ -65,7 +65,7 @@ module.exports = {
         fetchReply: true
       });
 
-      // --- Step 2: Update channel permissions ---
+      // --- Step 2: Update round channel permissions ---
       try {
         const channelId = config.roundChannels[round];
         if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
@@ -111,10 +111,28 @@ module.exports = {
           displayMessage = `✅ Round #${round} approved successfully!`;
           logMessage = `✅ Round #${round} has been approved.`;
 
-          // --- Step 4a: Send each team to its proper channel ---
+          // --- Step 4a: Clear old messages from all team channels ---
+          for (const [teamKey, channelId] of Object.entries(config.teamChannels)) {
+            try {
+              const channel = await interaction.client.channels.fetch(channelId);
+              if (channel && channel.isTextBased()) {
+                let messages;
+                do {
+                  messages = await channel.messages.fetch({ limit: 50 });
+                  if (messages.size > 0) {
+                    await channel.bulkDelete(messages, true);
+                    console.log(`🧹 Cleared ${messages.size} messages from ${teamKey}`);
+                  }
+                } while (messages.size >= 2); // keep looping until under Discord’s bulkDelete min
+              }
+            } catch (err) {
+              console.error(`❌ Failed to clear messages in ${teamKey} (${channelId}):`, err);
+            }
+          }
+
+          // --- Step 4b: Send each team to its proper channel ---
           if (teams && typeof teams === 'object' && Object.keys(teams).length > 0) {
             for (const [teamName, players] of Object.entries(teams)) {
-              // Build formatted message
               let teamOutput = `📋 **Team ${teamName} for Round #${round}:**\n\n`;
 
               for (const player of players) {
@@ -124,7 +142,6 @@ module.exports = {
                 teamOutput += `- ${name} | Steam: ${steamId} | Stream: ${streamLink}\n`;
               }
 
-              // Lookup channel for this team
               const teamKey = `Team ${teamName}`;
               const teamChannelId = config.teamChannels?.[teamKey];
 
