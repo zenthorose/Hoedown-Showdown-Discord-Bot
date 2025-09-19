@@ -17,6 +17,7 @@ module.exports = {
   async execute(interaction) {
     let replyMessage;
 
+    // Helper: log command usage + outcomes
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
@@ -33,9 +34,9 @@ module.exports = {
     }
 
     try {
-      // --- Unified permission check ---
+      // --- Permission check ---
       const hasPermission = await checkPermissions(interaction);
-      await logUsage(); // always log usage attempt
+      await logUsage(); // always log attempt
 
       if (!hasPermission) {
         return interaction.reply({
@@ -46,7 +47,7 @@ module.exports = {
 
       const round = interaction.options.getInteger('round');
 
-      // --- Validate input manually (1–16 only) ---
+      // --- Input validation ---
       if (isNaN(round) || round < 1 || round > 16) {
         await logUsage("(❌ Invalid round input)");
         return interaction.reply({
@@ -58,13 +59,13 @@ module.exports = {
       console.log(`✅ Received approve-round command for Round #${round}`);
       await logUsage(`(Round: ${round})`);
 
-      // --- Send "processing" message ---
+      // --- Processing reply ---
       replyMessage = await interaction.reply({
         content: `🔄 Processing approval for Round #${round}...`,
         fetchReply: true
       });
 
-      // --- Step 1: Update Discord channel permissions ---
+      // --- Step 1: Update channel permissions ---
       try {
         const channelId = config.roundChannels[round];
         if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
@@ -72,19 +73,18 @@ module.exports = {
         const channel = await interaction.client.channels.fetch(channelId);
         if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
-        // Allow @everyone (guildId) to view this channel
-        //Disalowed during testing
-        //await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
-        //  ViewChannel: true,
-        //});
+        // Uncomment this when ready
+        // await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+        //   ViewChannel: true,
+        // });
 
-        //console.log(`✅ Set @everyone permissions to view Round #${round} channel.`);
+        // console.log(`✅ Set @everyone permissions to view Round #${round} channel.`);
       } catch (permError) {
         console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
         await logUsage(`❌ Failed to update permissions for Round #${round}`);
       }
 
-      // --- Step 2: Send approval request to Google Apps Script ---
+      // --- Step 2: Trigger GAS ---
       try {
         const triggerUrl = process.env.Google_Apps_Script_URL;
         if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
@@ -92,7 +92,7 @@ module.exports = {
         const response = await axios.post(triggerUrl, { command: "approve-round", round });
         console.log("✅ Google Apps Script responded:", response.data);
 
-        const { success, reason } = response.data;
+        const { success, reason, teams } = response.data;
 
         let logMessage;
         let displayMessage;
@@ -100,25 +100,33 @@ module.exports = {
         if (success) {
           displayMessage = `✅ Round #${round} approved successfully!`;
           logMessage = `✅ Round #${round} has been approved.`;
+
+          // If team data is included, log it
+          if (Array.isArray(teams) && teams.length > 0) {
+            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+            if (logChannel) {
+              await logChannel.send(
+                `📋 **Teams for Round #${round}:**\n` +
+                teams.map((t, i) => `**Team ${i + 1}:** ${t.join(', ')}`).join('\n')
+              );
+            }
+          }
         } else {
           switch (reason) {
             case "not_found":
               displayMessage = `❌ Round #${round} can't be found.`;
-              logMessage = displayMessage;
               break;
             case "no_data":
               displayMessage = `❌ Round #${round} has no team data.`;
-              logMessage = displayMessage;
               break;
             case "discord_error":
               displayMessage = `❌ Error posting Round #${round} to Discord.`;
-              logMessage = displayMessage;
               break;
             default:
               displayMessage = `❌ Unknown error occurred while approving Round #${round}.`;
-              logMessage = displayMessage;
               break;
           }
+          logMessage = displayMessage;
         }
 
         // --- Log outcome ---
