@@ -96,11 +96,12 @@ module.exports = {
         const { success, reason, teams } = response.data;
 
         // --- Step 3a: Debug log for teams ---
-        if (teams) {
-          console.log(`📋 Step 3a: Teams array detected. Count: ${teams.length}`);
+        if (teams && typeof teams === 'object') {
+          const teamKeys = Object.keys(teams);
+          console.log(`📋 Step 3a: Teams object detected. Groups: ${teamKeys.join(', ')}`);
           console.log("📋 Step 3a: Teams content:", JSON.stringify(teams, null, 2));
         } else {
-          console.log("⚠️ Step 3a: No teams array found in GAS response.");
+          console.log("⚠️ Step 3a: No teams data found in GAS response.");
         }
 
         let logMessage;
@@ -112,13 +113,17 @@ module.exports = {
           logMessage = `✅ Round #${round} has been approved.`;
 
           // --- Step 4a: Log teams to Discord channel ---
-          if (Array.isArray(teams) && teams.length > 0) {
+          if (teams && typeof teams === 'object' && Object.keys(teams).length > 0) {
             const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
             if (logChannel) {
-              await logChannel.send(
-                `📋 **Teams for Round #${round}:**\n` +
-                teams.map((t, i) => `**Team ${i + 1}:** ${t.join(', ')}`).join('\n')
-              );
+              let teamOutput = `📋 **Teams for Round #${round}:**\n`;
+
+              for (const [teamName, players] of Object.entries(teams)) {
+                const playerList = players.map(p => p?.name || "Unknown").join(', ');
+                teamOutput += `**${teamName}:** ${playerList}\n`;
+              }
+
+              await logChannel.send(teamOutput);
             }
           }
         } else {
