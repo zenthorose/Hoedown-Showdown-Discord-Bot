@@ -17,7 +17,7 @@ module.exports = {
   async execute(interaction) {
     let replyMessage;
 
-    // Helper: log command usage + outcomes
+    // --- Helper: log command usage + outcomes ---
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
@@ -34,7 +34,7 @@ module.exports = {
     }
 
     try {
-      // --- Permission check ---
+      // --- Step 0: Permission check ---
       const hasPermission = await checkPermissions(interaction);
       await logUsage(); // always log attempt
 
@@ -47,7 +47,7 @@ module.exports = {
 
       const round = interaction.options.getInteger('round');
 
-      // --- Input validation ---
+      // --- Step 0.5: Input validation ---
       if (isNaN(round) || round < 1 || round > 16) {
         await logUsage("(❌ Invalid round input)");
         return interaction.reply({
@@ -59,13 +59,13 @@ module.exports = {
       console.log(`✅ Received approve-round command for Round #${round}`);
       await logUsage(`(Round: ${round})`);
 
-      // --- Processing reply ---
+      // --- Step 1: Processing reply ---
       replyMessage = await interaction.reply({
         content: `🔄 Processing approval for Round #${round}...`,
         fetchReply: true
       });
 
-      // --- Step 1: Update channel permissions ---
+      // --- Step 2: Update channel permissions ---
       try {
         const channelId = config.roundChannels[round];
         if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
@@ -73,7 +73,7 @@ module.exports = {
         const channel = await interaction.client.channels.fetch(channelId);
         if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
-        // Uncomment this when ready
+        // Uncomment when ready
         // await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
         //   ViewChannel: true,
         // });
@@ -84,24 +84,34 @@ module.exports = {
         await logUsage(`❌ Failed to update permissions for Round #${round}`);
       }
 
-      // --- Step 2: Trigger GAS ---
+      // --- Step 3: Trigger GAS ---
       try {
         const triggerUrl = process.env.Google_Apps_Script_URL;
         if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
         const response = await axios.post(triggerUrl, { command: "approve-round", round });
-        console.log("✅ Google Apps Script responded:", response.data);
+
+        console.log("✅ Step 3: Google Apps Script responded:", response.data);
 
         const { success, reason, teams } = response.data;
+
+        // --- Step 3a: Debug log for teams ---
+        if (teams) {
+          console.log(`📋 Step 3a: Teams array detected. Count: ${teams.length}`);
+          console.log("📋 Step 3a: Teams content:", JSON.stringify(teams, null, 2));
+        } else {
+          console.log("⚠️ Step 3a: No teams array found in GAS response.");
+        }
 
         let logMessage;
         let displayMessage;
 
+        // --- Step 4: Process GAS response ---
         if (success) {
           displayMessage = `✅ Round #${round} approved successfully!`;
           logMessage = `✅ Round #${round} has been approved.`;
 
-          // If team data is included, log it
+          // --- Step 4a: Log teams to Discord channel ---
           if (Array.isArray(teams) && teams.length > 0) {
             const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
             if (logChannel) {
@@ -114,25 +124,21 @@ module.exports = {
         } else {
           switch (reason) {
             case "not_found":
-              displayMessage = `❌ Round #${round} can't be found.`;
-              break;
+              displayMessage = `❌ Round #${round} can't be found.`; break;
             case "no_data":
-              displayMessage = `❌ Round #${round} has no team data.`;
-              break;
+              displayMessage = `❌ Round #${round} has no team data.`; break;
             case "discord_error":
-              displayMessage = `❌ Error posting Round #${round} to Discord.`;
-              break;
+              displayMessage = `❌ Error posting Round #${round} to Discord.`; break;
             default:
-              displayMessage = `❌ Unknown error occurred while approving Round #${round}.`;
-              break;
+              displayMessage = `❌ Unknown error occurred while approving Round #${round}.`; break;
           }
           logMessage = displayMessage;
         }
 
-        // --- Log outcome ---
+        // --- Step 5: Log outcome ---
         await logUsage(`→ ${logMessage}`);
 
-        // --- Update reply & delete after 5s ---
+        // --- Step 6: Update reply & delete after 5s ---
         if (replyMessage) {
           await replyMessage.edit(displayMessage);
           setTimeout(async () => {
@@ -141,7 +147,7 @@ module.exports = {
         }
 
       } catch (gasError) {
-        console.error("❌ Error triggering Google Apps Script:", gasError);
+        console.error("❌ Step 3: Error triggering Google Apps Script:", gasError);
 
         if (replyMessage) {
           await replyMessage.edit(`❌ There was an error triggering the Apps Script.`);
