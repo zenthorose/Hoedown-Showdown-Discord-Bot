@@ -78,7 +78,6 @@ module.exports = {
         //   ViewChannel: true,
         // });
 
-        // console.log(`✅ Set @everyone permissions to view Round #${round} channel.`);
       } catch (permError) {
         console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
         await logUsage(`❌ Failed to update permissions for Round #${round}`);
@@ -119,8 +118,13 @@ module.exports = {
               let teamOutput = `📋 **Teams for Round #${round}:**\n`;
 
               for (const [teamName, players] of Object.entries(teams)) {
-                const playerList = players.map(p => p?.name || "Unknown").join(', ');
-                teamOutput += `**${teamName}:** ${playerList}\n`;
+                teamOutput += `\n**${teamName}:**\n`;
+                for (const player of players) {
+                  const name = player?.name || "Unknown";
+                  const steamId = player?.steamId || "N/A";
+                  const streamLink = player?.streamLink || "N/A";
+                  teamOutput += `- ${name} | Steam: ${steamId} | Stream: ${streamLink}\n`;
+                }
               }
 
               await logChannel.send(teamOutput);
