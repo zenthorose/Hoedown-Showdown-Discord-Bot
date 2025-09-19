@@ -115,10 +115,10 @@ module.exports = {
           if (teams && typeof teams === 'object' && Object.keys(teams).length > 0) {
             const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
             if (logChannel) {
-              let teamOutput = `📋 **Teams for Round #${round}:**\n`;
+              let teamOutput = `📋 **Team for Round #${round}:**\n`;
 
               for (const [teamName, players] of Object.entries(teams)) {
-                teamOutput += `\n**${teamName}:**\n`;
+                teamOutput += `\n**Team ${teamName}:**\n`;
                 for (const player of players) {
                   const name = player?.name || "Unknown";
                   const steamId = player?.steamId || "N/A";
