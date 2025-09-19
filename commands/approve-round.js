@@ -111,22 +111,37 @@ module.exports = {
           displayMessage = `✅ Round #${round} approved successfully!`;
           logMessage = `✅ Round #${round} has been approved.`;
 
-          // --- Step 4a: Log teams to Discord channel ---
+          // --- Step 4a: Send each team to its proper channel ---
           if (teams && typeof teams === 'object' && Object.keys(teams).length > 0) {
-            const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-            if (logChannel) {
-              for (const [teamName, players] of Object.entries(teams)) {
-                // Make the header include the team name + round number
-                let teamOutput = `📋 **Team ${teamName} for Round #${round}:**\n\n`;
+            for (const [teamName, players] of Object.entries(teams)) {
+              // Build formatted message
+              let teamOutput = `📋 **Team ${teamName} for Round #${round}:**\n\n`;
 
-                for (const player of players) {
-                  const name = player?.name || "Unknown";
-                  const steamId = player?.steamId || "N/A";
-                  const streamLink = player?.streamLink || "N/A";
-                  teamOutput += `- ${name} | Steam: ${steamId} | Stream: ${streamLink}\n`;
+              for (const player of players) {
+                const name = player?.name || "Unknown";
+                const steamId = player?.steamId || "N/A";
+                const streamLink = player?.streamLink || "N/A";
+                teamOutput += `- ${name} | Steam: ${steamId} | Stream: ${streamLink}\n`;
+              }
+
+              // Lookup channel for this team
+              const teamKey = `Team ${teamName}`;
+              const teamChannelId = config.teamChannels?.[teamKey];
+
+              if (teamChannelId) {
+                try {
+                  const teamChannel = await interaction.client.channels.fetch(teamChannelId);
+                  if (teamChannel) {
+                    await teamChannel.send(teamOutput);
+                    console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
+                  } else {
+                    console.warn(`⚠️ Could not fetch channel for ${teamKey} (${teamChannelId})`);
+                  }
+                } catch (err) {
+                  console.error(`❌ Failed to send team output for ${teamKey}:`, err);
                 }
-
-                await logChannel.send(teamOutput);
+              } else {
+                console.warn(`⚠️ No channel mapping found for ${teamKey} in config.teamChannels`);
               }
             }
           }
