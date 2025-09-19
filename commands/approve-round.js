@@ -139,7 +139,7 @@ module.exports = {
                 const name = player?.name || "Unknown";
                 const steamId = player?.steamId || "N/A";
                 const streamLink = player?.streamLink || "N/A";
-                teamOutput += `- ${name} | Steam: ${steamId} | Stream: ${streamLink}\n`;
+                teamOutput += `- ${name} | Steam Code: ${steamId} | Stream Link: ${streamLink}\n`;
               }
 
               const teamKey = `Team ${teamName}`;
