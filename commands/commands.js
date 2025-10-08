@@ -82,6 +82,7 @@ module.exports = {
         { name: '/swap', description: 'Swap’s the postion of 2-10 people on the list.' },
         { name: '/approve-round', description: 'Publishes the final Team List to the correct round channel and @’s everyone for that round.' },
         { name: '/avoid', description: 'Let’s you add up to 5 people to the avoid list.' },
+        { name: '/unavoid', description: 'Let’s you remove an avoided pair from the bot.' },
         { name: '/avoid-list', description: 'This allows you to pull the entire avoid list or just the list of a user if you add the name.' },
       ];
 
