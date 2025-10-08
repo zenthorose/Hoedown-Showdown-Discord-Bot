@@ -17,11 +17,11 @@ module.exports = {
         ))
     .addStringOption(option =>
       option.setName('steamid')
-        .setDescription('Enter your Steam ID (numbers only)')
+        .setDescription('Enter your Steam Friend Code (numbers only)')
         .setRequired(true))
     .addStringOption(option =>
       option.setName('streamlink')
-        .setDescription('Enter your Twitch/stream link')
+        .setDescription('Enter a full link for your Twitch/Youtube/Kick/Tiktok' )
         .setRequired(true)),
 
   async execute(interaction) {

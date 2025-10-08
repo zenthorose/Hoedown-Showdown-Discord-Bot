@@ -85,9 +85,9 @@ module.exports = {
       await logUsage(`→ Returned ${pairs.length} pairs${selectedUser ? ` for ${selectedUser.username}` : ""}`);
 
       // Optional: delete reply after 10 seconds (to keep things tidy)
-      setTimeout(async () => {
-        try { await interaction.deleteReply(); } catch { }
-      }, 10000);
+      //setTimeout(async () => {
+      //  try { await interaction.deleteReply(); } catch { }
+      //}, 10000);
 
     } catch (error) {
       console.error("❌ Error executing /avoid-list:", error);

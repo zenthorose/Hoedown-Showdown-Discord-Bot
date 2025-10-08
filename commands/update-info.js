@@ -40,10 +40,10 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('streamlink')
-        .setDescription('Update your stream link')
+        .setDescription('Update your full stream link')
         .addStringOption(option =>
           option.setName('link')
-            .setDescription('Enter your stream link')
+            .setDescription('Enter the full link for your stream')
             .setRequired(true)
         )
     ),

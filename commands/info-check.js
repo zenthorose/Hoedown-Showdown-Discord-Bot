@@ -60,7 +60,7 @@ module.exports = {
       const msg = [
         `✅ Here’s your submitted info:`,
         `**Region:** ${data.region || 'Not set'}`,
-        `**Steam Code:** ${data.steamCode || 'Not set'}`,
+        `**Steam Friend Code:** ${data.steamCode || 'Not set'}`,
         `**Stream Link:** ${data.streamLink || 'Not set'}`
       ].join('\n');
 
