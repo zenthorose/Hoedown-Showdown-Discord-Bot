@@ -26,7 +26,7 @@ module.exports = {
           { name: 'Orange', value: 'Orange' },
           { name: 'Gray', value: 'Gray' }
         ))
-    
+        
     // Optional options
     .addStringOption(option =>
       option.setName('roles')
@@ -42,7 +42,7 @@ module.exports = {
         .setRequired(false))
     .addStringOption(option =>
       option.setName('messageid')
-        .setDescription('Optional message ID to edit (defaults to last bot message in the channel)')
+        .setDescription('Optional message ID to edit')
         .setRequired(false))
     .addAttachmentOption(option =>
       option.setName('image')
@@ -95,15 +95,12 @@ module.exports = {
       : interaction.channel;
     if (!targetChannel) return interaction.reply({ content: '❌ Invalid channel ID.', ephemeral: true });
 
-    // Determine target message
-    let targetMessage;
+    // Determine target message (only if messageId is provided)
+    let targetMessage = null;
     if (messageId) {
       targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
       if (!targetMessage) return interaction.reply({ content: '❌ Message not found.', ephemeral: true });
       if (!targetMessage.editable) return interaction.reply({ content: "❌ I can't edit this message.", ephemeral: true });
-    } else {
-      const messages = await targetChannel.messages.fetch({ limit: 50 });
-      targetMessage = messages.filter(m => m.author.id === interaction.client.user.id).first();
     }
 
     // Build embed
@@ -128,13 +125,13 @@ module.exports = {
       await targetMessage.edit({ content, embeds: [embed] });
       console.log(`[message] Edited message ${targetMessage.id} in ${targetChannel.id}`);
     } else {
-      await targetChannel.send({ content, embeds: [embed] });
-      console.log(`[message] Sent new message in ${targetChannel.id}`);
+      const sentMessage = await targetChannel.send({ content, embeds: [embed] });
+      console.log(`[message] Sent new message ${sentMessage.id} in ${targetChannel.id}`);
     }
 
     await interaction.reply({ content: '✅ Message processed successfully!', ephemeral: true });
 
-    // Logging to log channel
+    // Logging
     try {
       const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
       if (logChannel) {
