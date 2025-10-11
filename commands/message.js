@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { checkPermissions } = require('../permissions'); 
 const config = require('../config.json');
-const fetch = require('node-fetch'); // Needed to fetch txt files
+const fetch = require('node-fetch'); // Make sure node-fetch is installed
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -9,13 +9,13 @@ module.exports = {
     .setDescription('Send or update a bot message with embed, optional images, role mentions, and txt content.')
     .setDefaultMemberPermissions(0) // Manage Messages
 
-    // --- Confirmation required ---
+    // Confirmation required
     .addStringOption(option =>
       option.setName('confirm')
         .setDescription('Type "SEND" exactly to confirm sending this message')
         .setRequired(true))
 
-    // --- Optional main options ---
+    // Optional main options
     .addStringOption(option =>
       option.setName('description')
         .setDescription('The embed description (optional)'))
@@ -44,7 +44,7 @@ module.exports = {
       option.setName('messageid')
         .setDescription('Optional message ID to edit'))
 
-    // --- Allow up to 10 image attachments ---
+    // Allow up to 10 image attachments
     .addAttachmentOption(option => option.setName('image1').setDescription('Image 1'))
     .addAttachmentOption(option => option.setName('image2').setDescription('Image 2'))
     .addAttachmentOption(option => option.setName('image3').setDescription('Image 3'))
@@ -56,7 +56,7 @@ module.exports = {
     .addAttachmentOption(option => option.setName('image9').setDescription('Image 9'))
     .addAttachmentOption(option => option.setName('image10').setDescription('Image 10'))
 
-    // --- Optional txt file ---
+    // Optional txt file
     .addAttachmentOption(option => option.setName('txtfile').setDescription('Optional .txt file to include')),
 
   async execute(interaction) {
@@ -118,7 +118,10 @@ module.exports = {
       .setColor(embedColor)
       .setTimestamp();
 
-    if (description) mainEmbed.setDescription(description);
+    const finalDescription = description.trim();
+    if (finalDescription.length > 0) {
+      mainEmbed.setDescription(finalDescription);
+    }
     if (title) mainEmbed.setTitle(title);
 
     // --- Build image embeds ---
