@@ -16,7 +16,7 @@ module.exports = {
           { name: 'Both', value: 'Both' }
         ))
     .addStringOption(option =>
-      option.setName('steamid')
+      option.setName('steamfriendcode')
         .setDescription('Enter your Steam Friend Code (numbers only)')
         .setRequired(true))
     .addStringOption(option =>
@@ -28,7 +28,7 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     const region = interaction.options.getString('region');
-    const steamId = interaction.options.getString('steamid');
+    const steamId = interaction.options.getString('steamfriendcode');
     const streamLink = interaction.options.getString('streamlink');
     const member = interaction.member;
 
