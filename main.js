@@ -3,7 +3,7 @@ const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = requir
 const { google } = require('googleapis');
 const moment = require('moment-timezone');
 const fs = require('fs');
-const axios = require('axios');  // <-- added axios import
+const axios = require('axios');
 
 const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -68,7 +68,6 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 client.once('ready', async () => {
     console.log(`✅ Bot is online and ready as ${client.user.tag}!`);
 
-    // Test Google Apps Script connectivity
     try {
         const response = await axios.get(process.env.Google_Apps_Script_URL);
         console.log("Google Script response:", response.data);
@@ -78,7 +77,7 @@ client.once('ready', async () => {
 
     const channel = client.channels.cache.get(STATUS_CHANNEL_ID);
     if (channel) {
-        const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]"); // ✅ Corrected time format
+        const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]");
         channel.send(`✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀\n🕒 Current Time: **${currentTime}**`);
         console.log(`✅ Startup message sent at ${currentTime}`);
     } else {
@@ -86,45 +85,87 @@ client.once('ready', async () => {
     }
 });
 
-// ✅ Add back the ping command to keep the bot awake
+// ✅ Auto trigger "member-update" command when someone joins
+client.on('guildMemberAdd', async (member) => {
+    console.log(`🎉 New member joined: ${member.user.tag} (${member.id})`);
+
+    try {
+        const commandName = 'member-update';
+        const command = client.commands.get(commandName);
+
+        if (!command) {
+            console.error(`❌ Command "${commandName}" not found.`);
+            return;
+        }
+
+        // Fake interaction object
+        const fakeInteraction = {
+            user: member.user,
+            member,
+            guild: member.guild,
+            client,
+            commandName,
+            options: {
+                getString: () => null,
+                getUser: () => null,
+                getRole: () => null,
+                getChannel: () => null
+            },
+            reply: async (data) => {
+                const logChannel = member.guild.channels.cache.get(STATUS_CHANNEL_ID);
+                if (logChannel) {
+                    await logChannel.send(data?.content || `✅ Ran "${commandName}" for ${member.user.tag}`);
+                }
+                console.log(`[auto-command] Replied for ${member.user.tag}`);
+            },
+            deferReply: async () => {},
+            editReply: async () => {},
+        };
+
+        // Run the slash command as if triggered
+        await command.execute(fakeInteraction, reactionPostsManager);
+        console.log(`✅ Auto-ran "${commandName}" for ${member.user.tag}`);
+
+    } catch (error) {
+        console.error(`❌ Failed to auto-run member-update for ${member.user.tag}:`, error);
+    }
+});
+
+// ✅ Keep bot awake with ping
 client.on('messageCreate', async message => {
     if (message.content === '!ping') {
         message.channel.send('Pong!');
     }
 });
 
+// ✅ Muffin Button Interaction
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
-
     if (interaction.customId === 'muffin') {
         try {
             await interaction.update({
-                content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>', // This can still be a message
+                content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>',
                 embeds: [{
                     image: {
-                        url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' // The image link
+                        url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642'
                     }
                 }],
-                components: [] // Remove button after interaction
+                components: []
             });
-
         } catch (error) {
             console.error(error);
             if (!interaction.replied && !interaction.deferred) {
-                await interaction.reply({
-                    content: '❌ Something went wrong!',
-                    ephemeral: true
-                });
+                await interaction.reply({ content: '❌ Something went wrong!', ephemeral: true });
             }
         }
     }
 });
 
-// Watch for the word "muffin" in a specific channel
+// ✅ Muffin word watcher
 client.on('messageCreate', async message => {
-    if (message.author.bot) return; // Ignore bot messages
+    if (message.author.bot) return;
 
-    const targetChannelId = '1052393482699948132'; // Replace with your actual channel ID
+    const targetChannelId = '1052393482699948132';
     const targetWord = 'muffin';
 
     if (message.channel.id === targetChannelId && message.content.toLowerCase().includes(targetWord)) {
@@ -141,7 +182,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// Handle command interactions (existing functionality)
+// ✅ Handle slash command interactions
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
@@ -156,23 +197,17 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// ✅ Start Express Server (Required for Render)
+// ✅ Express server (Render keep-alive)
 const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
-
-// Existing ping endpoint
 app.get('/ping', (req, res) => res.send('Pong!'));
 
-// New endpoint to send a message to Discord
 app.post('/sendmessage', async (req, res) => {
     const { channelId, message } = req.body;
-
-    if (!channelId || !message) {
-        return res.status(400).json({ error: 'Missing required fields: channelId and message' });
-    }
+    if (!channelId || !message) return res.status(400).json({ error: 'Missing required fields: channelId and message' });
 
     try {
         const channel = await client.channels.fetch(channelId);
@@ -185,6 +220,6 @@ app.post('/sendmessage', async (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`🌐 Server is running on port ${port}`);
+    console.log(`🌐 Server running on port ${port}`);
     client.login(botToken);
 });
