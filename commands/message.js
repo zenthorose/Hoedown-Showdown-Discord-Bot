@@ -5,10 +5,10 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('message')
-    .setDescription('Send or update a bot message with embed, optional attachments, and role mentions.')
-    .setDefaultMemberPermissions(0) // Requires Manage Messages
+    .setDescription('Send or update a bot message with embed, optional images, and role mentions.')
+    .setDefaultMemberPermissions(0) // Manage Messages
 
-    // Required options
+    // Required
     .addStringOption(option =>
       option.setName('description')
         .setDescription('The embed description')
@@ -27,46 +27,38 @@ module.exports = {
           { name: 'Gray', value: 'Gray' }
         ))
 
-    // Optional options
+    // Optional
     .addStringOption(option =>
       option.setName('roles')
-        .setDescription('Optional role mentions, comma-separated (e.g., @Mods,@Raiders)')
-        .setRequired(false))
+        .setDescription('Optional role mentions, comma-separated (e.g., @Mods,@Raiders)'))
     .addStringOption(option =>
       option.setName('title')
-        .setDescription('Optional embed title')
-        .setRequired(false))
+        .setDescription('Optional embed title'))
     .addStringOption(option =>
       option.setName('channelid')
-        .setDescription('Optional target channel ID (defaults to current channel)')
-        .setRequired(false))
+        .setDescription('Optional target channel ID (defaults to current channel)'))
     .addStringOption(option =>
       option.setName('messageid')
-        .setDescription('Optional message ID to edit')
-        .setRequired(false))
+        .setDescription('Optional message ID to edit'))
 
-    // Up to 10 image attachments
-    .addAttachmentOption(option => option.setName('image1').setDescription('Optional image #1').setRequired(false))
-    .addAttachmentOption(option => option.setName('image2').setDescription('Optional image #2').setRequired(false))
-    .addAttachmentOption(option => option.setName('image3').setDescription('Optional image #3').setRequired(false))
-    .addAttachmentOption(option => option.setName('image4').setDescription('Optional image #4').setRequired(false))
-    .addAttachmentOption(option => option.setName('image5').setDescription('Optional image #5').setRequired(false))
-    .addAttachmentOption(option => option.setName('image6').setDescription('Optional image #6').setRequired(false))
-    .addAttachmentOption(option => option.setName('image7').setDescription('Optional image #7').setRequired(false))
-    .addAttachmentOption(option => option.setName('image8').setDescription('Optional image #8').setRequired(false))
-    .addAttachmentOption(option => option.setName('image9').setDescription('Optional image #9').setRequired(false))
-    .addAttachmentOption(option => option.setName('image10').setDescription('Optional image #10').setRequired(false)),
+    // Allow up to 10 attachments
+    .addAttachmentOption(option => option.setName('image1').setDescription('Image 1'))
+    .addAttachmentOption(option => option.setName('image2').setDescription('Image 2'))
+    .addAttachmentOption(option => option.setName('image3').setDescription('Image 3'))
+    .addAttachmentOption(option => option.setName('image4').setDescription('Image 4'))
+    .addAttachmentOption(option => option.setName('image5').setDescription('Image 5'))
+    .addAttachmentOption(option => option.setName('image6').setDescription('Image 6'))
+    .addAttachmentOption(option => option.setName('image7').setDescription('Image 7'))
+    .addAttachmentOption(option => option.setName('image8').setDescription('Image 8'))
+    .addAttachmentOption(option => option.setName('image9').setDescription('Image 9'))
+    .addAttachmentOption(option => option.setName('image10').setDescription('Image 10')),
 
   async execute(interaction) {
     console.log(`[message] Command triggered by ${interaction.user.tag}`);
 
-    // Check permissions
-    const hasPermission = await checkPermissions(interaction);
-    if (!hasPermission) {
+    if (!(await checkPermissions(interaction)))
       return interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
-    }
 
-    // Fetch options
     const description = interaction.options.getString('description');
     const colorChoice = interaction.options.getString('color');
     const rolesInput = interaction.options.getString('roles');
@@ -74,24 +66,6 @@ module.exports = {
     const channelId = interaction.options.getString('channelid');
     const messageId = interaction.options.getString('messageid');
 
-    // Fetch all images dynamically
-    const images = [];
-    for (let i = 1; i <= 10; i++) {
-      const attachment = interaction.options.getAttachment(`image${i}`);
-      if (attachment) images.push(attachment);
-    }
-
-    // Validate IDs
-    if (channelId && !/^\d+$/.test(channelId)) {
-      return interaction.reply({ content: '❌ Channel ID must contain only numbers.', ephemeral: true });
-    }
-    if (messageId && !/^\d+$/.test(messageId)) {
-      return interaction.reply({ content: '❌ Message ID must contain only numbers.', ephemeral: true });
-    }
-
-    console.log(`[message] Options received: channelId=${channelId}, messageId=${messageId}, title=${title}, color=${colorChoice}, roles=${rolesInput}, images=${images.length}`);
-
-    // Color map
     const colorMap = {
       Red: '#FF0000',
       Blue: '#0000FF',
@@ -103,37 +77,33 @@ module.exports = {
     };
     const embedColor = colorMap[colorChoice] || '#444444';
 
-    // Determine target channel
     const targetChannel = channelId
       ? await interaction.client.channels.fetch(channelId).catch(() => null)
       : interaction.channel;
-    if (!targetChannel) return interaction.reply({ content: '❌ Invalid channel ID.', ephemeral: true });
+    if (!targetChannel)
+      return interaction.reply({ content: '❌ Invalid channel ID.', ephemeral: true });
 
-    // Determine target message (if messageId is provided)
-    let targetMessage = null; 
-    if (messageId) {
-      targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
-      if (!targetMessage) return interaction.reply({ content: '❌ Message not found.', ephemeral: true });
-      if (!targetMessage.editable) return interaction.reply({ content: "❌ I can't edit this message.", ephemeral: true });
-    }
-
-    // Build embed
-    const embed = new EmbedBuilder()
+    // --- Build main embed ---
+    const mainEmbed = new EmbedBuilder()
       .setDescription(description)
       .setColor(embedColor)
       .setTimestamp();
-    if (title) embed.setTitle(title);
+    if (title) mainEmbed.setTitle(title);
 
-    // Add labeled image fields
-    if (images.length > 0) {
-      images.forEach((img, idx) => {
-        embed.addFields({ name: `📷 Image ${idx + 1}`, value: `[Click to view](${img.url})` });
-      });
-      // Set the first image as the main embed image
-      embed.setImage(images[0].url);
+    // --- Build image embeds ---
+    const imageEmbeds = [];
+    for (let i = 1; i <= 10; i++) {
+      const image = interaction.options.getAttachment(`image${i}`);
+      if (image) {
+        const imgEmbed = new EmbedBuilder()
+          .setColor(embedColor)
+          .setTitle(`Image ${i}`)
+          .setImage(image.url);
+        imageEmbeds.push(imgEmbed);
+      }
     }
 
-    // Build role mentions
+    // --- Role mentions ---
     let content = '';
     if (rolesInput) {
       content = rolesInput.split(',')
@@ -142,26 +112,24 @@ module.exports = {
         .join(' ');
     }
 
-    // Edit or send message
-    if (targetMessage) {
-      await targetMessage.edit({ content, embeds: [embed] });
-      console.log(`[message] Edited message ${targetMessage.id} in ${targetChannel.id}`);
+    const allEmbeds = [mainEmbed, ...imageEmbeds];
+
+    // --- Send or edit ---
+    let targetMessage = null;
+    if (messageId) {
+      targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
+      if (!targetMessage)
+        return interaction.reply({ content: '❌ Message not found.', ephemeral: true });
+      if (!targetMessage.editable)
+        return interaction.reply({ content: "❌ I can't edit this message.", ephemeral: true });
+
+      await targetMessage.edit({ content, embeds: allEmbeds });
+      console.log(`[message] Edited message ${targetMessage.id}`);
     } else {
-      const sentMessage = await targetChannel.send({ content, embeds: [embed] });
-      console.log(`[message] Sent new message ${sentMessage.id} in ${targetChannel.id}`);
+      const sent = await targetChannel.send({ content, embeds: allEmbeds });
+      console.log(`[message] Sent new message ${sent.id}`);
     }
 
     await interaction.reply({ content: '✅ Message processed successfully!', ephemeral: true });
-
-    // Logging
-    try {
-      const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-      if (logChannel) {
-        const action = targetMessage ? 'edited' : 'sent';
-        await logChannel.send(`📝 **/message** used by **${interaction.user.tag}**: ${action} in <#${targetChannel.id}>${targetMessage ? ` (Message ID: ${targetMessage.id})` : ''}`);
-      }
-    } catch (err) {
-      console.error('❌ Failed to log message usage:', err);
-    }
   }
 };
