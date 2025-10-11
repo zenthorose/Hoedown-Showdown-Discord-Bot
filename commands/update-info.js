@@ -27,7 +27,7 @@ module.exports = {
     // --- STEAM ID SUBCOMMAND ---
     .addSubcommand(subcommand =>
       subcommand
-        .setName('steamid')
+        .setName('steamfriendcode')
         .setDescription('Update your Steam Friend Code')
         .addStringOption(option =>
           option.setName('friendcode')
@@ -115,8 +115,8 @@ module.exports = {
       }
     }
 
-    if (subcommand === 'steamid') {
-      infoType = 'steamid';
+    if (subcommand === 'steamfriendcode') {
+      infoType = 'steamfriendcode';
       newValue = interaction.options.getString('friendcode');
 
       // Only digits allowed, no length restriction
