@@ -1,7 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { checkPermissions } = require('../permissions'); 
-const config = require('../config.json');
-const fetch = require('node-fetch'); // Make sure node-fetch is installed
+const fetch = require('node-fetch'); // make sure node-fetch is installed
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -62,11 +61,12 @@ module.exports = {
   async execute(interaction) {
     console.log(`[message] Command triggered by ${interaction.user.tag}`);
 
+    // Check permissions
     if (!(await checkPermissions(interaction))) {
       return interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
     }
 
-    // --- Confirm phrase ---
+    // Confirm phrase
     const confirmText = interaction.options.getString('confirm');
     if (!confirmText || confirmText.trim().toUpperCase() !== 'SEND') {
       return interaction.reply({
@@ -75,7 +75,7 @@ module.exports = {
       });
     }
 
-    // --- Gather options ---
+    // Gather options
     let description = interaction.options.getString('description') || '';
     const colorChoice = interaction.options.getString('color') || 'Gray';
     const rolesInput = interaction.options.getString('roles') || '';
@@ -97,10 +97,9 @@ module.exports = {
     const targetChannel = channelId
       ? await interaction.client.channels.fetch(channelId).catch(() => null)
       : interaction.channel;
-    if (!targetChannel)
-      return interaction.reply({ content: '❌ Invalid channel ID.', ephemeral: true });
+    if (!targetChannel) return interaction.reply({ content: '❌ Invalid channel ID.', ephemeral: true });
 
-    // --- Append txt file if provided ---
+    // Append .txt file if provided
     const txtAttachment = interaction.options.getAttachment('txtfile');
     if (txtAttachment && txtAttachment.contentType === 'text/plain') {
       try {
@@ -113,18 +112,19 @@ module.exports = {
       }
     }
 
-    // --- Build main embed ---
+    // Ensure description is never empty (Discord requires at least title or description)
+    if (!description && !title) {
+      description = '\u200B'; // Zero-width space placeholder
+    }
+
+    // Build main embed
     const mainEmbed = new EmbedBuilder()
       .setColor(embedColor)
-      .setTimestamp();
-
-    const finalDescription = description.trim();
-    if (finalDescription.length > 0) {
-      mainEmbed.setDescription(finalDescription);
-    }
+      .setTimestamp()
+      .setDescription(description);
     if (title) mainEmbed.setTitle(title);
 
-    // --- Build image embeds ---
+    // Build image embeds
     const imageEmbeds = [];
     for (let i = 1; i <= 10; i++) {
       const image = interaction.options.getAttachment(`image${i}`);
@@ -137,18 +137,15 @@ module.exports = {
       }
     }
 
-    // --- Build role mentions ---
+    // Role mentions
     let content = '';
     if (rolesInput) {
-      content = rolesInput.split(',')
-        .map(r => r.trim())
-        .filter(r => r.length)
-        .join(' ');
+      content = rolesInput.split(',').map(r => r.trim()).filter(r => r.length).join(' ');
     }
 
     const allEmbeds = [mainEmbed, ...imageEmbeds];
 
-    // --- Send or edit ---
+    // Send or edit
     let targetMessage = null;
     if (messageId) {
       targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
@@ -164,6 +161,6 @@ module.exports = {
       console.log(`[message] Sent new message ${sent.id}`);
     }
 
-    await interaction.reply({ content: '✅ Message processed successfully!', ephemeral: true });
+    return interaction.reply({ content: '✅ Message processed successfully!', ephemeral: true });
   }
 };
