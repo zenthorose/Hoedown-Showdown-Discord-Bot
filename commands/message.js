@@ -8,6 +8,12 @@ module.exports = {
     .setDescription('Send or update a bot message with embed, optional images, role mentions, and txt content.')
     .setDefaultMemberPermissions(0) // Manage Messages
 
+    
+    // Confirmation required
+    .addStringOption(option =>
+      option.setName('confirm')
+        .setDescription('Type "SEND" exactly to confirm sending this message')
+        .setRequired(true))
     // Optional main options
     .addStringOption(option =>
       option.setName('description')
@@ -24,8 +30,6 @@ module.exports = {
           { name: 'Orange', value: 'Orange' },
           { name: 'Gray', value: 'Gray' }
         ))
-
-    // Optional other options
     .addStringOption(option =>
       option.setName('roles')
         .setDescription('Optional role mentions, comma-separated (e.g., @Mods,@Raiders)'))
@@ -38,12 +42,6 @@ module.exports = {
     .addStringOption(option =>
       option.setName('messageid')
         .setDescription('Optional message ID to edit'))
-
-    // Confirmation required
-    .addStringOption(option =>
-      option.setName('confirm')
-        .setDescription('Type "SEND" exactly to confirm sending this message')
-        .setRequired(true))
 
     // Allow up to 10 image attachments
     .addAttachmentOption(option => option.setName('image1').setDescription('Image 1'))
