@@ -134,6 +134,11 @@ client.on('guildMemberAdd', async (member) => {
     }
 });
 
+// ✅ Catch DM's to the bot to make a support ticket
+const modmailHandler = require('./events/modmail.js');
+client.on('messageCreate', (message) => modmailHandler(client, message));
+
+
 // ✅ Keep bot awake with ping
 client.on('messageCreate', async message => {
     if (message.content === '!ping') {
