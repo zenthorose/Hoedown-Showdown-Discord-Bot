@@ -21,7 +21,7 @@ module.exports = {
         .setRequired(true))
     .addStringOption(option =>
       option.setName('streamlink')
-        .setDescription('Enter a full link for your Twitch/Youtube/Kick/Tiktok' )
+        .setDescription('Enter a full link for your Twitch/YouTube/Kick/TikTok')
         .setRequired(true)),
 
   async execute(interaction) {
@@ -40,7 +40,7 @@ module.exports = {
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
-            `📝 **/register** used by **${userTag}** (${userId}) in **#${channelName} ** ${extra}`
+            `📝 **/register** used by **${userTag}** (${userId}) in **#${channelName}** ${extra}`
           );
         }
       } catch (err) {
@@ -49,10 +49,18 @@ module.exports = {
     }
 
     try {
-      // --- Steam ID validation (digits only) ---
+      // --- Validate Steam ID (digits only) ---
       if (!/^\d+$/.test(steamId)) {
         await interaction.editReply('❌ Invalid Steam ID. Must only contain numbers.');
         await logUsage("❌ Invalid Steam ID entered.");
+        return;
+      }
+
+      // --- Validate Stream Link ---
+      const validLinkRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+$/i;
+      if (!validLinkRegex.test(streamLink)) {
+        await interaction.editReply('❌ Invalid stream link. Must be Twitch, Kick, YouTube, or TikTok.');
+        await logUsage("❌ Invalid stream link entered.");
         return;
       }
 
@@ -90,7 +98,7 @@ module.exports = {
         return;
       }
 
-      // --- Assign region + registered roles (only if GAS success) ---
+      // --- Assign roles ---
       const roleName = region === 'East' ? 'East' : region === 'West' ? 'West' : 'Both';
       const role = interaction.guild.roles.cache.find(r => r.name === roleName);
 
