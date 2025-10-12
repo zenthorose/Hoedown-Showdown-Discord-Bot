@@ -184,6 +184,20 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+  if (newMessage.channel.type !== 1 || newMessage.author.bot) return;
+  if (modmailHandler.handleEdit) {
+    await modmailHandler.handleEdit(client, oldMessage, newMessage);
+  }
+});
+
+client.on('messageDelete', async (deletedMessage) => {
+  if (deletedMessage.channel.type !== 1 || deletedMessage.author.bot) return;
+  if (modmailHandler.handleDelete) {
+    await modmailHandler.handleDelete(client, deletedMessage);
+  }
+});
+
 // --- Button interaction handler + command interactions (single listener) ---
 client.on('interactionCreate', async (interaction) => {
   try {
