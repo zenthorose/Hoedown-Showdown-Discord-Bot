@@ -4,6 +4,7 @@ const { google } = require('googleapis');
 const moment = require('moment-timezone');
 const fs = require('fs');
 const axios = require('axios');
+const express = require('express');
 
 const client = new Client({
     partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -85,7 +86,7 @@ client.once('ready', async () => {
     }
 });
 
-// ✅ Auto trigger "member-update" command when someone joins
+// ✅ Auto trigger "member-update" command when someone joins (run as the BOT)
 client.on('guildMemberAdd', async (member) => {
     console.log(`🎉 New member joined: ${member.user.tag} (${member.id})`);
 
@@ -98,10 +99,12 @@ client.on('guildMemberAdd', async (member) => {
             return;
         }
 
-        // Fake interaction object
+        // Use the bot as the executor instead of the new user
+        const botMember = member.guild.members.me;
+
         const fakeInteraction = {
-            user: member.user,
-            member,
+            user: client.user,
+            member: botMember,
             guild: member.guild,
             client,
             commandName,
@@ -122,7 +125,7 @@ client.on('guildMemberAdd', async (member) => {
             editReply: async () => {},
         };
 
-        // Run the slash command as if triggered
+        // Execute the command as if the bot called it
         await command.execute(fakeInteraction, reactionPostsManager);
         console.log(`✅ Auto-ran "${commandName}" for ${member.user.tag}`);
 
@@ -198,7 +201,6 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ✅ Express server (Render keep-alive)
-const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 
