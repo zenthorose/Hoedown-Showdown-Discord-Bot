@@ -133,7 +133,22 @@ module.exports = async (client, message) => {
         await message.channel.send({ embeds: [staffEmbed] });
 
         if (user) {
-          await user.send(`📩 **Support Reply:** ${replyText}`).catch(() => {});
+        try {
+            const dmMsg = await user.send(`📩 **Support Reply:** ${replyText}`);
+            
+            // Repost to staff channel showing the DM message ID for tracking
+            const staffEmbed = new EmbedBuilder()
+            .setColor('Blue')
+            .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
+            .setDescription(replyText)
+            .setFooter({ text: `Sent DM Message ID: ${dmMsg.id}` })
+            .setTimestamp();
+
+            await message.channel.send({ embeds: [staffEmbed] });
+        } catch (err) {
+            console.error('❌ Failed to send DM:', err);
+            await message.channel.send('❌ Could not DM the user.');
+        }
         }
 
         await message.react('✅');
