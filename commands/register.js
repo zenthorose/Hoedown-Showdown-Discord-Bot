@@ -57,12 +57,13 @@ module.exports = {
       }
 
       // --- Validate Stream Link ---
-      const validLinkRegex = /^https?:\/\/(www\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+$/i;
+      const validLinkRegex = /^https?:\/\/((www|m)\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+$/i;
       if (!validLinkRegex.test(streamLink)) {
         await interaction.editReply('❌ Invalid stream link. Must be Twitch, Kick, YouTube, or TikTok.');
         await logUsage("❌ Invalid stream link entered.");
         return;
       }
+
 
       // --- Check if already Registered ---
       const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');

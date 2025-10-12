@@ -127,7 +127,6 @@ module.exports = async (client, message) => {
         }
 
         await message.react('✅');
-        console.log(`📤 Reply sent to ${user?.tag || userId}: ${replyText}`);
       }
 
       // ---- Close ticket and notify ----
@@ -162,7 +161,6 @@ module.exports = async (client, message) => {
           }
 
           await message.react('✅');
-          console.log(`🧹 Cleared ${botMessages.size} message(s) from ${user.tag}'s DM.`);
         } catch (err) {
           console.error('❌ Failed to clear messages:', err);
           await message.react('✅');
