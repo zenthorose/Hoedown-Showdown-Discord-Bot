@@ -47,46 +47,8 @@ module.exports = async (client, message) => {
         c => c.name === channelName && c.parentId === category.id
       );
 
-      // If ticket doesn't exist, create it
-      if (!ticketChannel) {
-        ticketChannel = await guild.channels.create({
-          name: channelName,
-          type: ChannelType.GuildText,
-          parent: category.id,
-          topic: `Ticket for ${message.author.tag} (${message.author.id})`,
-          permissionOverwrites: [
-            {
-              id: guild.roles.everyone.id,
-              deny: [PermissionFlagsBits.ViewChannel],
-            },
-            ...STAFF_ROLE_IDS.map(roleId => ({
-              id: roleId,
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.ReadMessageHistory,
-              ],
-            })),
-          ],
-        });
-
-        // Send initial embed with "New Modmail Ticket" header
-        const userEmbed = new EmbedBuilder()
-          .setColor('Red')
-          .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-          .setDescription(message.content || '*No content*')
-          .setTimestamp();
-
-        await ticketChannel.send({ content: '🎟️ **New Modmail Ticket**', embeds: [userEmbed] });
-
-        // Respond to user
-        await message.reply(
-          '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available to help you.'
-        );
-
-        console.log(`📨 New ticket opened for ${message.author.tag}`);
-      } else {
-        // Ticket exists → just send DM as a red embed
+      // If ticket exists, just add the DM to it and react
+      if (ticketChannel) {
         const userEmbed = new EmbedBuilder()
           .setColor('Red')
           .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
@@ -96,7 +58,43 @@ module.exports = async (client, message) => {
         await ticketChannel.send({ embeds: [userEmbed] });
         await message.react('✅');
         console.log(`📨 DM added to existing ticket for ${message.author.tag}`);
+        return;
       }
+
+      // Otherwise create a new ticket
+      ticketChannel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        topic: `Ticket for ${message.author.tag} (${message.author.id})`,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone.id,
+            deny: [PermissionFlagsBits.ViewChannel],
+          },
+          ...STAFF_ROLE_IDS.map(roleId => ({
+            id: roleId,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory,
+            ],
+          })),
+        ],
+      });
+
+      const userEmbed = new EmbedBuilder()
+        .setColor('Red')
+        .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
+        .setDescription(message.content || '*No content*')
+        .setTimestamp();
+
+      await ticketChannel.send({ content: '🎟️ **New Modmail Ticket**', embeds: [userEmbed] });
+      await message.reply(
+        '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available to help you.'
+      );
+
+      console.log(`📨 New ticket opened for ${message.author.tag}`);
     }
 
     // -------------------------
@@ -112,7 +110,7 @@ module.exports = async (client, message) => {
       // ---- Reply to user ----
       if (message.content.startsWith(REPLY_PREFIX)) {
         const replyText = message.content.slice(REPLY_PREFIX.length).trim();
-        if (!replyText) return message.reply('⚠️ Please include a message after `!reply`.');
+        if (!replyText) return await message.react('✅');
 
         await message.delete().catch(() => {});
 
@@ -125,11 +123,10 @@ module.exports = async (client, message) => {
         await message.channel.send({ embeds: [staffEmbed] });
 
         if (user) {
-          await user.send(`📩 **Support Reply:** ${replyText}`).catch(() => {
-            message.channel.send('❌ Failed to send DM.');
-          });
+          await user.send(`📩 **Support Reply:** ${replyText}`).catch(() => {});
         }
 
+        await message.react('✅');
         console.log(`📤 Reply sent to ${user?.tag || userId}: ${replyText}`);
       }
 
@@ -153,7 +150,7 @@ module.exports = async (client, message) => {
 
       // ---- Clear bot messages from user's DM ----
       else if (message.content.startsWith(CLEAR_PREFIX)) {
-        if (!user) return message.reply('❌ Could not find the user DM channel.');
+        if (!user) return await message.react('✅');
 
         try {
           const dmChannel = await user.createDM();
@@ -164,11 +161,11 @@ module.exports = async (client, message) => {
             await msg.delete().catch(() => {});
           }
 
-          await message.channel.send(`✅ Cleared ${botMessages.size} message(s) from ${user.tag}'s DM.`);
+          await message.react('✅');
           console.log(`🧹 Cleared ${botMessages.size} message(s) from ${user.tag}'s DM.`);
         } catch (err) {
           console.error('❌ Failed to clear messages:', err);
-          await message.channel.send('❌ Failed to clear messages.');
+          await message.react('✅');
         }
       }
     }
