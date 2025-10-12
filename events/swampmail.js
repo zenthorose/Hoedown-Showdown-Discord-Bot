@@ -15,8 +15,8 @@ const REPLY_PREFIX = '!reply';
 const CLOSE_PREFIX = '!close';
 const SILENT_CLOSE_PREFIX = '!silentclose';
 const CLEAR_PREFIX = '!clear';
-const EDIT_PREFIX = '!editmsg';
-const DELETE_PREFIX = '!deletemsg';
+const EDIT_PREFIX = '!edit';
+const DELETE_PREFIX = '!delete';
 
 module.exports = async (client, message) => {
   try {
@@ -51,15 +51,15 @@ module.exports = async (client, message) => {
         c => c.name === channelName && c.parentId === category.id
       );
 
-      // If ticket exists, just add the DM to it and react
-      if (ticketChannel) {
-        const userEmbed = new EmbedBuilder()
-          .setColor('Red')
-          .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-          .setDescription(message.content || '*No content*')
-          .setFooter({ text: `DM Message ID: ${message.id}` })
-          .setTimestamp();
+      const userEmbed = new EmbedBuilder()
+        .setColor('Red')
+        .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
+        .setDescription(message.content || '*No content*')
+        .setFooter({ text: `DM Message ID: ${message.id}` })
+        .setTimestamp();
 
+      // If ticket exists, just add the DM to it
+      if (ticketChannel) {
         await ticketChannel.send({ embeds: [userEmbed] });
         await message.react('✅');
         console.log(`📨 DM added to existing ticket for ${message.author.tag}`);
@@ -88,13 +88,6 @@ module.exports = async (client, message) => {
         ],
       });
 
-      const userEmbed = new EmbedBuilder()
-        .setColor('Red')
-        .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-        .setDescription(message.content || '*No content*')
-        .setFooter({ text: `DM Message ID: ${message.id}` })
-        .setTimestamp();
-
       await ticketChannel.send({
         content: `🎟️ **New Modmail Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}`,
         embeds: [userEmbed]
@@ -121,56 +114,71 @@ module.exports = async (client, message) => {
       if (message.content.startsWith(REPLY_PREFIX)) {
         const replyText = message.content.slice(REPLY_PREFIX.length).trim();
         if (!replyText) return await message.react('✅');
-
         await message.delete().catch(() => {});
 
-        const staffEmbed = new EmbedBuilder()
-          .setColor('Blue')
-          .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-          .setDescription(replyText)
-          .setTimestamp();
-
-        await message.channel.send({ embeds: [staffEmbed] });
-
-        if (user) {
         try {
-            const dmMsg = await user.send(`📩 **Support Reply:** ${replyText}`);
-            
-            // Repost to staff channel showing the DM message ID for tracking
-            const staffEmbed = new EmbedBuilder()
+          const dmMsg = await user.send(`📩 **Support Reply:** ${replyText}`);
+          
+          // Post to staff channel as embed
+          const staffEmbed = new EmbedBuilder()
             .setColor('Blue')
             .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
             .setDescription(replyText)
             .setFooter({ text: `Sent DM Message ID: ${dmMsg.id}` })
             .setTimestamp();
 
-            await message.channel.send({ embeds: [staffEmbed] });
+          await message.channel.send({ embeds: [staffEmbed] });
         } catch (err) {
-            console.error('❌ Failed to send DM:', err);
-            await message.channel.send('❌ Could not DM the user.');
-        }
+          console.error('❌ Failed to send DM:', err);
+          await message.channel.send('❌ Could not DM the user.');
         }
 
         await message.react('✅');
       }
 
-      // ---- Edit a DM message ----
+      // ---- Edit both channel and DM message ----
       else if (message.content.startsWith(EDIT_PREFIX)) {
         const args = message.content.split(' ').slice(1);
-        const dmMessageId = args.shift();
+        const channelMessageId = args.shift();
         const newContent = args.join(' ');
 
-        if (!dmMessageId || !newContent) return await message.react('✅');
+        if (!channelMessageId || !newContent) {
+          await message.channel.send('⚠️ Usage: `!edit <channelMessageId> <new content>`');
+          return;
+        }
 
         try {
-          const dmChannel = await user.createDM();
-          const targetMsg = await dmChannel.messages.fetch(dmMessageId).catch(() => null);
-
+          const targetMsg = await message.channel.messages.fetch(channelMessageId).catch(() => null);
           if (!targetMsg) {
-            await message.channel.send('❌ Could not find a DM message with that ID.');
+            await message.channel.send('❌ Could not find a message with that ID in this channel.');
+            return;
+          }
+
+          const embed = targetMsg.embeds[0];
+          const footerText = embed?.footer?.text || '';
+          const dmMessageIdMatch = footerText.match(/Sent DM Message ID:\s*(\d+)/);
+          const dmMessageId = dmMessageIdMatch ? dmMessageIdMatch[1] : null;
+
+          // Update channel embed
+          const newEmbed = EmbedBuilder.from(embed)
+            .setAuthor({ name: message.author.tag + ' (Edited)', iconURL: message.author.displayAvatarURL() })
+            .setDescription(newContent + ' *(Edited)*')
+            .setTimestamp();
+
+          await targetMsg.edit({ embeds: [newEmbed] });
+
+          // Update DM message if exists
+          if (dmMessageId && user) {
+            const dmChannel = await user.createDM();
+            const dmMsg = await dmChannel.messages.fetch(dmMessageId).catch(() => null);
+            if (dmMsg) {
+              await dmMsg.edit(`📩 **Support Reply:** ${newContent}`);
+              await message.channel.send(`✏️ Edited both the channel and DM message (${dmMessageId}).`);
+            } else {
+              await message.channel.send(`✏️ Channel message edited, but DM message ${dmMessageId} not found.`);
+            }
           } else {
-            await targetMsg.edit(newContent);
-            await message.channel.send(`✏️ Message \`${dmMessageId}\` updated.`);
+            await message.channel.send(`✏️ Channel message edited (no DM ID found).`);
           }
         } catch (err) {
           console.error('❌ Edit failed:', err);
@@ -215,13 +223,13 @@ module.exports = async (client, message) => {
         console.log(`❌ Ticket for ${user?.tag || userId} closed by staff.`);
       }
 
-      // ---- Silent close (no DM) ----
+      // ---- Silent close ----
       else if (message.content.startsWith(SILENT_CLOSE_PREFIX)) {
         await message.channel.delete();
         console.log(`❌ Ticket silently closed (no DM).`);
       }
 
-      // ---- Clear bot messages from user's DM ----
+      // ---- Clear DM messages ----
       else if (message.content.startsWith(CLEAR_PREFIX)) {
         if (!user) return await message.react('✅');
 
