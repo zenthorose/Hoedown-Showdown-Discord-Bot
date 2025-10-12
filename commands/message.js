@@ -21,7 +21,8 @@ module.exports = {
 
     const txtAttachment = interaction.options.getAttachment('txtfile');
 
-    if (!txtAttachment || txtAttachment.contentType !== 'text/plain') {
+    // Check filename extension instead of contentType
+    if (!txtAttachment || !txtAttachment.name.toLowerCase().endsWith('.txt')) {
       return interaction.reply({ content: '❌ Please upload a valid .txt file.', ephemeral: true });
     }
 
@@ -34,8 +35,7 @@ module.exports = {
       return interaction.reply({ content: '❌ Failed to read the uploaded .txt file.', ephemeral: true });
     }
 
-    // Ensure description is never empty (Discord requires at least title or description)
-    if (!description) description = '\u200B';
+    if (!description) description = '\u200B'; // ensure non-empty
 
     const embed = new EmbedBuilder()
       .setDescription(description)
