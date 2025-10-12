@@ -9,10 +9,14 @@ const STAFF_ROLE_IDS = [
   "1069083357100642316",
   "1416904399208321164"
 ];
+
+// Command prefixes
 const REPLY_PREFIX = '!reply';
 const CLOSE_PREFIX = '!close';
 const SILENT_CLOSE_PREFIX = '!silentclose';
 const CLEAR_PREFIX = '!clear';
+const EDIT_PREFIX = '!editmsg';
+const DELETE_PREFIX = '!deletemsg';
 
 module.exports = async (client, message) => {
   try {
@@ -53,6 +57,7 @@ module.exports = async (client, message) => {
           .setColor('Red')
           .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
           .setDescription(message.content || '*No content*')
+          .setFooter({ text: `DM Message ID: ${message.id}` })
           .setTimestamp();
 
         await ticketChannel.send({ embeds: [userEmbed] });
@@ -87,9 +92,14 @@ module.exports = async (client, message) => {
         .setColor('Red')
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
         .setDescription(message.content || '*No content*')
+        .setFooter({ text: `DM Message ID: ${message.id}` })
         .setTimestamp();
 
-      await ticketChannel.send({ content: '🎟️ **New Modmail Ticket**', embeds: [userEmbed] });
+      await ticketChannel.send({
+        content: `🎟️ **New Modmail Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}`,
+        embeds: [userEmbed]
+      });
+
       await message.reply(
         '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available to help you.'
       );
@@ -127,6 +137,55 @@ module.exports = async (client, message) => {
         }
 
         await message.react('✅');
+      }
+
+      // ---- Edit a DM message ----
+      else if (message.content.startsWith(EDIT_PREFIX)) {
+        const args = message.content.split(' ').slice(1);
+        const dmMessageId = args.shift();
+        const newContent = args.join(' ');
+
+        if (!dmMessageId || !newContent) return await message.react('✅');
+
+        try {
+          const dmChannel = await user.createDM();
+          const targetMsg = await dmChannel.messages.fetch(dmMessageId).catch(() => null);
+
+          if (!targetMsg) {
+            await message.channel.send('❌ Could not find a DM message with that ID.');
+          } else {
+            await targetMsg.edit(newContent);
+            await message.channel.send(`✏️ Message \`${dmMessageId}\` updated.`);
+          }
+        } catch (err) {
+          console.error('❌ Edit failed:', err);
+          await message.channel.send('❌ Failed to edit message.');
+        }
+
+        await message.delete().catch(() => {});
+      }
+
+      // ---- Delete a DM message ----
+      else if (message.content.startsWith(DELETE_PREFIX)) {
+        const dmMessageId = message.content.split(' ')[1];
+        if (!dmMessageId) return await message.react('✅');
+
+        try {
+          const dmChannel = await user.createDM();
+          const targetMsg = await dmChannel.messages.fetch(dmMessageId).catch(() => null);
+
+          if (!targetMsg) {
+            await message.channel.send('❌ Could not find a DM message with that ID.');
+          } else {
+            await targetMsg.delete().catch(() => {});
+            await message.channel.send(`🗑️ Message \`${dmMessageId}\` deleted.`);
+          }
+        } catch (err) {
+          console.error('❌ Delete failed:', err);
+          await message.channel.send('❌ Failed to delete message.');
+        }
+
+        await message.delete().catch(() => {});
       }
 
       // ---- Close ticket and notify ----
