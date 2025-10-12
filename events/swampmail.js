@@ -46,49 +46,56 @@ module.exports = async (client, message) => {
         c => c.name === channelName && c.parentId === category.id
       );
 
-      if (ticketChannel) {
-        // Already has a ticket → just react
+      // If ticket doesn't exist, create it
+      if (!ticketChannel) {
+        ticketChannel = await guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          parent: category.id,
+          topic: `Ticket for ${message.author.tag} (${message.author.id})`,
+          permissionOverwrites: [
+            {
+              id: guild.roles.everyone.id,
+              deny: [PermissionFlagsBits.ViewChannel],
+            },
+            ...STAFF_ROLE_IDS.map(roleId => ({
+              id: roleId,
+              allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+              ],
+            })),
+          ],
+        });
+
+        // Send initial embed with "New Modmail Ticket" header
+        const userEmbed = new EmbedBuilder()
+          .setColor('Red')
+          .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
+          .setDescription(message.content || '*No content*')
+          .setTimestamp();
+
+        await ticketChannel.send({ content: '🎟️ **New Modmail Ticket**', embeds: [userEmbed] });
+
+        // Respond to user
+        await message.reply(
+          '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available to help you.'
+        );
+
+        console.log(`📨 New ticket opened for ${message.author.tag}`);
+      } else {
+        // Ticket exists → just send DM as a red embed
+        const userEmbed = new EmbedBuilder()
+          .setColor('Red')
+          .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
+          .setDescription(message.content || '*No content*')
+          .setTimestamp();
+
+        await ticketChannel.send({ embeds: [userEmbed] });
         await message.react('✅');
-        return;
+        console.log(`📨 DM added to existing ticket for ${message.author.tag}`);
       }
-
-      // Create a new ticket channel
-      ticketChannel = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        parent: category.id,
-        topic: `Ticket for ${message.author.tag} (${message.author.id})`,
-        permissionOverwrites: [
-          {
-            id: guild.roles.everyone.id,
-            deny: [PermissionFlagsBits.ViewChannel],
-          },
-          ...STAFF_ROLE_IDS.map(roleId => ({
-            id: roleId,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ReadMessageHistory,
-            ],
-          })),
-        ],
-      });
-
-      // Embed for staff ticket channel
-      const userEmbed = new EmbedBuilder()
-        .setColor('Red')
-        .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-        .setDescription(message.content || '*No content*')
-        .setTimestamp();
-
-      await ticketChannel.send({ content: '🎟️ **New Modmail Ticket**', embeds: [userEmbed] });
-
-      // Respond to user
-      await message.reply(
-        '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available to help you.'
-      );
-
-      console.log(`📨 New ticket opened for ${message.author.tag}`);
     }
 
     // -------------------------
