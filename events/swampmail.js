@@ -78,7 +78,7 @@ module.exports = async (client, message) => {
       const userEmbed = new EmbedBuilder()
         .setColor('Red')
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-        .setDescription(message.content)
+        .setDescription(message.content || '*No content*')
         .setTimestamp();
 
       await ticketChannel.send({ content: '🎟️ **New Modmail Ticket**', embeds: [userEmbed] });
@@ -95,17 +95,16 @@ module.exports = async (client, message) => {
     // 💬 Handle Staff Messages
     // -------------------------
     else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
+      const userIdMatch = message.channel.topic?.match(/\((\d+)\)$/);
+      if (!userIdMatch) return;
+
+      const userId = userIdMatch[1];
+      const user = await client.users.fetch(userId).catch(() => null);
+
       // ---- Reply to user ----
       if (message.content.startsWith(REPLY_PREFIX)) {
         const replyText = message.content.slice(REPLY_PREFIX.length).trim();
         if (!replyText) return message.reply('⚠️ Please include a message after `!reply`.');
-
-        const userIdMatch = message.channel.topic?.match(/\((\d+)\)$/);
-        if (!userIdMatch) return message.reply('❌ Could not find the user ID for this ticket.');
-
-        const userId = userIdMatch[1];
-        const user = await client.users.fetch(userId).catch(() => null);
-        if (!user) return message.reply('❌ Could not DM the user (may have blocked the bot or left Discord).');
 
         // Delete the staff's original message
         await message.delete().catch(() => {});
@@ -120,21 +119,17 @@ module.exports = async (client, message) => {
         await message.channel.send({ embeds: [staffEmbed] });
 
         // Send plain text DM to user
-        await user.send(`📩 **Support Reply:** ${replyText}`).catch(() => {
-          message.channel.send('❌ Failed to send DM.');
-        });
+        if (user) {
+          await user.send(`📩 **Support Reply:** ${replyText}`).catch(() => {
+            message.channel.send('❌ Failed to send DM.');
+          });
+        }
 
-        console.log(`📤 Reply sent to ${user.tag}: ${replyText}`);
+        console.log(`📤 Reply sent to ${user?.tag || userId}: ${replyText}`);
       }
 
       // ---- Close ticket and notify ----
       else if (message.content.startsWith(CLOSE_PREFIX)) {
-        const userIdMatch = message.channel.topic?.match(/\((\d+)\)$/);
-        if (!userIdMatch) return message.reply('❌ Could not find the user ID for this ticket.');
-
-        const userId = userIdMatch[1];
-        const user = await client.users.fetch(userId).catch(() => null);
-
         if (user) {
           await user.send(
             '📩 The admin team has closed your support ticket. If your issue did not get resolved or you have another issue feel free to send me another DM.'
