@@ -1,11 +1,11 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const fetch = require('node-fetch'); // make sure node-fetch is installed
 const { checkPermissions } = require('../permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('message')
-    .setDescription('Send a message with the contents of an uploaded .txt file.')
+    .setDescription('Post the contents of an uploaded .txt file directly into the channel.')
     .setDefaultMemberPermissions(0) // Manage Messages
     .addAttachmentOption(option =>
       option.setName('txtfile')
@@ -21,29 +21,24 @@ module.exports = {
 
     const txtAttachment = interaction.options.getAttachment('txtfile');
 
-    // Check filename extension instead of contentType
+    // Check that the file is a .txt
     if (!txtAttachment || !txtAttachment.name.toLowerCase().endsWith('.txt')) {
       return interaction.reply({ content: '❌ Please upload a valid .txt file.', ephemeral: true });
     }
 
-    let description = '';
+    let fileContent = '';
     try {
       const res = await fetch(txtAttachment.url);
-      description = await res.text();
+      fileContent = await res.text();
     } catch (err) {
       console.error('❌ Failed to fetch .txt file:', err);
       return interaction.reply({ content: '❌ Failed to read the uploaded .txt file.', ephemeral: true });
     }
 
-    if (!description) description = '\u200B'; // ensure non-empty
-
-    const embed = new EmbedBuilder()
-      .setDescription(description)
-      .setColor('#808080') // default gray
-      .setTimestamp();
+    if (!fileContent) fileContent = '\u200B'; // empty messages aren't allowed
 
     try {
-      await interaction.channel.send({ embeds: [embed] });
+      await interaction.channel.send(fileContent);
       console.log(`[message] Posted message from .txt file by ${interaction.user.tag}`);
       return interaction.reply({ content: '✅ Message sent successfully!', ephemeral: true });
     } catch (err) {
