@@ -12,6 +12,7 @@ const STAFF_ROLE_IDS = [
 const REPLY_PREFIX = '!reply';
 const CLOSE_PREFIX = '!close';
 const SILENT_CLOSE_PREFIX = '!silentclose';
+const CLEAR_PREFIX = '!clear';
 
 module.exports = async (client, message) => {
   try {
@@ -113,10 +114,8 @@ module.exports = async (client, message) => {
         const replyText = message.content.slice(REPLY_PREFIX.length).trim();
         if (!replyText) return message.reply('⚠️ Please include a message after `!reply`.');
 
-        // Delete the staff's original message
         await message.delete().catch(() => {});
 
-        // Embed the staff reply in the ticket channel
         const staffEmbed = new EmbedBuilder()
           .setColor('Blue')
           .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
@@ -125,7 +124,6 @@ module.exports = async (client, message) => {
 
         await message.channel.send({ embeds: [staffEmbed] });
 
-        // Send plain text DM to user
         if (user) {
           await user.send(`📩 **Support Reply:** ${replyText}`).catch(() => {
             message.channel.send('❌ Failed to send DM.');
@@ -151,6 +149,27 @@ module.exports = async (client, message) => {
       else if (message.content.startsWith(SILENT_CLOSE_PREFIX)) {
         await message.channel.delete();
         console.log(`❌ Ticket silently closed (no DM).`);
+      }
+
+      // ---- Clear bot messages from user's DM ----
+      else if (message.content.startsWith(CLEAR_PREFIX)) {
+        if (!user) return message.reply('❌ Could not find the user DM channel.');
+
+        try {
+          const dmChannel = await user.createDM();
+          const messages = await dmChannel.messages.fetch({ limit: 100 });
+          const botMessages = messages.filter(m => m.author.id === client.user.id);
+
+          for (const [id, msg] of botMessages) {
+            await msg.delete().catch(() => {});
+          }
+
+          await message.channel.send(`✅ Cleared ${botMessages.size} message(s) from ${user.tag}'s DM.`);
+          console.log(`🧹 Cleared ${botMessages.size} message(s) from ${user.tag}'s DM.`);
+        } catch (err) {
+          console.error('❌ Failed to clear messages:', err);
+          await message.channel.send('❌ Failed to clear messages.');
+        }
       }
     }
   } catch (err) {
