@@ -31,23 +31,22 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     if (line.startsWith('(Original)')) {
       original = line.replace('(Original)', '').trim();
     } else if (line.includes('(Current)')) {
-      edits.push(line.replace(' (Current)', '').trim());
+      // Skip previous Current marker
+      edits.unshift(line.replace(' (Current)', '').trim());
     } else if (line.match(/^\(Edit \d+\)/)) {
-      edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
-    } else {
-      // fallback: treat as original if no marker
-      if (!original) original = line.trim();
-      else edits.push(line.trim());
+      edits.unshift(line.replace(/^\(Edit \d+\)\s*/, '').trim());
+    } else if (line.trim() !== '') {
+      edits.unshift(line.trim());
     }
   }
 
-  // Renumber edits in chronological order
-  const renumberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
+  // Number edits in reverse chronological order (oldest edit = Edit 1 at bottom)
+  const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`).reverse();
 
   // Latest edit on top
   const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
 
-  return [topLine, ...renumberedEdits, `(Original) ${original}`].join('\n--------------\n');
+  return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
 
 module.exports = {
