@@ -41,8 +41,8 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     }
   }
 
-  // Renumber old edits
-  const renumberedEdits = oldEdits.map((text, i) => `(Edit ${i + 1}) ${text}`);
+  // Renumber old edits in **chronological order** (oldest first)
+  const renumberedEdits = oldEdits.reverse().map((text, i) => `(Edit ${i + 1}) ${text}`);
 
   // Latest edit on top
   const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
