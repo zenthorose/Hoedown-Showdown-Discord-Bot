@@ -18,31 +18,24 @@ const CLEAR_PREFIX = '!clear';
 const EDIT_PREFIX = '!edit';
 const DELETE_PREFIX = '!delete';
 
-module.exports = (client) => {
-
+module.exports = {
   // -------------------------
-  // 📨 Handle DM -> Ticket
+  // Handle DM -> Ticket
   // -------------------------
-  client.on('messageCreate', async (message) => {
+  handleMessageCreate: async (client, message) => {
     try {
       if (message.author.bot) return;
 
-      // -------------------------
-      // DM messages → ticket
-      // -------------------------
+      // DM → Ticket
       if (message.channel.type === ChannelType.DM) {
         const guild = client.guilds.cache.get(GUILD_ID);
-        if (!guild) return console.error('❌ Guild not found. Make sure GUILD_ID is correct.');
+        if (!guild) return console.error('❌ Guild not found.');
 
-        // Ensure support category exists
         let category = guild.channels.cache.find(
           c => c.name === SUPPORT_CATEGORY_NAME && c.type === ChannelType.GuildCategory
         );
         if (!category) {
-          category = await guild.channels.create({
-            name: SUPPORT_CATEGORY_NAME,
-            type: ChannelType.GuildCategory,
-          });
+          category = await guild.channels.create({ name: SUPPORT_CATEGORY_NAME, type: ChannelType.GuildCategory });
         }
 
         const channelName = message.author.username.toLowerCase().replace(/[^a-z0-9-_]/gi, '-');
@@ -82,7 +75,7 @@ module.exports = (client) => {
           });
 
           await message.reply(
-            '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available to help you.'
+            '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available.'
           );
           console.log(`📨 New ticket opened for ${message.author.tag}`);
         } else {
@@ -91,26 +84,22 @@ module.exports = (client) => {
           console.log(`📨 DM added to existing ticket for ${message.author.tag}`);
         }
       }
-
-      // -------------------------
       // Staff messages in ticket
-      // -------------------------
       else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
-        handleStaffMessage(client, message);
+        await handleStaffMessage(client, message);
       }
 
     } catch (err) {
       console.error('❗ Modmail Error (messageCreate):', err);
     }
-  });
+  },
 
   // -------------------------
-  // ✏️ Sync DM edits
+  // Sync DM edits
   // -------------------------
-  client.on('messageUpdate', async (oldMessage, newMessage) => {
+  handleMessageUpdate: async (client, oldMessage, newMessage) => {
     try {
       if (newMessage.author.bot || newMessage.channel.type !== ChannelType.DM) return;
-
       const guild = client.guilds.cache.get(GUILD_ID);
       if (!guild) return;
 
@@ -134,15 +123,14 @@ module.exports = (client) => {
     } catch (err) {
       console.error('❌ Modmail edit sync failed:', err);
     }
-  });
+  },
 
   // -------------------------
-  // 🗑 Sync DM deletes (keep ticket channel)
+  // Sync DM deletes
   // -------------------------
-  client.on('messageDelete', async (deletedMessage) => {
+  handleMessageDelete: async (client, deletedMessage) => {
     try {
       if (deletedMessage.author.bot || deletedMessage.channel.type !== ChannelType.DM) return;
-
       const guild = client.guilds.cache.get(GUILD_ID);
       if (!guild) return;
 
@@ -160,36 +148,29 @@ module.exports = (client) => {
         .setDescription(`${targetMsg.embeds[0].description} (Deleted by user)`);
       await targetMsg.edit({ embeds: [embed] });
 
-      // Optional: notify staff
       await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
 
     } catch (err) {
       console.error('❌ Modmail delete sync failed:', err);
     }
-  });
-
+  },
 };
 
 // -------------------------
 // Staff message handler
 // -------------------------
 async function handleStaffMessage(client, message) {
-  const REPLY_PREFIX = '!reply';
-  const EDIT_PREFIX = '!edit';
-  const DELETE_PREFIX = '!delete';
-  const CLOSE_PREFIX = '!close';
-  const SILENT_CLOSE_PREFIX = '!silentclose';
-  const CLEAR_PREFIX = '!clear';
-
   const userIdMatch = message.channel.topic?.match(/\((\d+)\)$/);
   if (!userIdMatch) return;
   const userId = userIdMatch[1];
   const user = await client.users.fetch(userId).catch(() => null);
   if (!user) return;
 
-  // ---- Reply to user ----
-  if (message.content.startsWith(REPLY_PREFIX)) {
-    const replyText = message.content.slice(REPLY_PREFIX.length).trim();
+  const content = message.content.trim();
+
+  // ---- Reply ----
+  if (content.startsWith(REPLY_PREFIX)) {
+    const replyText = content.slice(REPLY_PREFIX.length).trim();
     if (!replyText) return await message.react('✅');
     await message.delete().catch(() => {});
 
@@ -201,7 +182,6 @@ async function handleStaffMessage(client, message) {
         .setDescription(replyText)
         .setFooter({ text: `Sent DM Message ID: ${dmMsg.id}` })
         .setTimestamp();
-
       await message.channel.send({ embeds: [staffEmbed] });
     } catch (err) {
       console.error('❌ Failed to send DM:', err);
@@ -212,15 +192,15 @@ async function handleStaffMessage(client, message) {
     return;
   }
 
-  // ---- Edit message ----
-  if (message.content.startsWith(EDIT_PREFIX)) {
-    const args = message.content.split(' ').slice(1);
-    const channelMessageId = args.shift();
-    const newContent = args.join(' ');
-    if (!channelMessageId || !newContent) return;
+  // ---- Edit ----
+  if (content.startsWith(EDIT_PREFIX)) {
+    const args = content.split(' ').slice(1);
+    const msgId = args.shift();
+    const newText = args.join(' ');
+    if (!msgId || !newText) return;
 
     try {
-      const targetMsg = await message.channel.messages.fetch(channelMessageId).catch(() => null);
+      const targetMsg = await message.channel.messages.fetch(msgId).catch(() => null);
       if (!targetMsg) return await message.channel.send('❌ Message not found.');
 
       const embed = targetMsg.embeds[0];
@@ -230,43 +210,39 @@ async function handleStaffMessage(client, message) {
 
       const newEmbed = EmbedBuilder.from(embed)
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-        .setDescription(newContent)
+        .setDescription(newText)
         .setTimestamp();
 
       await targetMsg.edit({ embeds: [newEmbed] });
 
       if (dmMessageId) {
-        const dmChannel = await user.createDM();
-        const dmMsg = await dmChannel.messages.fetch(dmMessageId).catch(() => null);
-        if (dmMsg) await dmMsg.edit(`📩 **Support Reply:** ${newContent}`);
+        const dmMsg = await user.createDM().then(dm => dm.messages.fetch(dmMessageId).catch(() => null));
+        if (dmMsg) await dmMsg.edit(`📩 **Support Reply:** ${newText}`);
       }
     } catch (err) {
       console.error('❌ Edit failed:', err);
       await message.channel.send('❌ Failed to edit message.');
     }
-
     await message.delete().catch(() => {});
     return;
   }
 
-  // ---- Delete staff message (sync with DM) ----
-  if (message.content.startsWith(DELETE_PREFIX)) {
-    const args = message.content.split(' ').slice(1);
-    const channelMessageId = args.shift();
-    if (!channelMessageId) return;
+  // ---- Delete ----
+  if (content.startsWith(DELETE_PREFIX)) {
+    const args = content.split(' ').slice(1);
+    const msgId = args.shift();
+    if (!msgId) return;
 
     try {
-      const targetMsg = await message.channel.messages.fetch(channelMessageId).catch(() => null);
+      const targetMsg = await message.channel.messages.fetch(msgId).catch(() => null);
       if (!targetMsg) return await message.channel.send('❌ Message not found.');
 
       const embed = targetMsg.embeds[0];
-      const footerText = embed?.footer?.text || '';
-      const dmMessageIdMatch = footerText.match(/Sent DM Message ID:\s*(\d+)/);
+      const dmMessageIdMatch = embed?.footer?.text?.match(/Sent DM Message ID:\s*(\d+)/);
       const dmMessageId = dmMessageIdMatch ? dmMessageIdMatch[1] : null;
 
       if (dmMessageId) {
-        const dmChannel = await user.createDM();
-        const dmMsg = await dmChannel.messages.fetch(dmMessageId).catch(() => null);
+        const dmMsg = await user.createDM().then(dm => dm.messages.fetch(dmMessageId).catch(() => null));
         if (dmMsg) await dmMsg.delete().catch(() => {});
       }
 
@@ -275,33 +251,32 @@ async function handleStaffMessage(client, message) {
       console.error('❌ Delete failed:', err);
       await message.channel.send('❌ Failed to delete message.');
     }
-
     await message.delete().catch(() => {});
     return;
   }
 
-  // ---- Close ticket ----
-  if (message.content.startsWith(CLOSE_PREFIX)) {
-    if (user) await user.send('📩 Your support ticket has been closed.').catch(() => {});
+  // ---- Close ----
+  if (content.startsWith(CLOSE_PREFIX)) {
+    await user.send('📩 Your support ticket has been closed.').catch(() => {});
     await message.channel.delete();
-    console.log(`❌ Ticket for ${user?.tag || userId} closed by staff.`);
+    console.log(`❌ Ticket for ${user.tag} closed by staff.`);
     return;
   }
 
-  // ---- Silent close ----
-  if (message.content.startsWith(SILENT_CLOSE_PREFIX)) {
+  // ---- Silent Close ----
+  if (content.startsWith(SILENT_CLOSE_PREFIX)) {
     await message.channel.delete();
-    console.log(`❌ Ticket silently closed (no DM).`);
+    console.log(`❌ Ticket silently closed.`);
     return;
   }
 
-  // ---- Clear bot messages ----
-  if (message.content.startsWith(CLEAR_PREFIX)) {
+  // ---- Clear ----
+  if (content.startsWith(CLEAR_PREFIX)) {
     try {
       const dmChannel = await user.createDM();
-      const messages = await dmChannel.messages.fetch({ limit: 100 });
-      const botMessages = messages.filter(m => m.author.id === client.user.id);
-      for (const [id, msg] of botMessages) await msg.delete().catch(() => {});
+      const msgs = await dmChannel.messages.fetch({ limit: 100 });
+      const botMsgs = msgs.filter(m => m.author.id === client.user.id);
+      for (const [id, m] of botMsgs) await m.delete().catch(() => {});
       await message.react('✅');
     } catch {
       await message.react('✅');

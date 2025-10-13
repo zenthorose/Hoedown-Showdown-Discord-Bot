@@ -1,5 +1,4 @@
-﻿// main.js — updated version
-require('dotenv').config();
+﻿require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = require('discord.js');
 const { google } = require('googleapis');
 const moment = require('moment-timezone');
@@ -21,7 +20,6 @@ const client = new Client({
   ]
 });
 
-const prefix = '.';
 client.commands = new Collection();
 const botToken = process.env.BOT_TOKEN;
 const clientId = process.env.CLIENT_ID;
@@ -76,7 +74,7 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 client.once('ready', async () => {
   console.log(`✅ Bot online as ${client.user.tag}`);
 
-  // Test connectivity to Google Apps Script
+  // Test Google Apps Script
   try {
     if (process.env.Google_Apps_Script_URL) {
       const response = await axios.get(process.env.Google_Apps_Script_URL);
@@ -86,7 +84,7 @@ client.once('ready', async () => {
     console.error("Error contacting Google Apps Script:", err?.message || err);
   }
 
-  // Post startup status
+  // Startup status
   try {
     const statusChannel = client.channels.cache.get(STATUS_CHANNEL_ID);
     if (statusChannel) {
@@ -129,12 +127,15 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
-// --- Message Create (modmail + muffin watcher) ---
-const modmailHandler = require('./events/swampmail.js');
+// --- Swampmail event handlers ---
+const swampmail = require('./events/swampmail.js');
+client.on('messageCreate', msg => swampmail.handleMessageCreate(client, msg));
+client.on('messageUpdate', (oldMsg, newMsg) => swampmail.handleMessageUpdate(client, oldMsg, newMsg));
+client.on('messageDelete', msg => swampmail.handleMessageDelete(client, msg));
+
+// --- Muffin watcher in the messageCreate listener ---
 client.on('messageCreate', async (message) => {
   try {
-    await modmailHandler(client, message);
-
     if (message.content === '!ping') await message.channel.send('Pong!');
 
     const targetChannelId = '1052393482699948132';
@@ -152,19 +153,17 @@ client.on('messageCreate', async (message) => {
 // --- Interaction handler ---
 client.on('interactionCreate', async (interaction) => {
   try {
-    if (interaction.isButton()) {
-      if (interaction.customId === 'muffin') {
-        try {
-          await interaction.update({
-            content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>',
-            embeds: [{ image: { url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' } }],
-            components: []
-          });
-        } catch (err) {
-          console.error('Muffin button error:', err);
-          if (!interaction.replied && !interaction.deferred)
-            await interaction.reply({ content: '❌ Something went wrong!', ephemeral: true });
-        }
+    if (interaction.isButton() && interaction.customId === 'muffin') {
+      try {
+        await interaction.update({
+          content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>',
+          embeds: [{ image: { url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' } }],
+          components: []
+        });
+      } catch (err) {
+        console.error('Muffin button error:', err);
+        if (!interaction.replied && !interaction.deferred)
+          await interaction.reply({ content: '❌ Something went wrong!', ephemeral: true });
       }
       return;
     }
