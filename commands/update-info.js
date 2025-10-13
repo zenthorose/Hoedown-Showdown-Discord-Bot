@@ -131,8 +131,7 @@ module.exports = {
       infoType = 'streamlink';
       newValue = interaction.options.getString('link');
 
-      const validLinkRegex = /^https?:\/\/((www|m)\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+$/i;
-
+      const validLinkRegex = /^(?:https?:\/\/((www|m)\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+|Filler)$/i;
       if (!validLinkRegex.test(newValue)) {
         await interaction.editReply({ content: '❌ Invalid link. Must be Twitch, Kick, YouTube, or TikTok.' });
         await logUsage("❌ Failed - Invalid stream link.");
