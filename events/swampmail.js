@@ -19,10 +19,9 @@ const EDIT_PREFIX = '!edit';
 const DELETE_PREFIX = '!delete';
 
 // -------------------------
-// Helper: Build stacked description for edits/deletes
+// Helper: Build stacked description
 // -------------------------
 function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
-  // Split previous description into lines
   const lines = previousDesc.split('\n--------------\n');
 
   let original = '';
@@ -33,19 +32,21 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
       original = line.replace('(Original)', '').trim();
     } else if (line.match(/^\(Edit \d+\)/)) {
       edits.push(line.trim());
+    } else if (line.includes('(Current)')) {
+      // Convert previous Current to Edit
+      const prevEditNumber = edits.length + 1;
+      edits.push(`(Edit ${prevEditNumber}) ${line.replace(' (Current)', '').trim()}`);
     } else {
-      // If somehow a top line without marker, treat as original (fallback)
+      // fallback for any top line
       if (!original) original = line.trim();
       else edits.push(line.trim());
     }
   }
 
-  // Build the new top entry
-  let topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Edited)');
+  // Top line: latest edit
+  const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
 
-  // Assemble final stacked description
-  const stack = [topLine, ...edits, `(Original) ${original}`];
-  return stack.join('\n--------------\n');
+  return [topLine, ...edits, `(Original) ${original}`].join('\n--------------\n');
 }
 
 module.exports = {
@@ -125,7 +126,7 @@ module.exports = {
   },
 
   // -------------------------
-  // Sync DM edits with stacked history
+  // Sync DM edits
   // -------------------------
   handleMessageUpdate: async (client, oldMessage, newMessage) => {
     try {
@@ -159,7 +160,7 @@ module.exports = {
   },
 
   // -------------------------
-  // Sync DM deletes with stacked history
+  // Sync DM deletes
   // -------------------------
   handleMessageDelete: async (client, deletedMessage) => {
     try {
