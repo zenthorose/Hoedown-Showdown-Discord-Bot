@@ -18,6 +18,27 @@ const CLEAR_PREFIX = '!clear';
 const EDIT_PREFIX = '!edit';
 const DELETE_PREFIX = '!delete';
 
+// -------------------------
+// Helper: Build stacked description for edits/deletes
+// -------------------------
+function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
+  // Extract original message
+  const originalMatch = previousDesc.match(/\(Original\)([\s\S]*)$/);
+  const originalText = originalMatch ? originalMatch[1].trim() : previousDesc.trim();
+
+  // Extract previous edits
+  const editMatches = [...previousDesc.matchAll(/\(Edit (\d+)\)([\s\S]*?)(?=(?:\n--------------)|$)/g)];
+  const edits = editMatches.map(m => `(Edit ${m[1]})${m[2].trim()}`);
+
+  // Build top line with optional deletion
+  let topLine = `${latestContent} (Edited)`;
+  if (isDeleted) topLine += ' (Deleted by user)';
+
+  // Combine all parts
+  const stack = [topLine, ...edits, `(Original) ${originalText}`];
+  return stack.join('\n--------------\n');
+}
+
 module.exports = {
   // -------------------------
   // Handle DM -> Ticket
@@ -114,15 +135,7 @@ module.exports = {
       if (!targetMsg) return;
 
       const previousDesc = targetMsg.embeds[0].description || '';
-
-      // Count existing edits
-      const editCountMatches = [...previousDesc.matchAll(/\(Edit (\d+)\)/g)];
-      const nextEditNumber = editCountMatches.length + 1;
-
-      // Build new stacked description
-      const newDescription = `${newMessage.content} (Edited)
---------------
-(Edit ${nextEditNumber}) ${previousDesc}`;
+      const newDescription = buildStackedDescription(newMessage.content, previousDesc);
 
       const embed = EmbedBuilder.from(targetMsg.embeds[0])
         .setAuthor({ name: newMessage.author.tag, iconURL: newMessage.author.displayAvatarURL() })
@@ -156,14 +169,13 @@ module.exports = {
       if (!targetMsg) return;
 
       const previousDesc = targetMsg.embeds[0].description || '';
+      const newDescription = buildStackedDescription(
+        deletedMessage.content || '*Message deleted*',
+        previousDesc,
+        true
+      );
 
-      const newDescription = `${deletedMessage.content || '*Message deleted*'} (Deleted by user)
---------------
-${previousDesc}`;
-
-      const embed = EmbedBuilder.from(targetMsg.embeds[0])
-        .setDescription(newDescription);
-
+      const embed = EmbedBuilder.from(targetMsg.embeds[0]).setDescription(newDescription);
       await targetMsg.edit({ embeds: [embed] });
 
       await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
@@ -227,11 +239,7 @@ async function handleStaffMessage(client, message) {
       const dmMessageId = dmMessageIdMatch ? dmMessageIdMatch[1] : null;
 
       const previousDesc = embed?.description || '';
-      const editCountMatches = [...previousDesc.matchAll(/\(Edit (\d+)\)/g)];
-      const nextEditNumber = editCountMatches.length + 1;
-      const newDescription = `${newText}
---------------
-(Edit ${nextEditNumber}) ${previousDesc}`;
+      const newDescription = buildStackedDescription(newText, previousDesc);
 
       const newEmbed = EmbedBuilder.from(embed)
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
@@ -263,13 +271,12 @@ async function handleStaffMessage(client, message) {
       if (!targetMsg) return await message.channel.send('❌ Message not found.');
 
       const embed = targetMsg.embeds[0];
-      const dmMessageIdMatch = embed?.footer?.text?.match(/Sent DM Message ID:\s*(\d+)/);
+      const footerText = embed?.footer?.text || '';
+      const dmMessageIdMatch = footerText.match(/Sent DM Message ID:\s*(\d+)/);
       const dmMessageId = dmMessageIdMatch ? dmMessageIdMatch[1] : null;
 
       const previousDesc = embed?.description || '';
-      const newDescription = `(Deleted by staff)
---------------
-${previousDesc}`;
+      const newDescription = buildStackedDescription('(Deleted by staff)', previousDesc, true);
 
       await targetMsg.edit({ embeds: [EmbedBuilder.from(embed).setDescription(newDescription)] });
 
