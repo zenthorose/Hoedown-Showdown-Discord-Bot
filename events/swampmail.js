@@ -95,7 +95,7 @@ module.exports = {
   },
 
   // -------------------------
-  // Sync DM edits
+  // Sync DM edits with stacked history
   // -------------------------
   handleMessageUpdate: async (client, oldMessage, newMessage) => {
     try {
@@ -109,16 +109,27 @@ module.exports = {
       );
       if (!ticketChannel) return;
 
-      const embed = new EmbedBuilder()
-        .setColor('Red')
-        .setAuthor({ name: newMessage.author.tag, iconURL: newMessage.author.displayAvatarURL() })
-        .setDescription(`${newMessage.content} (Edited)`)
-        .setFooter({ text: `DM Message ID: ${newMessage.id}` })
-        .setTimestamp();
-
       const msgs = await ticketChannel.messages.fetch({ limit: 50 });
       const targetMsg = msgs.find(m => m.embeds[0]?.footer?.text?.includes(newMessage.id));
-      if (targetMsg) await targetMsg.edit({ embeds: [embed] });
+      if (!targetMsg) return;
+
+      const previousDesc = targetMsg.embeds[0].description || '';
+
+      // Count existing edits
+      const editCountMatches = [...previousDesc.matchAll(/\(Edit (\d+)\)/g)];
+      const nextEditNumber = editCountMatches.length + 1;
+
+      // Build new stacked description
+      const newDescription = `${newMessage.content} (Edited)
+--------------
+(Edit ${nextEditNumber}) ${previousDesc}`;
+
+      const embed = EmbedBuilder.from(targetMsg.embeds[0])
+        .setAuthor({ name: newMessage.author.tag, iconURL: newMessage.author.displayAvatarURL() })
+        .setDescription(newDescription)
+        .setTimestamp();
+
+      await targetMsg.edit({ embeds: [embed] });
 
     } catch (err) {
       console.error('❌ Modmail edit sync failed:', err);
@@ -126,7 +137,7 @@ module.exports = {
   },
 
   // -------------------------
-  // Sync DM deletes
+  // Sync DM deletes with stacked history
   // -------------------------
   handleMessageDelete: async (client, deletedMessage) => {
     try {
@@ -144,8 +155,15 @@ module.exports = {
       const targetMsg = msgs.find(m => m.embeds[0]?.footer?.text?.includes(deletedMessage.id));
       if (!targetMsg) return;
 
+      const previousDesc = targetMsg.embeds[0].description || '';
+
+      const newDescription = `${deletedMessage.content || '*Message deleted*'} (Deleted by user)
+--------------
+${previousDesc}`;
+
       const embed = EmbedBuilder.from(targetMsg.embeds[0])
-        .setDescription(`${targetMsg.embeds[0].description} (Deleted by user)`);
+        .setDescription(newDescription);
+
       await targetMsg.edit({ embeds: [embed] });
 
       await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
@@ -208,9 +226,16 @@ async function handleStaffMessage(client, message) {
       const dmMessageIdMatch = footerText.match(/Sent DM Message ID:\s*(\d+)/);
       const dmMessageId = dmMessageIdMatch ? dmMessageIdMatch[1] : null;
 
+      const previousDesc = embed?.description || '';
+      const editCountMatches = [...previousDesc.matchAll(/\(Edit (\d+)\)/g)];
+      const nextEditNumber = editCountMatches.length + 1;
+      const newDescription = `${newText}
+--------------
+(Edit ${nextEditNumber}) ${previousDesc}`;
+
       const newEmbed = EmbedBuilder.from(embed)
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
-        .setDescription(newText)
+        .setDescription(newDescription)
         .setTimestamp();
 
       await targetMsg.edit({ embeds: [newEmbed] });
@@ -241,12 +266,17 @@ async function handleStaffMessage(client, message) {
       const dmMessageIdMatch = embed?.footer?.text?.match(/Sent DM Message ID:\s*(\d+)/);
       const dmMessageId = dmMessageIdMatch ? dmMessageIdMatch[1] : null;
 
+      const previousDesc = embed?.description || '';
+      const newDescription = `(Deleted by staff)
+--------------
+${previousDesc}`;
+
+      await targetMsg.edit({ embeds: [EmbedBuilder.from(embed).setDescription(newDescription)] });
+
       if (dmMessageId) {
         const dmMsg = await user.createDM().then(dm => dm.messages.fetch(dmMessageId).catch(() => null));
         if (dmMsg) await dmMsg.delete().catch(() => {});
       }
-
-      await targetMsg.delete().catch(() => {});
     } catch (err) {
       console.error('❌ Delete failed:', err);
       await message.channel.send('❌ Failed to delete message.');
