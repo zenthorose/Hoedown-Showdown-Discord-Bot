@@ -22,20 +22,29 @@ const DELETE_PREFIX = '!delete';
 // Helper: Build stacked description for edits/deletes
 // -------------------------
 function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
-  // Extract original message
-  const originalMatch = previousDesc.match(/\(Original\)([\s\S]*)$/);
-  const originalText = originalMatch ? originalMatch[1].trim() : previousDesc.trim();
+  // Split previous description into lines
+  const lines = previousDesc.split('\n--------------\n');
 
-  // Extract previous edits
-  const editMatches = [...previousDesc.matchAll(/\(Edit (\d+)\)([\s\S]*?)(?=(?:\n--------------)|$)/g)];
-  const edits = editMatches.map(m => `(Edit ${m[1]})${m[2].trim()}`);
+  let original = '';
+  const edits = [];
 
-  // Build top line with optional deletion
-  let topLine = `${latestContent} (Edited)`;
-  if (isDeleted) topLine += ' (Deleted by user)';
+  for (const line of lines) {
+    if (line.startsWith('(Original)')) {
+      original = line.replace('(Original)', '').trim();
+    } else if (line.match(/^\(Edit \d+\)/)) {
+      edits.push(line.trim());
+    } else {
+      // If somehow a top line without marker, treat as original (fallback)
+      if (!original) original = line.trim();
+      else edits.push(line.trim());
+    }
+  }
 
-  // Combine all parts
-  const stack = [topLine, ...edits, `(Original) ${originalText}`];
+  // Build the new top entry
+  let topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Edited)');
+
+  // Assemble final stacked description
+  const stack = [topLine, ...edits, `(Original) ${original}`];
   return stack.join('\n--------------\n');
 }
 
