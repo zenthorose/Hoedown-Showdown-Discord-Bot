@@ -25,24 +25,24 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
   const lines = previousDesc.split('\n--------------\n');
 
   let original = '';
-  const oldEdits = [];
+  const edits = [];
 
   for (const line of lines) {
     if (line.startsWith('(Original)')) {
       original = line.replace('(Original)', '').trim();
     } else if (line.includes('(Current)')) {
-      oldEdits.push(line.replace(' (Current)', '').trim());
+      edits.push(line.replace(' (Current)', '').trim());
     } else if (line.match(/^\(Edit \d+\)/)) {
-      oldEdits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
+      edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
     } else {
-      // fallback: treat as original if none marked
+      // fallback: treat as original if no marker
       if (!original) original = line.trim();
-      else oldEdits.push(line.trim());
+      else edits.push(line.trim());
     }
   }
 
-  // Renumber old edits in **chronological order** (oldest first)
-  const renumberedEdits = oldEdits.reverse().map((text, i) => `(Edit ${i + 1}) ${text}`);
+  // Renumber edits in chronological order
+  const renumberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
 
   // Latest edit on top
   const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
