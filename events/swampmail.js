@@ -31,7 +31,6 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     if (line.startsWith('(Original)')) {
       original = line.replace('(Original)', '').trim();
     } else if (line.includes('(Current)')) {
-      // Skip previous Current marker
       edits.unshift(line.replace(' (Current)', '').trim());
     } else if (line.match(/^\(Edit \d+\)/)) {
       edits.unshift(line.replace(/^\(Edit \d+\)\s*/, '').trim());
@@ -40,17 +39,13 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     }
   }
 
-  let numberedEdits;
-  if (edits.length === 0) {
-    // First edit → no numbering
-    numberedEdits = [];
-  } else if (edits.length === 1) {
-    // Only one previous edit → number it later only when second edit comes
-    numberedEdits = edits;
-  } else {
-    // Two or more previous edits → number them oldest = Edit 1
-    numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`).reverse();
-  }
+  // Ensure we have a proper original
+  if (!original) original = edits.pop() || '';
+
+  // Number previous edits, newest edit will always be Current
+  const numberedEdits = edits
+    .map((text, i) => `(Edit ${i + 1}) ${text}`)
+    .reverse(); // Oldest edit = Edit 1
 
   const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
 
