@@ -40,10 +40,18 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     }
   }
 
-  // Number edits in reverse chronological order (oldest edit = Edit 1 at bottom)
-  const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`).reverse();
+  let numberedEdits;
+  if (edits.length === 0) {
+    // First edit → no numbering
+    numberedEdits = [];
+  } else if (edits.length === 1) {
+    // Only one previous edit → number it later only when second edit comes
+    numberedEdits = edits;
+  } else {
+    // Two or more previous edits → number them oldest = Edit 1
+    numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`).reverse();
+  }
 
-  // Latest edit on top
   const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
 
   return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
