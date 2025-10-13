@@ -27,15 +27,18 @@ module.exports = (client) => {
     try {
       if (message.author.bot) return;
 
+      // -------------------------
+      // DM messages → ticket
+      // -------------------------
       if (message.channel.type === ChannelType.DM) {
         const guild = client.guilds.cache.get(GUILD_ID);
         if (!guild) return console.error('❌ Guild not found. Make sure GUILD_ID is correct.');
 
+        // Ensure support category exists
         let category = guild.channels.cache.find(
           c => c.name === SUPPORT_CATEGORY_NAME && c.type === ChannelType.GuildCategory
         );
         if (!category) {
-          console.log('📁 Creating support-tickets category...');
           category = await guild.channels.create({
             name: SUPPORT_CATEGORY_NAME,
             type: ChannelType.GuildCategory,
@@ -90,11 +93,12 @@ module.exports = (client) => {
       }
 
       // -------------------------
-      // 💬 Staff commands
+      // Staff messages in ticket
       // -------------------------
       else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
         handleStaffMessage(client, message);
       }
+
     } catch (err) {
       console.error('❗ Modmail Error (messageCreate):', err);
     }
@@ -126,13 +130,14 @@ module.exports = (client) => {
       const msgs = await ticketChannel.messages.fetch({ limit: 50 });
       const targetMsg = msgs.find(m => m.embeds[0]?.footer?.text?.includes(newMessage.id));
       if (targetMsg) await targetMsg.edit({ embeds: [embed] });
+
     } catch (err) {
       console.error('❌ Modmail edit sync failed:', err);
     }
   });
 
   // -------------------------
-  // 🗑 Sync DM deletes
+  // 🗑 Sync DM deletes (keep ticket channel)
   // -------------------------
   client.on('messageDelete', async (deletedMessage) => {
     try {
@@ -152,9 +157,12 @@ module.exports = (client) => {
       if (!targetMsg) return;
 
       const embed = EmbedBuilder.from(targetMsg.embeds[0])
-        .setDescription(`${targetMsg.embeds[0].description} (Deleted)`);
-
+        .setDescription(`${targetMsg.embeds[0].description} (Deleted by user)`);
       await targetMsg.edit({ embeds: [embed] });
+
+      // Optional: notify staff
+      await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
+
     } catch (err) {
       console.error('❌ Modmail delete sync failed:', err);
     }
@@ -175,10 +183,8 @@ async function handleStaffMessage(client, message) {
 
   const userIdMatch = message.channel.topic?.match(/\((\d+)\)$/);
   if (!userIdMatch) return;
-
   const userId = userIdMatch[1];
   const user = await client.users.fetch(userId).catch(() => null);
-
   if (!user) return;
 
   // ---- Reply to user ----
@@ -243,7 +249,7 @@ async function handleStaffMessage(client, message) {
     return;
   }
 
-  // ---- Delete message ----
+  // ---- Delete staff message (sync with DM) ----
   if (message.content.startsWith(DELETE_PREFIX)) {
     const args = message.content.split(' ').slice(1);
     const channelMessageId = args.shift();

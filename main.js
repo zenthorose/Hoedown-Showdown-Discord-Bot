@@ -1,4 +1,4 @@
-﻿// main.js — full updated version
+﻿// main.js — updated version
 require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = require('discord.js');
 const { google } = require('googleapis');
@@ -26,14 +26,14 @@ client.commands = new Collection();
 const botToken = process.env.BOT_TOKEN;
 const clientId = process.env.CLIENT_ID;
 
-// Reaction posts manager (your existing class)
+// Reaction posts manager
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
-// Config (from your config.json)
+// Config
 const { Hoedown_New_banner, STATUS_CHANNEL_ID, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
 
-// Google credentials object (you already build these via env in your project)
+// Google credentials
 const credentials = {
   type: "service_account",
   project_id: process.env.GOOGLE_PROJECT_ID,
@@ -47,16 +47,13 @@ const credentials = {
   client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT
 };
 
-// --- Load slash commands from /commands ---
+// --- Load slash commands ---
 const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
 for (const file of commandFiles) {
   try {
     const command = require(`./commands/${file}`);
-    if (command.data && command.data.name) {
-      client.commands.set(command.data.name, command);
-    } else {
-      console.error(`⚠️ Command file ${file} missing proper structure.`);
-    }
+    if (command.data && command.data.name) client.commands.set(command.data.name, command);
+    else console.error(`⚠️ Command file ${file} missing proper structure.`);
   } catch (err) {
     console.error(`⚠️ Failed to load command ${file}:`, err);
   }
@@ -79,7 +76,7 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 client.once('ready', async () => {
   console.log(`✅ Bot online as ${client.user.tag}`);
 
-  // Test connectivity to Google Apps Script (optional)
+  // Test connectivity to Google Apps Script
   try {
     if (process.env.Google_Apps_Script_URL) {
       const response = await axios.get(process.env.Google_Apps_Script_URL);
@@ -89,54 +86,36 @@ client.once('ready', async () => {
     console.error("Error contacting Google Apps Script:", err?.message || err);
   }
 
-  // Post startup status to configured status channel
+  // Post startup status
   try {
     const statusChannel = client.channels.cache.get(STATUS_CHANNEL_ID);
     if (statusChannel) {
       const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]");
-      await statusChannel.send(`✅ The Hoedown Showdown Bot is now online and ready to start blasting! 🚀\n🕒 Current Time: **${currentTime}**`);
-    } else {
-      console.warn("⚠️ Status channel not found (check config.json STATUS_CHANNEL_ID).");
-    }
+      await statusChannel.send(`✅ The Hoedown Showdown Bot is now online! 🚀\n🕒 Current Time: **${currentTime}**`);
+    } else console.warn("⚠️ Status channel not found.");
   } catch (err) {
     console.error("❌ Failed to send startup status:", err);
   }
 });
 
-// --- Auto-run member-update when someone joins (run as the BOT) ---
+// --- Auto-run member-update ---
 client.on('guildMemberAdd', async (member) => {
   console.log(`🎉 New member joined: ${member.user.tag} (${member.id})`);
-
   try {
     const commandName = 'member-update';
     const command = client.commands.get(commandName);
-    if (!command) {
-      console.error(`❌ Command "${commandName}" not found.`);
-      return;
-    }
+    if (!command) return console.error(`❌ Command "${commandName}" not found.`);
 
-    // Use the bot member (so permission checks validate the bot's roles)
-    const botMember = member.guild.members.me;
-
-    // Create a minimal fake interaction for your command to consume.
-    // Note: command.execute should work with this shape (we matched earlier pattern).
     const fakeInteraction = {
       user: client.user,
-      member: botMember,
+      member: member.guild.members.me,
       guild: member.guild,
       client,
       commandName,
-      options: {
-        getString: () => null,
-        getUser: () => null,
-        getRole: () => null,
-        getChannel: () => null
-      },
+      options: { getString: () => null, getUser: () => null, getRole: () => null, getChannel: () => null },
       reply: async (data) => {
         const logChannel = member.guild.channels.cache.get(STATUS_CHANNEL_ID);
-        if (logChannel) {
-          await logChannel.send(data?.content || `✅ Auto-run ${commandName} for ${member.user.tag}`);
-        }
+        if (logChannel) await logChannel.send(data?.content || `✅ Auto-run ${commandName} for ${member.user.tag}`);
         console.log(`[auto-command] Replied for ${member.user.tag}`);
       },
       deferReply: async () => {},
@@ -150,79 +129,46 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
-// --- Modmail handler (DM -> ticket) ---
+// --- Message Create (modmail + muffin watcher) ---
 const modmailHandler = require('./events/swampmail.js');
-// We'll forward all messageCreate events to the modmail handler and also process guild messages here
 client.on('messageCreate', async (message) => {
   try {
-    // Give modmail handler a chance to process (it will return quickly if not a DM)
-    try { await modmailHandler(client, message); } catch (e) { console.error('Modmail handler error:', e); }
+    await modmailHandler(client, message);
 
-    // Keep-alive ping (bot respond to !ping)
-    if (message.content === '!ping') {
-      try { await message.channel.send('Pong!'); } catch {}
-      return;
-    }
+    if (message.content === '!ping') await message.channel.send('Pong!');
 
-    // Word watcher (muffin) in a specific channel
     const targetChannelId = '1052393482699948132';
     const targetWord = 'muffin';
     if (!message.author.bot && message.channel?.id === targetChannelId && message.content.toLowerCase().includes(targetWord)) {
-      try {
-        const customEmoji = message.guild?.emojis.cache.find(e => e.name === 'Muffin');
-        if (customEmoji) {
-          await message.react(customEmoji);
-        } else {
-          console.warn('Custom muffin emoji not found.');
-        }
-      } catch (err) {
-        console.error('Error reacting to muffin word:', err);
-      }
+      const customEmoji = message.guild?.emojis.cache.find(e => e.name === 'Muffin');
+      if (customEmoji) await message.react(customEmoji);
+      else console.warn('Custom muffin emoji not found.');
     }
   } catch (err) {
     console.error('Unexpected messageCreate error:', err);
   }
 });
 
-client.on('messageUpdate', async (oldMessage, newMessage) => {
-  if (newMessage.channel.type !== 1 || newMessage.author.bot) return;
-  if (modmailHandler.handleEdit) {
-    await modmailHandler.handleEdit(client, oldMessage, newMessage);
-  }
-});
-
-client.on('messageDelete', async (deletedMessage) => {
-  if (deletedMessage.channel.type !== 1 || deletedMessage.author.bot) return;
-  if (modmailHandler.handleDelete) {
-    await modmailHandler.handleDelete(client, deletedMessage);
-  }
-});
-
-// --- Button interaction handler + command interactions (single listener) ---
+// --- Interaction handler ---
 client.on('interactionCreate', async (interaction) => {
   try {
-    // Button interactions (muffin button)
     if (interaction.isButton()) {
       if (interaction.customId === 'muffin') {
         try {
           await interaction.update({
             content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>',
-            embeds: [{
-              image: { url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' }
-            }],
+            embeds: [{ image: { url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' } }],
             components: []
           });
         } catch (err) {
           console.error('Muffin button error:', err);
-          if (!interaction.replied && !interaction.deferred) {
+          if (!interaction.replied && !interaction.deferred)
             await interaction.reply({ content: '❌ Something went wrong!', ephemeral: true });
-          }
         }
       }
       return;
     }
 
-    // Slash commands
     if (!interaction.isCommand()) return;
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
@@ -231,22 +177,16 @@ client.on('interactionCreate', async (interaction) => {
       await command.execute(interaction, reactionPostsManager);
     } catch (err) {
       console.error(`❌ Error executing command ${interaction.commandName}:`, err);
-      try {
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({ content: '❌ There was an error executing this command!', ephemeral: true });
-        } else {
-          await interaction.editReply({ content: '❌ There was an error executing this command!' });
-        }
-      } catch (e) {
-        console.error('Error sending command error reply:', e);
-      }
+      if (!interaction.replied && !interaction.deferred)
+        await interaction.reply({ content: '❌ There was an error executing this command!', ephemeral: true });
+      else await interaction.editReply({ content: '❌ There was an error executing this command!' });
     }
   } catch (err) {
     console.error('Unexpected interactionCreate error:', err);
   }
 });
 
-// --- Express endpoints (keep-alive + sendmessage) ---
+// --- Express endpoints ---
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(express.json());
@@ -269,7 +209,6 @@ app.post('/sendmessage', async (req, res) => {
 
 app.listen(port, () => {
   console.log(`🌐 Express server running on port ${port}`);
-  // Finally login the bot
   if (!botToken) {
     console.error('❌ BOT_TOKEN missing in environment!');
     process.exit(1);
