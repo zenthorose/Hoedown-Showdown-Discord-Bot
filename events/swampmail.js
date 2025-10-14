@@ -27,7 +27,7 @@ const CONTACT_PREFIX = '!contact';
 // -------------------------
 function getBotConfig() {
   try {
-    const filePath = path.join(__dirname, '..', 'config.json');
+    const filePath = path.join(__dirname, 'config.json');
     const raw = fs.readFileSync(filePath, 'utf8');
     return JSON.parse(raw);
   } catch (err) {
