@@ -26,8 +26,8 @@ const COMMANDS_PREFIX = '!commands';
 // Command descriptions for !commands
 const COMMANDS = [
   { prefix: REPLY_PREFIX, desc: 'Reply to the user from the ticket.' },
-  { prefix: EDIT_PREFIX, desc: 'Edit a previously sent staff message.' },
-  { prefix: DELETE_PREFIX, desc: 'Delete a previously sent staff message.' },
+  { prefix: EDIT_PREFIX, desc: 'Edit a previously sent staff message by right clicking the message you want to edit by copying the ID and typing the command followed by the message ID.' },
+  { prefix: DELETE_PREFIX, desc: 'Delete a previously sent staff message by right clicking the message you want to delete by copying the ID and typing the command followed by the message ID.' },
   { prefix: CLOSE_PREFIX, desc: 'Close the ticket and notify the user.' },
   { prefix: SILENT_CLOSE_PREFIX, desc: 'Close the ticket without notifying the user.' },
   { prefix: CLEAR_PREFIX, desc: 'Clear recent bot messages in the user\'s DM.' },
