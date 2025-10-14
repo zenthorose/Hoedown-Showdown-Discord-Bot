@@ -5,25 +5,45 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('count')
-    .setDescription('Counts members by role combinations and absence.')
-    .setDefaultMemberPermissions(0), // Requires Manage Messages or equivalent
+    .setDescription('Counts members by selected roles and logic type.')
+    .setDefaultMemberPermissions(0)
+    .addStringOption(option =>
+      option
+        .setName('type')
+        .setDescription('Choose how to count members')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Only', value: 'only' },
+          { name: 'Both', value: 'both' },
+          { name: 'Neither', value: 'neither' }
+        )
+    )
+    .addRoleOption(option =>
+      option
+        .setName('role1')
+        .setDescription('The main role to check')
+        .setRequired(true)
+    )
+    .addRoleOption(option =>
+      option
+        .setName('role2')
+        .setDescription('Optional secondary role for comparison')
+        .setRequired(false)
+    )
+    .addRoleOption(option =>
+      option
+        .setName('role3')
+        .setDescription('Optional third role for comparison')
+        .setRequired(false)
+    ),
 
   async execute(interaction) {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      if (replied) {
-        return interaction.followUp({
-          content,
-          ephemeral: isEphemeral,
-        });
-      } else {
-        replied = true;
-        return interaction.reply({
-          content,
-          ephemeral: isEphemeral,
-        });
-      }
+      if (replied) return interaction.followUp({ content, ephemeral: isEphemeral });
+      replied = true;
+      return interaction.reply({ content, ephemeral: isEphemeral });
     }
 
     async function logUsage(extra = "") {
@@ -32,79 +52,76 @@ module.exports = {
         if (logChannel) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
-          await logChannel.send(
-            `🧮 **/count** used by **${userTag}** in **#${channelName}** ${extra}`
-          );
+          await logChannel.send(`🧮 **/count** used by **${userTag}** in **#${channelName}** ${extra}`);
         }
-      } catch (logError) {
-        console.error("❌ Failed to send log message:", logError);
+      } catch (err) {
+        console.error("❌ Failed to log usage:", err);
       }
     }
 
     try {
       const hasPermission = await checkPermissions(interaction);
-      await logUsage("Attempting to count roles.");
+      await logUsage("Attempting to count roles");
 
       if (!hasPermission) {
         await logUsage("❌ Permission denied");
-        return safeReply('❌ You do not have permission to run this command!', true);
+        return safeReply("❌ You do not have permission to run this command!", true);
       }
 
       const guild = interaction.guild;
-      if (!guild) {
-        await logUsage("❌ Not run in a guild");
-        return safeReply('❌ This command can only be used in a server.', true);
-      }
+      if (!guild) return safeReply("❌ This command can only be used in a server.", true);
 
-      await guild.members.fetch(); // ensure full member cache
+      await guild.members.fetch();
 
-      // Role IDs
-      const roleA = '1183686835130601487';
-      const roleB = '1111938775409496135';
+      const type = interaction.options.getString('type');
+      const role1 = interaction.options.getRole('role1');
+      const role2 = interaction.options.getRole('role2');
+      const role3 = interaction.options.getRole('role3');
 
-      let onlyA = 0;
-      let onlyB = 0;
-      let both = 0;
-      let neither = 0;
+      let count = 0;
+      let total = guild.memberCount;
 
       guild.members.cache.forEach(member => {
-        const hasA = member.roles.cache.has(roleA);
-        const hasB = member.roles.cache.has(roleB);
+        const has1 = member.roles.cache.has(role1.id);
+        const has2 = role2 ? member.roles.cache.has(role2.id) : false;
+        const has3 = role3 ? member.roles.cache.has(role3.id) : false;
 
-        if (hasA && hasB) both++;
-        else if (hasA && !hasB) onlyA++;
-        else if (hasB && !hasA) onlyB++;
-        else neither++;
+        if (type === 'only') {
+          if (has1 && !has2 && !has3) count++;
+        } else if (type === 'both') {
+          if (has1 && has2) count++;
+        } else if (type === 'neither') {
+          if (!has1 && (!role2 || !has2) && (!role3 || !has3)) count++;
+        }
       });
 
+      let desc = '';
+      if (type === 'only')
+        desc = `✅ Members with **${role1}** only${role2 || role3 ? ' (and not the others)' : ''}: **${count}**`;
+      else if (type === 'both')
+        desc = `✅ Members with **both ${role1}** and **${role2}**: **${count}**`;
+      else
+        desc = `✅ Members with **neither ${role1}${role2 ? ` nor ${role2}` : ''}${role3 ? ` nor ${role3}` : ''}**: **${count}**`;
+
       const result = [
-        `**Count Results:**`,
-        `🟩 Have roleA only (<@&${roleA}>): **${onlyA}**`,
-        `🟦 Have roleB only (<@&${roleB}>): **${onlyB}**`,
-        `🟨 Have both roles: **${both}**`,
-        `⬜ Have neither role: **${neither}**`,
+        `**Count Type:** ${type.toUpperCase()}`,
+        `**Total Members:** ${total}`,
+        desc
       ].join('\n');
 
-      await logUsage(`✅ Count completed. A:${onlyA}, B:${onlyB}, Both:${both}, Neither:${neither}`);
+      await logUsage(`✅ Count completed (${type}): ${count}`);
       return safeReply(result);
 
     } catch (error) {
       console.error("❌ Error executing /count:", error);
       await logUsage("❌ Unexpected error during count");
       try {
-        if (replied || interaction.deferred) {
-          await interaction.followUp({
-            content: '❌ There was an error executing this command!',
-            ephemeral: true,
-          });
-        } else {
-          await interaction.reply({
-            content: '❌ There was an error executing this command!',
-            ephemeral: true,
-          });
-        }
+        if (replied || interaction.deferred)
+          await interaction.followUp({ content: "❌ Error executing command.", ephemeral: true });
+        else
+          await interaction.reply({ content: "❌ Error executing command.", ephemeral: true });
       } catch (err) {
-        console.error('❌ Failed to send error message:', err);
+        console.error("❌ Failed to send error message:", err);
       }
     }
   }
