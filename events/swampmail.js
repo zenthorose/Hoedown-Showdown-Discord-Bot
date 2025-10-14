@@ -1,8 +1,11 @@
+const fs = require('fs');
+const path = require('path');
 const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 
 // CONFIGURATION
 const GUILD_ID = process.env.GUILD_ID;
 const SUPPORT_CATEGORY_NAME = 'support-tickets';
+const config = require('../config.json');
 const STAFF_ROLE_IDS = [
   "1069716885467312188",
   "1253964506317586453",
@@ -17,6 +20,21 @@ const SILENT_CLOSE_PREFIX = '!silentclose';
 const CLEAR_PREFIX = '!clear';
 const EDIT_PREFIX = '!edit';
 const DELETE_PREFIX = '!delete';
+const CONTACT_PREFIX = '!contact';
+
+// -------------------------
+// Helper: Load config
+// -------------------------
+function getBotConfig() {
+  try {
+    const filePath = path.join(__dirname, '..', 'config.json');
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error('⚠️ Could not read config.json, defaulting to supporttickets = true.');
+    return { supporttickets: true };
+  }
+}
 
 // -------------------------
 // Helper: Build stacked description
@@ -31,37 +49,145 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     if (line.startsWith('(Original)')) {
       original = line.replace('(Original)', '').trim();
     } else if (line.includes('(Current)')) {
-      edits.unshift(line.replace(' (Current)', '').trim());
+      edits.push(line.replace(' (Current)', '').trim());
     } else if (line.match(/^\(Edit \d+\)/)) {
-      edits.unshift(line.replace(/^\(Edit \d+\)\s*/, '').trim());
-    } else if (line.trim() !== '') {
-      edits.unshift(line.trim());
+      edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
     }
   }
 
-  // Ensure we have a proper original
-  if (!original) original = edits.pop() || '';
+  // Ensure we have the original message preserved
+  if (!original) original = edits.shift() || '';
 
-  // Number previous edits, newest edit will always be Current
-  const numberedEdits = edits
-    .map((text, i) => `(Edit ${i + 1}) ${text}`)
-    .reverse(); // Oldest edit = Edit 1
+  // Rebuild numbered edits (Edit 1 = first edit)
+  const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
 
   const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
-
   return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
 
+// -------------------------
+// Helper: Update Bot Status
+// -------------------------
+async function updateBotStatus(client) {
+  try {
+    const { supporttickets } = getBotConfig();
+    const statusText = supporttickets
+      ? '(Support Open) Hoedown October 25th!'
+      : '(Support Closed) Hoedown October 25th!';
+
+    await client.user.setPresence({
+      activities: [{ name: statusText, type: 0 }], // 0 = PLAYING
+      status: supporttickets ? 'online' : 'dnd', // optional: red dot if closed
+    });
+
+    console.log(`✅ Bot status updated: ${statusText}`);
+  } catch (err) {
+    console.error('❌ Failed to update bot status:', err);
+  }
+}
+
+// -------------------------
+// MAIN MODULE EXPORT
+// -------------------------
 module.exports = {
-  // -------------------------
-  // Handle DM -> Ticket
-  // -------------------------
   handleMessageCreate: async (client, message) => {
     try {
       if (message.author.bot) return;
 
-      // DM → Ticket
+      // ======================
+      // STAFF: !contact command
+      // ======================
+      if (message.guild && STAFF_ROLE_IDS.some(r => message.member.roles.cache.has(r))) {
+        const content = message.content.trim();
+        if (content.startsWith(CONTACT_PREFIX)) {
+          const args = content.split(' ').slice(1);
+          const targetId = args[0];
+
+          if (!targetId || !/^\d+$/.test(targetId)) {
+            await message.reply('⚠️ Please provide a valid Discord user ID. Example: `!contact 123456789012345678`');
+            return;
+          }
+
+          const guild = client.guilds.cache.get(GUILD_ID);
+          if (!guild) return console.error('❌ Guild not found.');
+
+          let user;
+          try {
+            user = await client.users.fetch(targetId);
+          } catch {
+            await message.reply('❌ Could not find that user.');
+            return;
+          }
+
+          let category = guild.channels.cache.find(
+            c => c.name === SUPPORT_CATEGORY_NAME && c.type === ChannelType.GuildCategory
+          );
+          if (!category) {
+            category = await guild.channels.create({
+              name: SUPPORT_CATEGORY_NAME,
+              type: ChannelType.GuildCategory,
+            });
+          }
+
+          const channelName = user.username.toLowerCase().replace(/[^a-z0-9-_]/gi, '-');
+          let ticketChannel = guild.channels.cache.find(
+            c => c.name === channelName && c.parentId === category.id
+          );
+
+          if (!ticketChannel) {
+            ticketChannel = await guild.channels.create({
+              name: channelName,
+              type: ChannelType.GuildText,
+              parent: category.id,
+              topic: `Ticket for ${user.tag} (${user.id})`,
+              permissionOverwrites: [
+                { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                ...STAFF_ROLE_IDS.map(roleId => ({
+                  id: roleId,
+                  allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ReadMessageHistory,
+                  ],
+                })),
+              ],
+            });
+
+            const embed = new EmbedBuilder()
+              .setColor('Green')
+              .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
+              .setDescription(`Ticket manually created for **${user.tag}** by staff.`)
+              .setTimestamp();
+
+            await ticketChannel.send({
+              content: `🎟️ **New Support Ticket (Created by Staff)**\nFor: **${user.tag}**\nID: ${user.id}`,
+              embeds: [embed],
+            });
+
+            await user.send(`📩 A support ticket has been created for you by staff. You can reply here to communicate with them.`)
+              .catch(() => { console.warn(`⚠️ Could not DM user ${user.tag}`); });
+
+            await message.reply(`✅ Ticket created for **${user.tag}**.`);
+            console.log(`📨 Staff manually created ticket for ${user.tag}`);
+          } else {
+            await message.reply(`⚠️ A ticket already exists for **${user.tag}**.`);
+          }
+
+          return;
+        }
+      }
+
+      // ======================
+      // USER: DM → Ticket
+      // ======================
       if (message.channel.type === ChannelType.DM) {
+        const { supporttickets } = getBotConfig();
+        if (!supporttickets) {
+          await message.reply('🚫 Sorry the support team is currently not accepting any new tickets. Check the bot status to see when they are open.');
+          console.log(`⚠️ Ignored DM from ${message.author.tag} because support tickets are disabled.`);
+          return;
+        }
+
         const guild = client.guilds.cache.get(GUILD_ID);
         if (!guild) return console.error('❌ Guild not found.');
 
@@ -69,7 +195,10 @@ module.exports = {
           c => c.name === SUPPORT_CATEGORY_NAME && c.type === ChannelType.GuildCategory
         );
         if (!category) {
-          category = await guild.channels.create({ name: SUPPORT_CATEGORY_NAME, type: ChannelType.GuildCategory });
+          category = await guild.channels.create({
+            name: SUPPORT_CATEGORY_NAME,
+            type: ChannelType.GuildCategory,
+          });
         }
 
         const channelName = message.author.username.toLowerCase().replace(/[^a-z0-9-_]/gi, '-');
@@ -104,13 +233,11 @@ module.exports = {
           });
 
           await ticketChannel.send({
-            content: `🎟️ **New Modmail Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}`,
-            embeds: [userEmbed]
+            content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}`,
+            embeds: [userEmbed],
           });
 
-          await message.reply(
-            '✅ I have opened a support ticket with the Admin team and notified them. They will respond as soon as they are available.'
-          );
+          await message.reply('✅ A support ticket has been opened. The admin team will respond shortly.');
           console.log(`📨 New ticket opened for ${message.author.tag}`);
         } else {
           await ticketChannel.send({ embeds: [userEmbed] });
@@ -118,13 +245,16 @@ module.exports = {
           console.log(`📨 DM added to existing ticket for ${message.author.tag}`);
         }
       }
-      // Staff messages in ticket
+
+      // ======================
+      // STAFF: Ticket channel messages
+      // ======================
       else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
         await handleStaffMessage(client, message);
       }
 
     } catch (err) {
-      console.error('❗ Modmail Error (messageCreate):', err);
+      console.error('❗ Support Ticket Error (messageCreate):', err);
     }
   },
 
@@ -158,7 +288,7 @@ module.exports = {
       await targetMsg.edit({ embeds: [embed] });
 
     } catch (err) {
-      console.error('❌ Modmail edit sync failed:', err);
+      console.error('❌ Support Ticket edit sync failed:', err);
     }
   },
 
@@ -194,13 +324,13 @@ module.exports = {
       await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
 
     } catch (err) {
-      console.error('❌ Modmail delete sync failed:', err);
+      console.error('❌ Support Ticket delete sync failed:', err);
     }
   },
 };
 
 // -------------------------
-// Staff message handler
+// STAFF MESSAGE HANDLER
 // -------------------------
 async function handleStaffMessage(client, message) {
   const userIdMatch = message.channel.topic?.match(/\((\d+)\)$/);
@@ -234,6 +364,20 @@ async function handleStaffMessage(client, message) {
     await message.react('✅');
     return;
   }
+
+  // ---- Edit / Delete / Close / etc. ----
+  await handleStaffSubcommands(client, message, user);
+}
+
+// Extracted subcommands to keep main logic clean
+async function handleStaffSubcommands(client, message, user) {
+  const content = message.content.trim();
+
+  const EDIT_PREFIX = '!edit';
+  const DELETE_PREFIX = '!delete';
+  const CLOSE_PREFIX = '!close';
+  const SILENT_CLOSE_PREFIX = '!silentclose';
+  const CLEAR_PREFIX = '!clear';
 
   // ---- Edit ----
   if (content.startsWith(EDIT_PREFIX)) {
@@ -331,6 +475,5 @@ async function handleStaffMessage(client, message) {
     } catch {
       await message.react('✅');
     }
-    return;
   }
 }

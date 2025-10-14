@@ -73,6 +73,7 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 // --- Ready event ---
 client.once('ready', async () => {
   console.log(`✅ Bot online as ${client.user.tag}`);
+  await updateBotStatus(client);
 
   // Test Google Apps Script
   try {
