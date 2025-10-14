@@ -21,7 +21,19 @@ const CLEAR_PREFIX = '!clear';
 const EDIT_PREFIX = '!edit';
 const DELETE_PREFIX = '!delete';
 const CONTACT_PREFIX = '!contact';
+const COMMANDS_PREFIX = '!commands';
 
+// Command descriptions for !commands
+const COMMANDS = [
+  { prefix: REPLY_PREFIX, desc: 'Reply to the user from the ticket.' },
+  { prefix: EDIT_PREFIX, desc: 'Edit a previously sent staff message.' },
+  { prefix: DELETE_PREFIX, desc: 'Delete a previously sent staff message.' },
+  { prefix: CLOSE_PREFIX, desc: 'Close the ticket and notify the user.' },
+  { prefix: SILENT_CLOSE_PREFIX, desc: 'Close the ticket without notifying the user.' },
+  { prefix: CLEAR_PREFIX, desc: 'Clear recent bot messages in the user\'s DM.' },
+  { prefix: CONTACT_PREFIX, desc: 'Staff Channel Only: manually create a ticket for a user by entering their Discord ID after the command.' },
+  { prefix: COMMANDS_PREFIX, desc: 'Show a list of available commands.' }
+];
 
 // -------------------------
 // Helper: Build stacked description
@@ -42,12 +54,8 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     }
   }
 
-  // Ensure we have the original message preserved
   if (!original) original = edits.shift() || '';
-
-  // Rebuild numbered edits (Edit 1 = first edit)
   const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
-
   const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
   return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
@@ -64,7 +72,7 @@ async function updateBotStatus(client) {
 
     await client.user.setPresence({
       activities: [{ name: statusText, type: 0 }], // 0 = PLAYING
-      status: supporttickets ? 'online' : 'dnd', // optional: red dot if closed
+      status: supporttickets ? 'online' : 'dnd',
     });
 
     console.log(`✅ Bot status updated: ${statusText}`);
@@ -81,11 +89,21 @@ module.exports = {
     try {
       if (message.author.bot) return;
 
+      const content = message.content.trim();
+
+      // ---------------------
+      // !commands command
+      // ---------------------
+      if (content === COMMANDS_PREFIX) {
+        const commandList = COMMANDS.map(c => `**${c.prefix}** — ${c.desc}`);
+        await message.reply(`📜 **Available Commands:**\n${commandList.join('\n')}`);
+        return;
+      }
+
       // ======================
       // STAFF: !contact command
       // ======================
       if (message.guild && STAFF_ROLE_IDS.some(r => message.member.roles.cache.has(r))) {
-        const content = message.content.trim();
         if (content.startsWith(CONTACT_PREFIX)) {
           const args = content.split(' ').slice(1);
           const targetId = args[0];
@@ -151,7 +169,7 @@ module.exports = {
               embeds: [embed],
             });
 
-            await user.send(`📩 A support ticket has been created for you by staff. You can reply here to communicate with them.`)
+            await user.send(`📩 A support ticket has been created for you by staff.`)
               .catch(() => { console.warn(`⚠️ Could not DM user ${user.tag}`); });
 
             await message.reply(`✅ Ticket created for **${user.tag}**.`);
@@ -159,7 +177,6 @@ module.exports = {
           } else {
             await message.reply(`⚠️ A ticket already exists for **${user.tag}**.`);
           }
-
           return;
         }
       }
@@ -170,7 +187,7 @@ module.exports = {
       if (message.channel.type === ChannelType.DM) {
         const supporttickets = config.supporttickets;
         if (!supporttickets) {
-          await message.reply('❌ Sorry the support team is currently not accepting any new tickets. Check the bot status ocassionally for ✅ to know support tickets are open.');
+          await message.reply('❌ Sorry the support team is currently not accepting any new tickets.');
           console.log(`⚠️ Ignored DM from ${message.author.tag} because support tickets are disabled.`);
           return;
         }
@@ -245,9 +262,6 @@ module.exports = {
     }
   },
 
-  // -------------------------
-  // Sync DM edits
-  // -------------------------
   handleMessageUpdate: async (client, oldMessage, newMessage) => {
     try {
       if (newMessage.author.bot || newMessage.channel.type !== ChannelType.DM) return;
@@ -279,9 +293,6 @@ module.exports = {
     }
   },
 
-  // -------------------------
-  // Sync DM deletes
-  // -------------------------
   handleMessageDelete: async (client, deletedMessage) => {
     try {
       if (deletedMessage.author.bot || deletedMessage.channel.type !== ChannelType.DM) return;
@@ -328,7 +339,6 @@ async function handleStaffMessage(client, message) {
 
   const content = message.content.trim();
 
-  // ---- Reply ----
   if (content.startsWith(REPLY_PREFIX)) {
     const replyText = content.slice(REPLY_PREFIX.length).trim();
     if (!replyText) return await message.react('✅');
@@ -352,15 +362,13 @@ async function handleStaffMessage(client, message) {
     return;
   }
 
-  // ---- Edit / Delete / Close / etc. ----
   await handleStaffSubcommands(client, message, user);
 }
 
-// Extracted subcommands to keep main logic clean
+// Extracted subcommands
 async function handleStaffSubcommands(client, message, user) {
   const content = message.content.trim();
 
-  // ---- Edit ----
   if (content.startsWith(EDIT_PREFIX)) {
     const args = content.split(' ').slice(1);
     const msgId = args.shift();
@@ -398,7 +406,6 @@ async function handleStaffSubcommands(client, message, user) {
     return;
   }
 
-  // ---- Delete ----
   if (content.startsWith(DELETE_PREFIX)) {
     const args = content.split(' ').slice(1);
     const msgId = args.shift();
@@ -430,7 +437,6 @@ async function handleStaffSubcommands(client, message, user) {
     return;
   }
 
-  // ---- Close ----
   if (content.startsWith(CLOSE_PREFIX)) {
     await user.send('📩 Your support ticket has been closed.').catch(() => {});
     await message.channel.delete();
@@ -438,14 +444,12 @@ async function handleStaffSubcommands(client, message, user) {
     return;
   }
 
-  // ---- Silent Close ----
   if (content.startsWith(SILENT_CLOSE_PREFIX)) {
     await message.channel.delete();
     console.log(`❌ Ticket silently closed.`);
     return;
   }
 
-  // ---- Clear ----
   if (content.startsWith(CLEAR_PREFIX)) {
     try {
       const dmChannel = await user.createDM();
