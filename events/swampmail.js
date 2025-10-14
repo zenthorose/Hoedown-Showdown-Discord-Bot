@@ -477,3 +477,5 @@ async function handleStaffSubcommands(client, message, user) {
     }
   }
 }
+
+module.exports.updateBotStatus = updateBotStatus;
