@@ -73,7 +73,6 @@ const rest = new REST({ version: '10' }).setToken(botToken);
 // --- Ready event ---
 client.once('ready', async () => {
   console.log(`✅ Bot online as ${client.user.tag}`);
-  await updateBotStatus(client);
 
   // Test Google Apps Script
   try {
@@ -95,6 +94,7 @@ client.once('ready', async () => {
   } catch (err) {
     console.error("❌ Failed to send startup status:", err);
   }
+  await updateBotStatus(client);
 });
 
 // --- Auto-run member-update ---
