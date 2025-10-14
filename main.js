@@ -5,7 +5,7 @@ const moment = require('moment-timezone');
 const fs = require('fs');
 const axios = require('axios');
 const express = require('express');
-const { updateBotStatus } = require('./events/supporttickets');
+const { updateBotStatus } = require('./events/swampmail');
 
 const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
