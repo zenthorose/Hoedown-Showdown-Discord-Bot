@@ -29,6 +29,7 @@ function getBotConfig() {
   try {
     const filePath = path.join(__dirname, 'config.json');
     const raw = fs.readFileSync(filePath, 'utf8');
+    console.log('Looking for config at:', filePath);
     return JSON.parse(raw);
   } catch (err) {
     console.error('⚠️ Could not read config.json, defaulting to supporttickets = true.');
