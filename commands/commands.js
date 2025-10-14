@@ -74,6 +74,7 @@ module.exports = {
         { name: '/commands', description: 'Provides bot command information for general or admin commands.' },
         { name: '/message', description: 'Will let you send/edit a message from the bot in an embeded format with the provided channel and message ID’s.' },
         { name: '/ping', description: 'Keeps the bot alive.' },
+        { name: '/count', description: 'Can be used to get a count of total members with a single role, multiple roles or without a roll or rolls.' },
         { name: '/member-update', description: 'Syncs members and names with Google Sheets.' },
         { name: '/message-purge', description: 'Deletes bot messages from the current channel.' },
         { name: '/time-slots', description: 'Posts timeslot messages for opt-in into the opt-in channel.' },
