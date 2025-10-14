@@ -55,16 +55,9 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
 // -------------------------
 // Helper: Update Bot Status
 // -------------------------
-if (!config.supporttickets) {
-  await message.reply(
-    "❌ Sorry, the support team is currently not accepting any new tickets. Check the bot status to see when they are open. You will see this symbol if they are ✅."
-  );
-  return;
-}
-
 async function updateBotStatus(client) {
   try {
-    const { supporttickets } = getBotConfig();
+    const supporttickets = config.supporttickets;
     const statusText = supporttickets
       ? '✅ Hoedown October 25th!'
       : '❌ Hoedown October 25th!';
@@ -175,9 +168,9 @@ module.exports = {
       // USER: DM → Ticket
       // ======================
       if (message.channel.type === ChannelType.DM) {
-        const { supporttickets } = getBotConfig();
+        const supporttickets = config.supporttickets;
         if (!supporttickets) {
-          await message.reply('🚫 Sorry the support team is currently not accepting any new tickets. Check the bot status to see when they are open.');
+          await message.reply('❌ Sorry the support team is currently not accepting any new tickets. Check the bot status ocassionally for ✅ to know support tickets are open.');
           console.log(`⚠️ Ignored DM from ${message.author.tag} because support tickets are disabled.`);
           return;
         }
@@ -366,12 +359,6 @@ async function handleStaffMessage(client, message) {
 // Extracted subcommands to keep main logic clean
 async function handleStaffSubcommands(client, message, user) {
   const content = message.content.trim();
-
-  const EDIT_PREFIX = '!edit';
-  const DELETE_PREFIX = '!delete';
-  const CLOSE_PREFIX = '!close';
-  const SILENT_CLOSE_PREFIX = '!silentclose';
-  const CLEAR_PREFIX = '!clear';
 
   // ---- Edit ----
   if (content.startsWith(EDIT_PREFIX)) {
