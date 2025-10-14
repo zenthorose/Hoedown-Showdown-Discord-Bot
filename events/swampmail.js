@@ -22,20 +22,6 @@ const EDIT_PREFIX = '!edit';
 const DELETE_PREFIX = '!delete';
 const CONTACT_PREFIX = '!contact';
 
-// -------------------------
-// Helper: Load config
-// -------------------------
-function getBotConfig() {
-  try {
-    const filePath = path.join(__dirname, 'config.json');
-    const raw = fs.readFileSync(filePath, 'utf8');
-    console.log('Looking for config at:', filePath);
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error('⚠️ Could not read config.json, defaulting to supporttickets = true.');
-    return { supporttickets: true };
-  }
-}
 
 // -------------------------
 // Helper: Build stacked description
@@ -69,12 +55,19 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
 // -------------------------
 // Helper: Update Bot Status
 // -------------------------
+if (!config.supporttickets) {
+  await message.reply(
+    "❌ Sorry, the support team is currently not accepting any new tickets. Check the bot status to see when they are open. You will see this symbol if they are ✅."
+  );
+  return;
+}
+
 async function updateBotStatus(client) {
   try {
     const { supporttickets } = getBotConfig();
     const statusText = supporttickets
-      ? '(Support Open) Hoedown October 25th!'
-      : '(Support Closed) Hoedown October 25th!';
+      ? '✅ Hoedown October 25th!'
+      : '❌ Hoedown October 25th!';
 
     await client.user.setPresence({
       activities: [{ name: statusText, type: 0 }], // 0 = PLAYING
