@@ -43,7 +43,7 @@ module.exports = {
         .setDescription('Update your full stream link')
         .addStringOption(option =>
           option.setName('link')
-            .setDescription('Enter the full link for your stream')
+            .setDescription(`Enter the full link for your stream or N/A if this doesn't apply to you`)
             .setRequired(true)
         )
     ),
@@ -131,7 +131,7 @@ module.exports = {
       infoType = 'streamlink';
       newValue = interaction.options.getString('link');
 
-      const validLinkRegex = /^(?:https?:\/\/((www|m)\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+|Filler)$/i;
+      const validLinkRegex = /^(?:https?:\/\/((www|m)\.)?(twitch\.tv|kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+|N\/A)$/i;
       if (!validLinkRegex.test(newValue)) {
         await interaction.editReply({ content: '❌ Invalid link. Must be Twitch, Kick, YouTube, or TikTok.' });
         await logUsage("❌ Failed - Invalid stream link.");
