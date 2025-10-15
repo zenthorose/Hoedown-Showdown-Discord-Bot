@@ -2,10 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 
-// CONFIGURATION
+// =============================
+// CONFIGURATION CONSTANTS
+// =============================
 const GUILD_ID = process.env.GUILD_ID;
 const SUPPORT_CATEGORY_NAME = 'support-tickets';
 const config = require('../config.json');
+
 const STAFF_ROLE_IDS = [
   "1069716885467312188",
   "1253964506317586453",
@@ -13,7 +16,9 @@ const STAFF_ROLE_IDS = [
   "1416904399208321164"
 ];
 
-// Command prefixes
+// =============================
+// COMMAND PREFIXES
+// =============================
 const REPLY_PREFIX = '!reply';
 const CLOSE_PREFIX = '!close';
 const SILENT_CLOSE_PREFIX = '!silentclose';
@@ -23,24 +28,38 @@ const DELETE_PREFIX = '!delete';
 const CONTACT_PREFIX = '!contact';
 const COMMANDS_PREFIX = '!commands';
 
-// Command descriptions for !commands
+// =============================
+// COMMAND DESCRIPTIONS
+// =============================
 const COMMANDS = [
   { prefix: REPLY_PREFIX, desc: 'Reply to the user from the ticket.' },
-  { prefix: EDIT_PREFIX, desc: 'Edit a previously sent staff message by right clicking the message you want to edit by copying the ID and typing the command followed by the message ID.' },
-  { prefix: DELETE_PREFIX, desc: 'Delete a previously sent staff message by right clicking the message you want to delete by copying the ID and typing the command followed by the message ID.' },
+  { prefix: EDIT_PREFIX, desc: 'Edit a previously sent staff message using the message ID.' },
+  { prefix: DELETE_PREFIX, desc: 'Delete a previously sent staff message using the message ID.' },
   { prefix: CLOSE_PREFIX, desc: 'Close the ticket and notify the user.' },
   { prefix: SILENT_CLOSE_PREFIX, desc: 'Close the ticket without notifying the user.' },
   { prefix: CLEAR_PREFIX, desc: 'Clear recent bot messages in the user\'s DM.' },
-  { prefix: CONTACT_PREFIX, desc: 'Staff Channel Only: manually create a ticket for a user by entering their Discord ID after the command.' },
+  { prefix: CONTACT_PREFIX, desc: 'Manually create a ticket for a user using their Discord ID (staff channel only).' },
   { prefix: COMMANDS_PREFIX, desc: 'Show a list of available commands.' }
 ];
 
-// -------------------------
-// Helper: Build stacked description
-// -------------------------
+// =============================
+// DATABASE HOOKS
+// =============================
+const {
+  createTicket,
+  addMessage,
+  addStaff,
+  closeTicket,
+  getUserTickets
+} = require('../database/ticketManager');
+
+// =============================
+// HELPER FUNCTIONS
+// =============================
+
+// Build stacked description (for edits/deletes)
 function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
   const lines = previousDesc.split('\n--------------\n');
-
   let original = '';
   const edits = [];
 
@@ -56,13 +75,11 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
 
   if (!original) original = edits.shift() || '';
   const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
-  const topLine = latestContent + (isDeleted ? ' (Deleted by user)' : ' (Current)');
+  const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
   return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
 
-// -------------------------
-// Helper: Update Bot Status
-// -------------------------
+// Update bot status
 async function updateBotStatus(client) {
   try {
     const supporttickets = config.supporttickets;
@@ -71,7 +88,7 @@ async function updateBotStatus(client) {
       : '❌ Hoedown October 25th!';
 
     await client.user.setPresence({
-      activities: [{ name: statusText, type: 0 }], // 0 = PLAYING
+      activities: [{ name: statusText, type: 0 }],
       status: supporttickets ? 'online' : 'dnd',
     });
 
@@ -81,19 +98,17 @@ async function updateBotStatus(client) {
   }
 }
 
-// -------------------------
-// MAIN MODULE EXPORT
-// -------------------------
+// =============================
+// MAIN EXPORT
+// =============================
 module.exports = {
+  // Handle all messageCreate events
   handleMessageCreate: async (client, message) => {
     try {
       if (message.author.bot) return;
-
       const content = message.content.trim();
 
-      // ---------------------
-      // !commands command
-      // ---------------------
+      // !commands list
       if (content === COMMANDS_PREFIX) {
         const commandList = COMMANDS.map(c => `**${c.prefix}** — ${c.desc}`);
         await message.reply(`📜 **Available Commands:**\n${commandList.join('\n')}`);
@@ -101,7 +116,7 @@ module.exports = {
       }
 
       // ======================
-      // STAFF: !contact command
+      // STAFF: !contact
       // ======================
       if (message.guild && STAFF_ROLE_IDS.some(r => message.member.roles.cache.has(r))) {
         if (content.startsWith(CONTACT_PREFIX)) {
@@ -126,13 +141,10 @@ module.exports = {
 
           let category = guild.channels.cache.find(
             c => c.name === SUPPORT_CATEGORY_NAME && c.type === ChannelType.GuildCategory
-          );
-          if (!category) {
-            category = await guild.channels.create({
-              name: SUPPORT_CATEGORY_NAME,
-              type: ChannelType.GuildCategory,
-            });
-          }
+          ) || await guild.channels.create({
+            name: SUPPORT_CATEGORY_NAME,
+            type: ChannelType.GuildCategory,
+          });
 
           const channelName = user.username.toLowerCase().replace(/[^a-z0-9-_]/gi, '-');
           let ticketChannel = guild.channels.cache.find(
@@ -170,7 +182,7 @@ module.exports = {
             });
 
             await user.send(`📩 A support ticket has been created for you by staff.`)
-              .catch(() => { console.warn(`⚠️ Could not DM user ${user.tag}`); });
+              .catch(() => console.warn(`⚠️ Could not DM ${user.tag}`));
 
             await message.reply(`✅ Ticket created for **${user.tag}**.`);
             console.log(`📨 Staff manually created ticket for ${user.tag}`);
@@ -182,13 +194,13 @@ module.exports = {
       }
 
       // ======================
-      // USER: DM → Ticket
+      // USER DM → Ticket
       // ======================
       if (message.channel.type === ChannelType.DM) {
         const supporttickets = config.supporttickets;
         if (!supporttickets) {
-          await message.reply('❌ Sorry the support team is currently not accepting any new tickets.');
-          console.log(`⚠️ Ignored DM from ${message.author.tag} because support tickets are disabled.`);
+          await message.reply('❌ Sorry, support tickets are currently closed.');
+          console.log(`⚠️ Ignored DM from ${message.author.tag} (support disabled).`);
           return;
         }
 
@@ -197,13 +209,10 @@ module.exports = {
 
         let category = guild.channels.cache.find(
           c => c.name === SUPPORT_CATEGORY_NAME && c.type === ChannelType.GuildCategory
-        );
-        if (!category) {
-          category = await guild.channels.create({
-            name: SUPPORT_CATEGORY_NAME,
-            type: ChannelType.GuildCategory,
-          });
-        }
+        ) || await guild.channels.create({
+          name: SUPPORT_CATEGORY_NAME,
+          type: ChannelType.GuildCategory,
+        });
 
         const channelName = message.author.username.toLowerCase().replace(/[^a-z0-9-_]/gi, '-');
         let ticketChannel = guild.channels.cache.find(
@@ -241,27 +250,24 @@ module.exports = {
             embeds: [userEmbed],
           });
 
-          await message.reply('✅ A support ticket has been opened. The admin team will respond shortly.');
+          await message.reply('✅ Ticket opened. The support team will respond soon.');
           console.log(`📨 New ticket opened for ${message.author.tag}`);
         } else {
           await ticketChannel.send({ embeds: [userEmbed] });
           await message.react('✅');
-          console.log(`📨 DM added to existing ticket for ${message.author.tag}`);
+          console.log(`📩 DM added to existing ticket for ${message.author.tag}`);
         }
-      }
-
-      // ======================
-      // STAFF: Ticket channel messages
-      // ======================
-      else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
+      } else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
         await handleStaffMessage(client, message);
       }
-
     } catch (err) {
       console.error('❗ Support Ticket Error (messageCreate):', err);
     }
   },
 
+  // ======================
+  // MESSAGE UPDATES
+  // ======================
   handleMessageUpdate: async (client, oldMessage, newMessage) => {
     try {
       if (newMessage.author.bot || newMessage.channel.type !== ChannelType.DM) return;
@@ -287,12 +293,14 @@ module.exports = {
         .setTimestamp();
 
       await targetMsg.edit({ embeds: [embed] });
-
     } catch (err) {
       console.error('❌ Support Ticket edit sync failed:', err);
     }
   },
 
+  // ======================
+  // MESSAGE DELETE
+  // ======================
   handleMessageDelete: async (client, deletedMessage) => {
     try {
       if (deletedMessage.author.bot || deletedMessage.channel.type !== ChannelType.DM) return;
@@ -320,16 +328,16 @@ module.exports = {
       await targetMsg.edit({ embeds: [embed] });
 
       await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
-
     } catch (err) {
       console.error('❌ Support Ticket delete sync failed:', err);
     }
   },
+  updateBotStatus
 };
 
-// -------------------------
-// STAFF MESSAGE HANDLER
-// -------------------------
+// =============================
+// STAFF MESSAGE HANDLING
+// =============================
 async function handleStaffMessage(client, message) {
   const userIdMatch = message.channel.topic?.match(/\((\d+)\)$/);
   if (!userIdMatch) return;
@@ -365,7 +373,9 @@ async function handleStaffMessage(client, message) {
   await handleStaffSubcommands(client, message, user);
 }
 
-// Extracted subcommands
+// =============================
+// SUBCOMMANDS HANDLER
+// =============================
 async function handleStaffSubcommands(client, message, user) {
   const content = message.content.trim();
 
@@ -462,5 +472,3 @@ async function handleStaffSubcommands(client, message, user) {
     }
   }
 }
-
-module.exports.updateBotStatus = updateBotStatus;
