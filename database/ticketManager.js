@@ -69,39 +69,43 @@ async function closeTicketAndSave(channel, user) {
 
     // --- Format messages (with embeds & attachments) ---
     const formattedMessages = allMessages.reverse().map(m => {
-      let content = m.content?.trim();
+      let parts = [];
 
-      // Handle embeds
-      if ((!content || content.length === 0) && m.embeds.length > 0) {
-        content = m.embeds
+      // Message text
+      if (m.content?.trim()) parts.push(m.content.trim());
+
+      // Handle embeds (even if message has text)
+      if (m.embeds.length > 0) {
+        const embedText = m.embeds
           .map(embed => {
-            const parts = [];
-            if (embed.title) parts.push(`**${embed.title}**`);
-            if (embed.description) parts.push(embed.description);
+            const embedParts = [];
+            if (embed.title) embedParts.push(`**${embed.title}**`);
+            if (embed.description) embedParts.push(embed.description);
             if (embed.fields?.length) {
-              parts.push(embed.fields.map(f => `${f.name}: ${f.value}`).join('\n'));
+              embedParts.push(embed.fields.map(f => `${f.name}: ${f.value}`).join('\n'));
             }
-            return parts.join('\n');
+            if (embed.footer?.text) embedParts.push(`_Footer: ${embed.footer.text}_`);
+            return embedParts.join('\n');
           })
           .join('\n\n');
+        if (embedText.trim().length > 0) parts.push(embedText);
       }
 
       // Handle attachments
-      if ((!content || content.length === 0) && m.attachments.size > 0) {
-        content = [...m.attachments.values()]
+      if (m.attachments.size > 0) {
+        const attachText = [...m.attachments.values()]
           .map(a => `[Attachment: ${a.url}]`)
           .join('\n');
+        parts.push(attachText);
       }
 
       // Fallback
-      if (!content || content.length === 0) {
-        content = "[No content / embed / attachment]";
-      }
+      if (parts.length === 0) parts.push("[No content / embed / attachment]");
 
       return {
         authorID: m.author.id,
         authorName: m.author.username,
-        content,
+        content: parts.join('\n\n'),
         timestamp: m.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
       };
     });
