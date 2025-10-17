@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const { closeTicketAndSave } = require('./ticketManager');
+const { closeTicketAndSave } = require('../database/ticketManager');
 
 // =============================
 // CONFIGURATION CONSTANTS

@@ -1,7 +1,7 @@
 // db.js
 const mongoose = require('mongoose');
-
-const uri = "mongodb+srv://Zenthorose:PeOOOiLsIBkhA4GJ@hoedowncluster.bhez5kk.mongodb.net/HoeDownCluster";
+require('dotenv').config();
+const uri = process.env.MONGO_URI;
 
 // Connect only once globally
 let isConnected = false;
