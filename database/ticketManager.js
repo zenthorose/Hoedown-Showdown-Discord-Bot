@@ -1,9 +1,10 @@
 const mongoose = require('mongoose');
 const moment = require('moment-timezone');
 require('dotenv').config();
+
 const uri = process.env.MONGO_URI;
 
-// Connect once when the bot starts
+// --- Connect once when the bot starts ---
 mongoose.connect(uri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -16,7 +17,14 @@ function getESTTime() {
 }
 
 function getCollectionForUser(username) {
-  return mongoose.model(`${username}_Tickets`, new mongoose.Schema({
+  const modelName = `${username}_Tickets`;
+
+  // Prevent Mongoose model overwrite error on repeated calls
+  if (mongoose.models[modelName]) {
+    return mongoose.models[modelName];
+  }
+
+  const schema = new mongoose.Schema({
     ticketID: String,
     username: String,
     userID: String,
@@ -32,7 +40,9 @@ function getCollectionForUser(username) {
       },
     ],
     staffIDs: [String],
-  }), `${username}_Tickets`);
+  });
+
+  return mongoose.model(modelName, schema, modelName);
 }
 
 // --- Close Ticket and Save to MongoDB ---
@@ -43,26 +53,60 @@ async function closeTicketAndSave(channel, user) {
     // Fetch all messages in batches (100 per request)
     let allMessages = [];
     let lastID = null;
+
     while (true) {
       const options = { limit: 100 };
       if (lastID) options.before = lastID;
+
       const fetched = await channel.messages.fetch(options);
       if (fetched.size === 0) break;
+
       allMessages = allMessages.concat(Array.from(fetched.values()));
       lastID = fetched.last().id;
     }
 
     console.log(`💬 Collected ${allMessages.length} messages.`);
 
-    // Format messages
-    const formattedMessages = allMessages.reverse().map(m => ({
-      authorID: m.author.id,
-      authorName: m.author.username,
-      content: m.content || "[No content / embed / attachment]",
-      timestamp: m.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
-    }));
+    // --- Format messages (with embeds & attachments) ---
+    const formattedMessages = allMessages.reverse().map(m => {
+      let content = m.content?.trim();
 
-    // Collect staff members (anyone with certain roles or in your staff list)
+      // Handle embeds
+      if ((!content || content.length === 0) && m.embeds.length > 0) {
+        content = m.embeds
+          .map(embed => {
+            const parts = [];
+            if (embed.title) parts.push(`**${embed.title}**`);
+            if (embed.description) parts.push(embed.description);
+            if (embed.fields?.length) {
+              parts.push(embed.fields.map(f => `${f.name}: ${f.value}`).join('\n'));
+            }
+            return parts.join('\n');
+          })
+          .join('\n\n');
+      }
+
+      // Handle attachments
+      if ((!content || content.length === 0) && m.attachments.size > 0) {
+        content = [...m.attachments.values()]
+          .map(a => `[Attachment: ${a.url}]`)
+          .join('\n');
+      }
+
+      // Fallback
+      if (!content || content.length === 0) {
+        content = "[No content / embed / attachment]";
+      }
+
+      return {
+        authorID: m.author.id,
+        authorName: m.author.username,
+        content,
+        timestamp: m.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
+      };
+    });
+
+    // --- Identify staff members ---
     const staffRoleIDs = ['YOUR_STAFF_ROLE_ID_HERE']; // TODO: Replace with your real role IDs
     const staffIDs = [...new Set(
       allMessages
@@ -70,7 +114,7 @@ async function closeTicketAndSave(channel, user) {
         .map(m => m.author.id)
     )];
 
-    // Build ticket object
+    // --- Build ticket data ---
     const createdAt = formattedMessages[0]?.timestamp || getESTTime();
     const closedAt = getESTTime();
     const ticketID = `${user.username} ${createdAt}`;
@@ -87,7 +131,7 @@ async function closeTicketAndSave(channel, user) {
       staffIDs,
     });
 
-    // Save to MongoDB
+    // --- Save to MongoDB ---
     await ticketData.save();
     console.log(`🧾 Ticket "${ticketID}" saved to ${user.username}_Tickets`);
 
