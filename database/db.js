@@ -1,13 +1,38 @@
-const monk = require('monk');
+// db.js
+const mongoose = require('mongoose');
 
-// Use environment variable or default local MongoDB connection
-const db = monk(process.env.MONGO_URI || 'mongodb://localhost:27017/supportbot');
+const uri = "mongodb+srv://Zenthorose:PeOOOiLsIBkhA4GJ@hoedowncluster.bhez5kk.mongodb.net/HoeDownCluster";
 
-// "tickets" collection
-const tickets = db.get('tickets');
+// Connect only once globally
+let isConnected = false;
 
-// Optional: add indexes for performance
-tickets.createIndex({ userId: 1 });
-tickets.createIndex({ ticketId: 1 }, { unique: true });
+async function connectDB() {
+  if (isConnected) return;
+  await mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+  isConnected = true;
+  console.log("✅ MongoDB connected (db.js)");
+}
 
-module.exports = { db, tickets };
+function getTicketModel(username) {
+  const ticketSchema = new mongoose.Schema({
+    ticketID: String,
+    username: String,
+    userID: String,
+    createdAt: String,
+    status: String,
+    messages: [
+      {
+        authorID: String,
+        authorName: String,
+        content: String,
+        timestamp: String,
+      },
+    ],
+    staffIDs: [String],
+  });
+
+  const collectionName = `${username}_Tickets`;
+  return mongoose.models[collectionName] || mongoose.model(collectionName, ticketSchema, collectionName);
+}
+
+module.exports = { connectDB, getTicketModel };

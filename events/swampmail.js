@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { closeTicketAndSave } = require('./ticketManager');
 
 // =============================
 // CONFIGURATION CONSTANTS
@@ -447,16 +448,36 @@ async function handleStaffSubcommands(client, message, user) {
     return;
   }
 
+  // --- Normal Close ---
   if (content.startsWith(CLOSE_PREFIX)) {
-    await user.send('📩 Your support ticket has been closed.').catch(() => {});
-    await message.channel.delete();
-    console.log(`❌ Ticket for ${user.tag} closed by staff.`);
+    try {
+      // Notify the user
+      await user.send('📩 Your support ticket has been closed.').catch(() => {});
+
+      // Save chat logs to MongoDB before deleting the channel
+      await closeTicketAndSave(message.channel, user);
+
+      // Delete the channel
+      await message.channel.delete();
+      console.log(`✅ Ticket for ${user.tag} closed and saved by staff.`);
+    } catch (err) {
+      console.error(`❌ Error closing ticket for ${user.tag}:`, err);
+    }
     return;
   }
 
+  // --- Silent Close ---
   if (content.startsWith(SILENT_CLOSE_PREFIX)) {
-    await message.channel.delete();
-    console.log(`❌ Ticket silently closed.`);
+    try {
+      // Save chat logs to MongoDB but don’t message the user
+      await closeTicketAndSave(message.channel, user);
+
+      // Delete the channel
+      await message.channel.delete();
+      console.log(`✅ Ticket silently closed and saved.`);
+    } catch (err) {
+      console.error(`❌ Error during silent close:`, err);
+    }
     return;
   }
 
