@@ -79,6 +79,11 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
 
   if (!original) original = edits.shift() || '';
 
+  // ✅ Special case: single message being deleted — no edits, no original tag
+  if (isDeleted && edits.length === 0 && lines.length === 1) {
+    return `${latestContent} (Deleted)`;
+  }
+
   // Build new ordered stack (edits newest to oldest)
   const numberedEdits = edits.map((text, i) => `${text} (Edit ${edits.length - i})`);
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
@@ -86,6 +91,7 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
 
   return [topLine, ...numberedEdits, originalLine].join('\n--------------\n');
 }
+
 
 // Update bot status
 async function updateBotStatus(client) {
