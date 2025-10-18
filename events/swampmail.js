@@ -65,12 +65,12 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
   const edits = [];
 
   for (const line of lines) {
-    if (line.startsWith('(Original)')) {
+    if (line.endsWith('(Original)')) {
       original = line.replace('(Original)', '').trim();
-    } else if (line.includes('(Current)')) {
-      edits.push(line.replace(' (Current)', '').trim());
-    } else if (line.match(/^\(Edit \d+\)/)) {
-      edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
+    } else if (line.endsWith('(Current)')) {
+      edits.push(line.replace('(Current)', '').trim());
+    } else if (/\(Edit \d+\)$/.test(line)) {
+      edits.push(line.replace(/\(Edit \d+\)$/, '').trim());
     } else if (!original) {
       // Handle first message with no tags as the original
       original = line.trim();
@@ -79,9 +79,8 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
 
   if (!original) original = edits.shift() || '';
 
-  // Move tag to the end of each edit text
+  // Build new ordered stack (edits newest to oldest)
   const numberedEdits = edits.map((text, i) => `${text} (Edit ${i + 1})`);
-
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
   const originalLine = original ? `${original} (Original)` : '';
 
