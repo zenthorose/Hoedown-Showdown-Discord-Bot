@@ -68,7 +68,6 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
   // Split previous description into lines
   const lines = previousDesc.split('\n--------------\n');
 
-  // Extract original and edits
   let original = '';
   const edits = [];
 
@@ -80,26 +79,22 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     } else if (line.match(/^\(Edit \d+\)/)) {
       edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
     } else {
-      // If original not set yet, set it
+      // If original not yet set
       if (!original) original = line.trim();
     }
   }
 
-  // Push previous top line as the newest Edit, but only if there were prior edits
+  // Always push the previous top line as the first edit (unless already there)
   const previousTop = lines[0].replace(' (Current)', '').trim();
-  if (edits.length > 0 && previousTop !== edits[0]) {
+  if (previousTop !== latestContent) {
     edits.unshift(previousTop);
   }
 
-  // Number the edits in reverse chronological order
+  // Number the edits: newest edit = highest number
   const numberedEdits = edits.map((text, i) => `(Edit ${edits.length - i}) ${text}`);
 
-  // Top line: only add (Current) if there are edits
-  const topLine = edits.length > 0 
-    ? latestContent + (isDeleted ? ' (Deleted)' : ' (Current)')
-    : isDeleted 
-      ? `${latestContent} (Deleted)` 
-      : latestContent;
+  // Top line: always mark as (Current) unless deleted
+  const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
 
   return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
