@@ -59,51 +59,25 @@ const {
 // =============================
 
 // Build stacked description (for edits/deletes)
-function buildStackedDescription(messages) {
-  const grouped = {};
+function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
+  const lines = previousDesc.split('\n--------------\n');
+  let original = '';
+  const edits = [];
 
-  // Group by messageId
-  for (const msg of messages) {
-    if (!msg.messageId) continue;
-    if (!grouped[msg.messageId]) grouped[msg.messageId] = [];
-    grouped[msg.messageId].push(msg);
-  }
-
-  const descriptions = [];
-
-  for (const [messageId, group] of Object.entries(grouped)) {
-    // Sort by timestamp ascending (oldest first)
-    group.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-    const base = group[0];
-    const edits = group.slice(1);
-
-    if (edits.length === 0) {
-      // No edits — just show original
-      descriptions.push(`${base.username}: ${base.content}`);
-    } else {
-      // Edits exist — build stacked output
-      const parts = [];
-
-      // Top line = latest edit (current)
-      const latest = edits[edits.length - 1];
-      parts.push(`${latest.content} (Current)`);
-
-      // Divider + all previous edits (descending order)
-      for (let i = edits.length - 2; i >= 0; i--) {
-        parts.push(`--------------`);
-        parts.push(`(Edit ${i + 1}) ${edits[i].content}`);
-      }
-
-      // Original at the bottom
-      parts.push(`--------------`);
-      parts.push(`(Original) ${base.content}`);
-
-      descriptions.push(parts.join('\n'));
+  for (const line of lines) {
+    if (line.startsWith('(Original)')) {
+      original = line.replace('(Original)', '').trim();
+    } else if (line.includes('(Current)')) {
+      edits.push(line.replace(' (Current)', '').trim());
+    } else if (line.match(/^\(Edit \d+\)/)) {
+      edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
     }
   }
 
-  return descriptions.join('\n\n');
+  if (!original) original = edits.shift() || '';
+  const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
+  const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
+  return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
 
 // Update bot status
