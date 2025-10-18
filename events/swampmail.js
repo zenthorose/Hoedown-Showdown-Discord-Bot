@@ -60,7 +60,7 @@ const {
 
 // Build stacked description (for edits/deletes)
 function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
-  const lines = previousDesc.split('\n--------------\n');
+  const lines = previousDesc ? previousDesc.split('\n--------------\n') : [];
   let original = '';
   const edits = [];
 
@@ -74,12 +74,21 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     }
   }
 
-  if (!original && edits.length > 0) original = edits.shift() || '';
-  const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
+  // If no original yet but we have edits, treat the first edit as original
+  if (!original && edits.length > 0) {
+    original = edits.shift();
+  }
+
+  // Number edits in chronological order (earliest at bottom, latest at top)
+  const numberedEdits = edits.reverse().map((text, i) => `(Edit ${i + 1}) ${text}`);
+
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
 
   const parts = [topLine, ...numberedEdits];
-  if (original) parts.push(`(Original) ${original}`);
+
+  if (original && original !== latestContent) {
+    parts.push(`(Original) ${original}`);
+  }
 
   return parts.join('\n--------------\n');
 }
