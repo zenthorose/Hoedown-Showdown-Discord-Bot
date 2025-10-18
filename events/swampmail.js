@@ -262,7 +262,7 @@ module.exports = {
           });
 
           await ticketChannel.send({
-            content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}`,
+            content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}\n<@&1069083357100642316>`,
             embeds: [userEmbed],
           });
 
