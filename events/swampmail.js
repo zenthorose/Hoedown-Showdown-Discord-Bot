@@ -64,6 +64,7 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
   let original = '';
   const edits = [];
 
+  // Parse previous description
   for (const line of lines) {
     if (line.startsWith('(Original)')) {
       original = line.replace('(Original)', '').trim();
@@ -74,19 +75,22 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     }
   }
 
-  // If no original yet but we have edits, treat the first edit as original
+  // If no original yet but we have edits, the first edit becomes original
   if (!original && edits.length > 0) {
     original = edits.shift();
   }
 
-  // Number edits in chronological order (earliest at bottom, latest at top)
+  // Number edits in chronological order (oldest at bottom, newest just below current)
   const numberedEdits = edits.reverse().map((text, i) => `(Edit ${i + 1}) ${text}`);
 
+  // Top line with current or deleted
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
 
+  // Build the final stacked description
   const parts = [topLine, ...numberedEdits];
 
-  if (original && original !== latestContent) {
+  // Only add original if it exists (always at bottom)
+  if (original) {
     parts.push(`(Original) ${original}`);
   }
 
