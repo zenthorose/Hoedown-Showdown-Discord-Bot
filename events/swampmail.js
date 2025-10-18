@@ -304,7 +304,12 @@ module.exports = {
   // ======================
   handleMessageDelete: async (client, deletedMessage) => {
     try {
-      if (deletedMessage.author.bot || deletedMessage.channel.type !== ChannelType.DM) return;
+      // Make sure the message exists and has an author
+      if (!deletedMessage || !deletedMessage.author) return;
+
+      // Ignore bot messages or non-DM channels
+      if (deletedMessage.author.bot || deletedMessage.channel?.type !== ChannelType.DM) return;
+
       const guild = client.guilds.cache.get(GUILD_ID);
       if (!guild) return;
 
@@ -318,7 +323,7 @@ module.exports = {
       const targetMsg = msgs.find(m => m.embeds[0]?.footer?.text?.includes(deletedMessage.id));
       if (!targetMsg) return;
 
-      const previousDesc = targetMsg.embeds[0].description || '';
+      const previousDesc = targetMsg.embeds[0]?.description || '';
       const newDescription = buildStackedDescription(
         deletedMessage.content || '*Message deleted*',
         previousDesc,
@@ -329,6 +334,7 @@ module.exports = {
       await targetMsg.edit({ embeds: [embed] });
 
       await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
+
     } catch (err) {
       console.error('❌ Support Ticket delete sync failed:', err);
     }
@@ -350,7 +356,13 @@ async function handleStaffMessage(client, message) {
 
   if (content.startsWith(REPLY_PREFIX)) {
     const replyText = content.slice(REPLY_PREFIX.length).trim();
-    if (!replyText) return await message.react('✅');
+    if (!replyText) {
+      // Safe reaction if no reply text
+      const msg = await message.channel.messages.fetch(message.id).catch(() => null);
+      if (msg) await msg.react('✅');
+      return;
+    }
+
     await message.delete().catch(() => {});
 
     try {
@@ -367,7 +379,10 @@ async function handleStaffMessage(client, message) {
       await message.channel.send('❌ Could not DM the user.');
     }
 
-    await message.react('✅');
+    // Safe reaction
+    const msg = await message.channel.messages.fetch(message.id).catch(() => null);
+    if (msg) await msg.react('✅');
+
     return;
   }
 
