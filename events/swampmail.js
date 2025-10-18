@@ -80,7 +80,7 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
   if (!original) original = edits.shift() || '';
 
   // Build new ordered stack (edits newest to oldest)
-  const numberedEdits = edits.map((text, i) => `(Edit ${edits.length - i}) ${text}`);
+  const numberedEdits = edits.map((text, i) => `${text} (Edit ${edits.length - i})`);
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
   const originalLine = original ? `${original} (Original)` : '';
 
