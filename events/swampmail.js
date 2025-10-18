@@ -71,14 +71,21 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
       edits.push(line.replace(' (Current)', '').trim());
     } else if (line.match(/^\(Edit \d+\)/)) {
       edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
+    } else if (!original) {
+      // Handle first message with no tags as the original
+      original = line.trim();
     }
   }
 
   if (!original) original = edits.shift() || '';
-  //const numberedEdits = edits.map((text, i) => `(Edit ${edits.length - i}) ${text}`);
-  const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
+
+  // Move tag to the end of each edit text
+  const numberedEdits = edits.map((text, i) => `${text} (Edit ${i + 1})`);
+
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
-  return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
+  const originalLine = original ? `${original} (Original)` : '';
+
+  return [topLine, ...numberedEdits, originalLine].join('\n--------------\n');
 }
 
 // Update bot status
