@@ -271,7 +271,9 @@ module.exports = {
   // ======================
   handleMessageUpdate: async (client, oldMessage, newMessage) => {
     try {
-      if (newMessage.author.bot || newMessage.channel.type !== ChannelType.DM) return;
+      if (!newMessage || !newMessage.author) return;
+      if (newMessage.author.bot || newMessage.channel?.type !== ChannelType.DM) return;
+
       const guild = client.guilds.cache.get(GUILD_ID);
       if (!guild) return;
 
@@ -285,19 +287,21 @@ module.exports = {
       const targetMsg = msgs.find(m => m.embeds[0]?.footer?.text?.includes(newMessage.id));
       if (!targetMsg) return;
 
-      const previousDesc = targetMsg.embeds[0].description || '';
-      const newDescription = buildStackedDescription(newMessage.content, previousDesc);
+      const previousDesc = targetMsg.embeds[0]?.description || '';
 
-      const embed = EmbedBuilder.from(targetMsg.embeds[0])
-        .setAuthor({ name: newMessage.author.tag, iconURL: newMessage.author.displayAvatarURL() })
-        .setDescription(newDescription)
-        .setTimestamp();
+      // Use the buildStackedDescription helper
+      const newDesc = buildStackedDescription(newMessage.content || '*No content / embed / attachment*', previousDesc);
 
+      const embed = EmbedBuilder.from(targetMsg.embeds[0]).setDescription(newDesc);
       await targetMsg.edit({ embeds: [embed] });
+
+      console.log(`✏️ Synced edit for ${newMessage.author.tag} in ticket channel ${ticketChannel.name}`);
+
     } catch (err) {
       console.error('❌ Support Ticket edit sync failed:', err);
     }
   },
+
 
   // ======================
   // MESSAGE DELETE
