@@ -60,7 +60,7 @@ const {
 
 // Build stacked description (for edits/deletes)
 function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
-  const lines = previousDesc ? previousDesc.split('\n--------------\n') : [];
+  const lines = previousDesc.split('\n--------------\n');
   let original = '';
   const edits = [];
 
@@ -72,25 +72,24 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     } else if (/\(Edit \d+\)$/.test(line)) {
       edits.push(line.replace(/\(Edit \d+\)$/, '').trim());
     } else if (!original) {
+      // Handle first message with no tags as the original
       original = line.trim();
     }
   }
 
   if (!original) original = edits.shift() || '';
 
-  // Only push previous top line to edits if it’s different from latestContent
-  if (lines.length > 0) {
-    const previousTop = lines[0].replace(' (Current)', '').replace(/\(Edit \d+\)$/, '').trim();
-    if (previousTop && previousTop !== latestContent) {
-      edits.unshift(previousTop);
-    }
+  // ✅ Special case: single message being deleted — no edits, no original tag
+  if (isDeleted && edits.length === 0 && lines.length === 1) {
+    return `${latestContent} (Deleted)`;
   }
 
+  // Build new ordered stack (edits newest to oldest)
   const numberedEdits = edits.map((text, i) => `${text} (Edit ${edits.length - i})`);
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
   const originalLine = original ? `${original} (Original)` : '';
 
-  return [topLine, ...numberedEdits, originalLine].filter(Boolean).join('\n--------------\n');
+  return [topLine, ...numberedEdits, originalLine].join('\n--------------\n');
 }
 
 // Update bot status
