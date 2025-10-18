@@ -80,23 +80,26 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     } else if (line.match(/^\(Edit \d+\)/)) {
       edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
     } else {
-      // First message without any tag becomes original
+      // If original not set yet, set it
       if (!original) original = line.trim();
     }
   }
 
-  // Build new edits list: push previous top as new Edit
-  if (edits.length > 0) {
-    edits.unshift(lines[0].replace(' (Current)', '').trim());
-  } else if (lines[0] && !original) {
-    edits.unshift(lines[0].trim());
+  // Push previous top line as the newest Edit, but only if there were prior edits
+  const previousTop = lines[0].replace(' (Current)', '').trim();
+  if (edits.length > 0 && previousTop !== edits[0]) {
+    edits.unshift(previousTop);
   }
 
   // Number the edits in reverse chronological order
   const numberedEdits = edits.map((text, i) => `(Edit ${edits.length - i}) ${text}`);
 
-  // Top line: latest content
-  const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
+  // Top line: only add (Current) if there are edits
+  const topLine = edits.length > 0 
+    ? latestContent + (isDeleted ? ' (Deleted)' : ' (Current)')
+    : isDeleted 
+      ? `${latestContent} (Deleted)` 
+      : latestContent;
 
   return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
