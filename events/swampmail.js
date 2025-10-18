@@ -59,41 +59,51 @@ const {
 // =============================
 
 // Build stacked description (for edits/deletes)
-function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
-  // First message, no previous description
-  if (!previousDesc) {
-    return isDeleted ? `${latestContent} (Deleted)` : latestContent;
+function buildStackedDescription(messages) {
+  const grouped = {};
+
+  // Group by messageId
+  for (const msg of messages) {
+    if (!msg.messageId) continue;
+    if (!grouped[msg.messageId]) grouped[msg.messageId] = [];
+    grouped[msg.messageId].push(msg);
   }
 
-  const lines = previousDesc.split('\n--------------\n');
-  let original = '';
-  const edits = [];
+  const descriptions = [];
 
-  for (const line of lines) {
-    if (line.startsWith('(Original)')) {
-      original = line.replace('(Original)', '').trim();
-    } else if (line.includes('(Current)')) {
-      edits.push(line.replace(' (Current)', '').trim());
-    } else if (line.match(/^\(Edit \d+\)/)) {
-      edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
+  for (const [messageId, group] of Object.entries(grouped)) {
+    // Sort by timestamp ascending (oldest first)
+    group.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    const base = group[0];
+    const edits = group.slice(1);
+
+    if (edits.length === 0) {
+      // No edits — just show original
+      descriptions.push(`${base.username}: ${base.content}`);
     } else {
-      if (!original) original = line.trim();
+      // Edits exist — build stacked output
+      const parts = [];
+
+      // Top line = latest edit (current)
+      const latest = edits[edits.length - 1];
+      parts.push(`${latest.content} (Current)`);
+
+      // Divider + all previous edits (descending order)
+      for (let i = edits.length - 2; i >= 0; i--) {
+        parts.push(`--------------`);
+        parts.push(`(Edit ${i + 1}) ${edits[i].content}`);
+      }
+
+      // Original at the bottom
+      parts.push(`--------------`);
+      parts.push(`(Original) ${base.content}`);
+
+      descriptions.push(parts.join('\n'));
     }
   }
 
-  // Push previous top line as edit only if different from original
-  const previousTop = lines[0].replace(' (Current)', '').trim();
-  if (previousTop && previousTop !== original && previousTop !== latestContent) {
-    edits.unshift(previousTop);
-  }
-
-  // Number the edits in reverse chronological order
-  const numberedEdits = edits.map((text, i) => `(Edit ${edits.length - i}) ${text}`);
-
-  // Top line: latest message
-  const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
-
-  return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
+  return descriptions.join('\n\n');
 }
 
 // Update bot status
