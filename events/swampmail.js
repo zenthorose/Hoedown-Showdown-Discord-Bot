@@ -60,11 +60,18 @@ const {
 
 // Build stacked description (for edits/deletes)
 function buildStackedDescription(latestContent, previousDesc, isDeleted = false) {
-  const lines = previousDesc ? previousDesc.split('\n--------------\n') : [];
+  // Case 1: First message, no previous description
+  if (!previousDesc) {
+    return isDeleted ? `${latestContent} (Deleted)` : latestContent;
+  }
+
+  // Split previous description into lines
+  const lines = previousDesc.split('\n--------------\n');
+
+  // Extract original and edits
   let original = '';
   const edits = [];
 
-  // Parse previous description
   for (const line of lines) {
     if (line.startsWith('(Original)')) {
       original = line.replace('(Original)', '').trim();
@@ -72,29 +79,26 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
       edits.push(line.replace(' (Current)', '').trim());
     } else if (line.match(/^\(Edit \d+\)/)) {
       edits.push(line.replace(/^\(Edit \d+\)\s*/, '').trim());
+    } else {
+      // First message without any tag becomes original
+      if (!original) original = line.trim();
     }
   }
 
-  // If no original yet but we have edits, the first edit becomes original
-  if (!original && edits.length > 0) {
-    original = edits.shift();
+  // Build new edits list: push previous top as new Edit
+  if (edits.length > 0) {
+    edits.unshift(lines[0].replace(' (Current)', '').trim());
+  } else if (lines[0] && !original) {
+    edits.unshift(lines[0].trim());
   }
 
-  // Number edits in chronological order (oldest at bottom, newest just below current)
-  const numberedEdits = edits.reverse().map((text, i) => `(Edit ${i + 1}) ${text}`);
+  // Number the edits in reverse chronological order
+  const numberedEdits = edits.map((text, i) => `(Edit ${edits.length - i}) ${text}`);
 
-  // Top line with current or deleted
+  // Top line: latest content
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
 
-  // Build the final stacked description
-  const parts = [topLine, ...numberedEdits];
-
-  // Only add original if it exists (always at bottom)
-  if (original) {
-    parts.push(`(Original) ${original}`);
-  }
-
-  return parts.join('\n--------------\n');
+  return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
 }
 
 // Update bot status
