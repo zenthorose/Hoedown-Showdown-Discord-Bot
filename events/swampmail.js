@@ -74,10 +74,14 @@ function buildStackedDescription(latestContent, previousDesc, isDeleted = false)
     }
   }
 
-  if (!original) original = edits.shift() || '';
+  if (!original && edits.length > 0) original = edits.shift() || '';
   const numberedEdits = edits.map((text, i) => `(Edit ${i + 1}) ${text}`);
   const topLine = latestContent + (isDeleted ? ' (Deleted)' : ' (Current)');
-  return [topLine, ...numberedEdits, `(Original) ${original}`].join('\n--------------\n');
+
+  const parts = [topLine, ...numberedEdits];
+  if (original) parts.push(`(Original) ${original}`);
+
+  return parts.join('\n--------------\n');
 }
 
 // Update bot status
