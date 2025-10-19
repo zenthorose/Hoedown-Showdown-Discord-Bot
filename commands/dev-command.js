@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
+const { PermissionsBitField } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -20,13 +21,19 @@ module.exports = {
                 .setRequired(true))
             .addStringOption(opt =>
               opt.setName('payload')
-                .setDescription('Optional payload (string or JSON)')))
+                .setDescription('Optional payload (string or JSON)'))
+            .addStringOption(opt =>
+              opt.setName('channel_id')
+                .setDescription('ID of the channel to modify permissions'))
+            .addBooleanOption(opt =>
+              opt.setName('enable')
+                .setDescription('Set permissions ON (true) or OFF (false)'))
+        )
     ),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    // --- Permission check ---
     if (interaction.user.id !== config.devID) {
       return interaction.editReply('❌ You do not have permission to use this command.');
     }
@@ -50,10 +57,11 @@ module.exports = {
     try {
       let responseMessage = "";
 
-      // --- MISC → run ---
       if (group === 'misc' && sub === 'run') {
         const action = interaction.options.getString('action');
         let payload = interaction.options.getString('payload') || "";
+        const channelId = interaction.options.getString('channel_id');
+        const enable = interaction.options.getBoolean('enable');
 
         try {
           if (payload.startsWith('{') || payload.startsWith('[')) {
@@ -63,21 +71,25 @@ module.exports = {
           // keep as string if JSON parse fails
         }
 
-        // If the action is "hide", remove @everyone view permissions for all teamChannels
-        if (action === 'hide') {
+        if (action === 'set_perms' && channelId && enable !== null) {
           const guild = interaction.guild;
+          const channel = guild.channels.cache.get(channelId);
+          if (!channel) return interaction.editReply(`❌ Channel ID ${channelId} not found.`);
+
           const everyoneRole = guild.roles.everyone;
 
-          for (const channelName of Object.keys(config.teamChannels || {})) {
-            const channel = guild.channels.cache.find(c => c.name === channelName);
-            if (channel) {
-              await channel.permissionOverwrites.edit(everyoneRole, { ViewChannel: false });
-            }
+          // Get all available permissions
+          const allPerms = Object.values(PermissionsBitField.Flags);
+
+          // Build permission object
+          const permOverwrite = {};
+          for (const perm of allPerms) {
+            permOverwrite[perm] = enable;
           }
 
-          responseMessage = `✅ All team channels are now hidden from @everyone.`;
+          await channel.permissionOverwrites.edit(everyoneRole, permOverwrite);
+          responseMessage = `✅ Permissions for @everyone in <#${channelId}> have been ${enable ? 'enabled' : 'disabled'}.`;
         } else {
-          // Default behavior: send to Google Apps Script
           const triggerUrl = process.env.Google_Apps_Script_URL;
           const postData = { command: action, payload };
           const res = await axios.post(triggerUrl, postData);
