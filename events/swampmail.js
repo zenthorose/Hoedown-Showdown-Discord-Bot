@@ -7,7 +7,7 @@ const { closeTicketAndSave } = require('../database/ticketManager');
 // CONFIGURATION CONSTANTS
 // =============================
 const GUILD_ID = process.env.GUILD_ID;
-const SUPPORT_CATEGORY_NAME = 'support-tickets';
+const SUPPORT_CATEGORY_NAME = 'Support Tickets';
 const config = require('../config.json');
 
 const STAFF_ROLE_IDS = [
