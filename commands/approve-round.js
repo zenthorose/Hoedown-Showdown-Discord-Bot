@@ -168,23 +168,23 @@ module.exports = {
                     await teamChannel.send(teamOutput);
                     console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
 
-                    // Grant channel perms to each player
-                    for (const player of players) {
-                      if (!player?.discordId) {
-                        console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
-                        continue;
-                      }
-                      try {
-                        await teamChannel.permissionOverwrites.edit(player.discordId, {
-                          ViewChannel: true,
-                          SendMessages: true,
-                          ReadMessageHistory: true
-                        });
-                        console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
-                      } catch (permErr) {
-                        console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
-                      }
-                    }
+                    // Grant channel perms to each player *Voice Channel Perms*
+                    //for (const player of players) {
+                    //  if (!player?.discordId) {
+                    //    console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
+                    //    continue;
+                    //  }
+                    //  try {
+                    //    await teamChannel.permissionOverwrites.edit(player.discordId, {
+                    //      ViewChannel: true,
+                    //      SendMessages: true,
+                    //      ReadMessageHistory: true
+                    //    });
+                    //    console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
+                    //  } catch (permErr) {
+                    //    console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
+                    //  }
+                    //}
                   } else {
                     console.warn(`⚠️ Could not fetch channel for ${teamKey} (${teamChannelId})`);
                   }
