@@ -9,7 +9,6 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    // Permission check
     if (interaction.user.id !== config.devID) {
       return interaction.editReply('❌ You do not have permission to use this command.');
     }
@@ -23,11 +22,13 @@ module.exports = {
         return interaction.editReply('❌ Could not find "East" or "West" roles.');
       }
 
-      // Create arrays of usernames
+      // ✅ Fetch all members (important!)
+      const members = await guild.members.fetch();
+
       const eastMembers = [];
       const westMembers = [];
 
-      guild.members.cache.forEach(member => {
+      members.forEach(member => {
         if (member.roles.cache.has(eastRole.id)) {
           eastMembers.push(member.user.username);
         } else if (member.roles.cache.has(westRole.id)) {
@@ -35,11 +36,10 @@ module.exports = {
         }
       });
 
-      // Prepare output
       const eastList = eastMembers.length ? eastMembers.join(', ') : 'None';
       const westList = westMembers.length ? westMembers.join(', ') : 'None';
 
-      const message = 
+      const message =
         `✅ **Member Separation Complete**\n\n` +
         `**East (${eastMembers.length}):** ${eastList}\n\n` +
         `**West (${westMembers.length}):** ${westList}`;
