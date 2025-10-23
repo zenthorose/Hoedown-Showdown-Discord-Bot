@@ -4,7 +4,7 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only command to sync all voice channels in specific categories.'),
+    .setDescription('Developer-only command that separates members by East/West roles.'),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
@@ -16,27 +16,38 @@ module.exports = {
 
     try {
       const guild = interaction.guild;
-      const categoriesToSync = ["Voice Channels Teams A-Z", "Voice Channels Teams AA-ZZ"];
-      let syncedCount = 0;
+      const eastRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'east');
+      const westRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'west');
 
-      for (const categoryName of categoriesToSync) {
-        const category = guild.channels.cache.find(c => c.name === categoryName && c.type === 4); // 4 = GUILD_CATEGORY
-        if (!category) continue;
-
-        // Find all voice channels under this category
-        const voiceChannels = guild.channels.cache.filter(
-          c => c.parentId === category.id && c.type === 2 // 2 = GUILD_VOICE
-        );
-
-        for (const channel of voiceChannels.values()) {
-          await channel.lockPermissions(); // Sync permissions with parent category
-          syncedCount++;
-        }
+      if (!eastRole || !westRole) {
+        return interaction.editReply('❌ Could not find "East" or "West" roles.');
       }
 
-      await interaction.editReply(`✅ Synced ${syncedCount} voice channels with their parent categories.`);
+      // Create arrays of usernames
+      const eastMembers = [];
+      const westMembers = [];
+
+      guild.members.cache.forEach(member => {
+        if (member.roles.cache.has(eastRole.id)) {
+          eastMembers.push(member.user.username);
+        } else if (member.roles.cache.has(westRole.id)) {
+          westMembers.push(member.user.username);
+        }
+      });
+
+      // Prepare output
+      const eastList = eastMembers.length ? eastMembers.join(', ') : 'None';
+      const westList = westMembers.length ? westMembers.join(', ') : 'None';
+
+      const message = 
+        `✅ **Member Separation Complete**\n\n` +
+        `**East (${eastMembers.length}):** ${eastList}\n\n` +
+        `**West (${westMembers.length}):** ${westList}`;
+
+      await interaction.editReply({ content: message });
+
     } catch (err) {
-      console.error('❌ Error syncing voice channels:', err);
+      console.error('❌ Error separating members:', err);
       await interaction.editReply(`❌ Error: ${err.message}`);
     }
   },
