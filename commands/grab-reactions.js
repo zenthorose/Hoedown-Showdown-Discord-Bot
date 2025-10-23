@@ -88,7 +88,7 @@ module.exports = {
       });
 
       await logUsage(`✅ Sent ${uniquePlayers.size} players to Google Sheets`);
-      await interaction.channel.send("✅ Reaction user list update triggered in Google Sheets!");
+      //await interaction.channel.send("✅ Reaction user list update triggered in Google Sheets!");
 
       if (replyMessage) await replyMessage.delete();
 
