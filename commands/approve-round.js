@@ -74,9 +74,9 @@ module.exports = {
         if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
         // Example: uncomment if you want @everyone to see the round channel
-        // await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
-        //   ViewChannel: true,
-        // });
+         await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+           ViewChannel: true,
+         });
 
       } catch (permError) {
         console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
@@ -169,22 +169,22 @@ module.exports = {
                     console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
 
                     // Grant channel perms to each player *Voice Channel Perms*
-                    //for (const player of players) {
-                    //  if (!player?.discordId) {
-                    //    console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
-                    //    continue;
-                    //  }
-                    //  try {
-                    //    await teamChannel.permissionOverwrites.edit(player.discordId, {
-                    //      ViewChannel: true,
-                    //      SendMessages: true,
-                    //      ReadMessageHistory: true
-                    //    });
-                    //    console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
-                    //  } catch (permErr) {
-                    //    console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
-                    //  }
-                    //}
+                    for (const player of players) {
+                      if (!player?.discordId) {
+                        console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
+                        continue;
+                      }
+                      try {
+                        await teamChannel.permissionOverwrites.edit(player.discordId, {
+                          ViewChannel: true,
+                          SendMessages: true,
+                          ReadMessageHistory: true
+                        });
+                        console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
+                      } catch (permErr) {
+                        console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
+                      }
+                    }
                   } else {
                     console.warn(`⚠️ Could not fetch channel for ${teamKey} (${teamChannelId})`);
                   }
