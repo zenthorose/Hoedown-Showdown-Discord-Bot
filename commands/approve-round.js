@@ -74,10 +74,9 @@ module.exports = {
         if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
         // Example: uncomment if you want @everyone to see the round channel
-         await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
-           ViewChannel: true,
-         });
-
+        await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+          ViewChannel: true,
+        });
       } catch (permError) {
         console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
         await logUsage(`❌ Failed to update permissions for Round #${round}`);
@@ -168,7 +167,16 @@ module.exports = {
                     await teamChannel.send(teamOutput);
                     console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
 
-                    // Grant channel perms to each player *Voice Channel Perms*
+                    // --- 🔹 NEW: Fetch the "Fill In" role ---
+                    const fillInRole = interaction.guild.roles.cache.find(
+                      role => role.name.toLowerCase() === "fill in"
+                    );
+
+                    if (!fillInRole) {
+                      console.warn(`⚠️ "Fill In" role not found in guild. Skipping role permission assignment.`);
+                    }
+
+                    // Grant perms to each player
                     for (const player of players) {
                       if (!player?.discordId) {
                         console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
@@ -178,13 +186,32 @@ module.exports = {
                         await teamChannel.permissionOverwrites.edit(player.discordId, {
                           ViewChannel: true,
                           SendMessages: true,
-                          ReadMessageHistory: true
+                          ReadMessageHistory: true,
+                          Connect: true,
+                          Speak: true,
                         });
                         console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
                       } catch (permErr) {
                         console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
                       }
                     }
+
+                    // --- 🔹 NEW: Also grant same perms to "Fill In" role ---
+                    if (fillInRole) {
+                      try {
+                        await teamChannel.permissionOverwrites.edit(fillInRole.id, {
+                          ViewChannel: true,
+                          SendMessages: true,
+                          ReadMessageHistory: true,
+                          Connect: true,
+                          Speak: true,
+                        });
+                        console.log(`🎭 Granted "Fill In" role access to ${teamKey}`);
+                      } catch (fillErr) {
+                        console.error(`❌ Failed to set perms for "Fill In" role in ${teamKey}:`, fillErr);
+                      }
+                    }
+
                   } else {
                     console.warn(`⚠️ Could not fetch channel for ${teamKey} (${teamChannelId})`);
                   }
