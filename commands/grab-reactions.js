@@ -57,28 +57,38 @@ module.exports = {
       if (!channelId) throw new Error('OptInChannelID is not defined in config.json');
 
       const channel = await interaction.guild.channels.fetch(channelId);
-      if (!channel || !channel.isTextBased()) throw new Error(`Invalid or non-text channel: ${channelId}`);
+      if (!channel || !channel.isTextBased())
+        throw new Error(`Invalid or non-text channel: ${channelId}`);
 
       const message = await channel.messages.fetch(messageId);
       if (!message) throw new Error('Message not found in the specified channel.');
 
-      // Collect unique players
+      // --- Collect all unique players from all reactions (with pagination) ---
       const uniquePlayers = new Map();
+
       for (const [, reaction] of message.reactions.cache) {
-        const users = await reaction.users.fetch();
-        users.forEach(user => {
-          if (!user.bot && !uniquePlayers.has(user.id)) {
-            uniquePlayers.set(user.id, {
-              id: user.id,
-              name: user.username
-            });
-          }
-        });
+        let lastId;
+        while (true) {
+          const fetched = await reaction.users.fetch({ limit: 100, after: lastId });
+          if (fetched.size === 0) break;
+
+          fetched.forEach(user => {
+            if (!user.bot && !uniquePlayers.has(user.id)) {
+              uniquePlayers.set(user.id, {
+                id: user.id,
+                name: user.username
+              });
+            }
+          });
+
+          if (fetched.size < 100) break;
+          lastId = fetched.last().id;
+        }
       }
 
-      console.log("✅ Unique players collected:", Array.from(uniquePlayers.values()));
+      console.log(`✅ Unique players collected (${uniquePlayers.size} total):`, Array.from(uniquePlayers.values()));
 
-      // Send to Google Apps Script
+      // --- Send player list to Google Apps Script ---
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 
@@ -88,7 +98,6 @@ module.exports = {
       });
 
       await logUsage(`✅ Sent ${uniquePlayers.size} players to Google Sheets`);
-      //await interaction.channel.send("✅ Reaction user list update triggered in Google Sheets!");
 
       if (replyMessage) await replyMessage.delete();
 
