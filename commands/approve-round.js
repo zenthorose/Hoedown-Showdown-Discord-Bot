@@ -76,6 +76,7 @@ module.exports = {
         // Example: uncomment if you want @everyone to see the round channel
         await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
           ViewChannel: true,
+          SendMessages: false,
         });
       } catch (permError) {
         console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
