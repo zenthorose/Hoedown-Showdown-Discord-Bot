@@ -22,8 +22,6 @@ const axios = require('axios');
 const express = require('express');
 const { updateBotStatus } = require('./events/swampmail');
 
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
-
 const client = new Client({
   partials: ['Message', 'Channel', 'Reaction'],
   intents: [
