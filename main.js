@@ -1,4 +1,19 @@
-﻿require('dotenv').config();
+﻿// ===== DEBUG / CRASH LOGGING =====
+process.on('unhandledRejection', (reason) => {
+  console.error('🚨 UNHANDLED REJECTION:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('🚨 UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('exit', (code) => {
+  console.log('⚠️ Process exited with code:', code);
+});
+
+console.log('🚀 Bot starting...');
+
+require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = require('discord.js');
 const { google } = require('googleapis');
 const moment = require('moment-timezone');
