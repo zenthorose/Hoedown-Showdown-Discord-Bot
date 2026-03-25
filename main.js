@@ -23,7 +23,7 @@ const express = require('express');
 const { updateBotStatus } = require('./events/swampmail');
 
 const client = new Client({
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+  partials: ['Message', 'Channel', 'Reaction'],
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
