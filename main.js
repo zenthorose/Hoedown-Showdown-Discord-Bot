@@ -210,7 +210,7 @@ client.on('interactionCreate', async (interaction) => {
 
 // --- Express endpoints ---
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 10000;
 app.use(express.json());
 
 app.get('/ping', (req, res) => res.send('Pong!'));
