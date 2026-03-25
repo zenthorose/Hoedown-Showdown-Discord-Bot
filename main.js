@@ -40,6 +40,12 @@ client.commands = new Collection();
 const botToken = process.env.BOT_TOKEN;
 const clientId = process.env.CLIENT_ID;
 
+// --- Environment variable check ---
+console.log('ENV CHECK:', {
+  BOT_TOKEN: botToken ? 'exists' : 'missing',
+  CLIENT_ID: clientId ? 'exists' : 'missing'
+});
+
 // Reaction posts manager
 const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
@@ -204,7 +210,7 @@ client.on('interactionCreate', async (interaction) => {
 
 // --- Express endpoints ---
 const app = express();
-const port = process.env.PORT || 10000;
+const port = process.env.PORT || 3000;
 app.use(express.json());
 
 app.get('/ping', (req, res) => res.send('Pong!'));
