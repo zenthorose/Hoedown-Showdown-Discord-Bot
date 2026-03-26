@@ -1,19 +1,4 @@
-﻿// ===== DEBUG / CRASH LOGGING =====
-process.on('unhandledRejection', (reason) => {
-  console.error('🚨 UNHANDLED REJECTION:', reason);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('🚨 UNCAUGHT EXCEPTION:', err);
-});
-
-process.on('exit', (code) => {
-  console.log('⚠️ Process exited with code:', code);
-});
-
-console.log('🚀 Bot starting...');
-
-require('dotenv').config();
+﻿﻿require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = require('discord.js');
 const { google } = require('googleapis');
 const moment = require('moment-timezone');
@@ -203,26 +188,12 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // --- Express endpoints ---
-
-// --- Express setup ---
 const app = express();
-const port = process.env.PORT || 4000; // fallback to 4000 for local testing
+const port = process.env.PORT || 3000;
 app.use(express.json());
 
-// Ping endpoint
-app.get('/ping', (req, res) => {
-  const currentTime = moment().tz("America/New_York").format("YYYY-MM-DD HH:mm:ss [EST]");
-  console.log(`💓 Ping received at ${currentTime}`);
-  res.send('Pong!');
-});
+app.get('/ping', (req, res) => res.send('Pong!'));
 
-// Heartbeat log every 5 minutes
-setInterval(() => {
-  const now = moment().tz("America/New_York").format("YYYY-MM-DD HH:mm:ss [EST]");
-  console.log(`💖 Heartbeat at ${now} — bot is alive`);
-}, 5 * 60 * 1000);
-
-// --- Send message endpoint ---
 app.post('/sendmessage', async (req, res) => {
   const { channelId, message } = req.body;
   if (!channelId || !message) return res.status(400).json({ error: 'Missing required fields: channelId and message' });
@@ -237,14 +208,12 @@ app.post('/sendmessage', async (req, res) => {
   }
 });
 
-// --- Start server and login bot ---
 app.listen(port, () => {
   console.log(`🌐 Express server running on port ${port}`);
   if (!botToken) {
     console.error('❌ BOT_TOKEN missing in environment!');
     process.exit(1);
   }
-
   client.login(botToken).catch(err => {
     console.error('❌ Failed to login bot:', err);
     process.exit(1);
