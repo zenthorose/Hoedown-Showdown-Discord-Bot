@@ -7,6 +7,46 @@ const axios = require('axios');
 const express = require('express');
 const { updateBotStatus } = require('./events/swampmail');
 
+// --- Global error & health handlers ---
+function safeAppend(path, text) {
+  try { fs.appendFileSync(path, text); } catch (e) { console.error('Failed to write log:', e); }
+}
+
+process.on('uncaughtException', (err) => {
+  const msg = `[${new Date().toISOString()}] uncaughtException: ${err && err.stack ? err.stack : String(err)}\n`;
+  safeAppend('./bot-crashes.log', msg);
+  console.error('uncaughtException:', err);
+  // Give logs a moment to flush, then exit so an external supervisor can restart if configured
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  const msg = `[${new Date().toISOString()}] unhandledRejection: ${String(reason)}\n`;
+  safeAppend('./bot-crashes.log', msg);
+  console.error('unhandledRejection at:', promise, 'reason:', reason);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received — shutting down gracefully.');
+  try { client?.destroy?.(); } catch (e) {}
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — shutting down gracefully.');
+  try { client?.destroy?.(); } catch (e) {}
+  process.exit(0);
+});
+
+// Periodic health snapshot (every 5 minutes)
+setInterval(() => {
+  try {
+    const mem = process.memoryUsage();
+    const msg = `[${new Date().toISOString()}] memory=${JSON.stringify(mem)}\n`;
+    safeAppend('./bot-health.log', msg);
+  } catch (e) { /* ignore */ }
+}, 5 * 60 * 1000);
+
 const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
   intents: [
@@ -78,6 +118,7 @@ async function onClientReady() {
   _readyHandled = true;
 
   console.log(`✅ Bot online as ${client.user.tag}`);
+  try { safeAppend('./bot-starts.log', `[${new Date().toISOString()}] online as ${client.user?.tag || 'unknown'}\n`); } catch (e) {}
 
   // Test Google Apps Script
   try {
