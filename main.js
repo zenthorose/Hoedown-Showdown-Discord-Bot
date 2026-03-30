@@ -102,8 +102,7 @@ async function onClientReady() {
   await updateBotStatus(client);
 }
 
-// Listen for both event names to be compatible with v14 and v15+
-client.once('ready', onClientReady);
+// Prefer the new event name; avoid registering the deprecated 'ready' listener
 client.once('clientReady', onClientReady);
 
 // --- Auto-run member-update ---
@@ -217,13 +216,19 @@ app.post('/sendmessage', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🌐 Express server running on port ${port}`);
-  if (!botToken) {
-    console.error('❌ BOT_TOKEN missing in environment!');
-    process.exit(1);
-  }
-  client.login(botToken).catch(err => {
-    console.error('❌ Failed to login bot:', err);
-    process.exit(1);
-  });
+  (async () => {
+    console.log(`🌐 Express server running on port ${port}`);
+    if (!botToken) {
+      console.error('❌ BOT_TOKEN missing in environment!');
+      process.exit(1);
+    }
+    try {
+      await client.login(botToken);
+      // If the library does not emit 'clientReady', call handler directly
+      try { await onClientReady(); } catch (e) { /* already handled or error */ }
+    } catch (err) {
+      console.error('❌ Failed to login bot:', err);
+      process.exit(1);
+    }
+  })();
 });
