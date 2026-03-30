@@ -8,7 +8,7 @@ let isConnected = false;
 
 async function connectDB() {
   if (isConnected) return;
-  await mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+  await mongoose.connect(uri);
   isConnected = true;
   console.log("✅ MongoDB connected (db.js)");
 }

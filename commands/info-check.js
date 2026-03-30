@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { MessageFlags } = require('discord.js');
 const axios = require('axios');
 const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 
@@ -30,15 +29,15 @@ module.exports = {
     if (!triggerUrl) {
       await logUsage("❌ GAS URL missing");
       return await interaction.reply({
-        content: '❌ Error: Google Apps Script URL is not defined.',
-        flags: MessageFlags.Ephemeral
-      });
+          content: '❌ Error: Google Apps Script URL is not defined.',
+          flags: 64
+        });
     }
 
     try {
       await interaction.reply({
         content: '🔄 Fetching your info...',
-        flags: MessageFlags.Ephemeral
+        flags: 64
       });
     } catch {
       // Ignore if already acknowledged
@@ -78,7 +77,7 @@ module.exports = {
         await interaction.editReply({ content });
       } catch {
         try {
-          await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+          await interaction.followUp({ content, flags: 64 });
         } catch {}
       }
     }

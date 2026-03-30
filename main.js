@@ -71,8 +71,12 @@ const rest = new REST({ version: '10' }).setToken(botToken);
   }
 })();
 
-// --- Ready event ---
-client.once('ready', async () => {
+// --- Ready / clientReady event (compatibility across discord.js versions) ---
+let _readyHandled = false;
+async function onClientReady() {
+  if (_readyHandled) return;
+  _readyHandled = true;
+
   console.log(`✅ Bot online as ${client.user.tag}`);
 
   // Test Google Apps Script
@@ -96,7 +100,11 @@ client.once('ready', async () => {
     console.error("❌ Failed to send startup status:", err);
   }
   await updateBotStatus(client);
-});
+}
+
+// Listen for both event names to be compatible with v14 and v15+
+client.once('ready', onClientReady);
+client.once('clientReady', onClientReady);
 
 // --- Auto-run member-update ---
 client.on('guildMemberAdd', async (member) => {

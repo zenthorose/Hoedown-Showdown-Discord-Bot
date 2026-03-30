@@ -5,10 +5,7 @@ require('dotenv').config();
 const uri = process.env.MONGO_URI;
 
 // --- Connect once when the bot starts ---
-mongoose.connect(uri, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => console.log('✅ MongoDB connected (TicketManager)'))
+mongoose.connect(uri).then(() => console.log('✅ MongoDB connected (TicketManager)'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // --- Helper Functions ---
