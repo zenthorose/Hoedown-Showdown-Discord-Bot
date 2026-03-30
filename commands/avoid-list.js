@@ -37,7 +37,7 @@ module.exports = {
         await logUsage("❌ Permission denied");
         return interaction.reply({
           content: '❌ You do not have permission to use this command!',
-          ephemeral: true
+          flags: 64
         });
       }
 
@@ -49,7 +49,7 @@ module.exports = {
 
       // --- Defer reply to avoid Unknown interaction errors ---
       try {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
         replyDeferred = true;
       } catch (err) {
         // If defer fails, we'll continue and attempt to reply later
@@ -104,7 +104,7 @@ module.exports = {
         if (interaction.deferred || interaction.replied || replyDeferred) {
           await interaction.editReply("❌ There was an error executing this command. Please try again.");
         } else {
-          await interaction.reply({ content: "❌ There was an error executing this command. Please try again.", ephemeral: true });
+          await interaction.reply({ content: "❌ There was an error executing this command. Please try again.", flags: 64 });
         }
       } catch (err) {
         console.error("❌ Failed to send error message:", err);

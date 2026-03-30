@@ -25,7 +25,11 @@ module.exports = {
         .setRequired(true)),
 
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    try {
+      await interaction.deferReply({ flags: 64 });
+    } catch (err) {
+      console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
+    }
 
     const region = interaction.options.getString('region');
     const steamId = interaction.options.getString('steamfriendcode');

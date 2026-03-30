@@ -14,7 +14,7 @@ module.exports = {
             if (!hasPermission) {
                 return interaction.reply({
                     content: '❌ You do not have permission to use this command!',
-                    ephemeral: true,
+                    flags: 64,
                 });
             }
 
@@ -25,7 +25,7 @@ module.exports = {
             console.error("❌ Error in /ping command:", error);
             return interaction.reply({
                 content: '❌ Something went wrong!',
-                ephemeral: true,
+                flags: 64,
             });
         }
     },

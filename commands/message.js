@@ -62,7 +62,7 @@ module.exports = {
     console.log(`[message] Command triggered by ${interaction.user.tag}`);
 
     if (!(await checkPermissions(interaction))) {
-      return interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
+      return interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
     }
 
     // --- Confirm phrase ---
@@ -70,7 +70,7 @@ module.exports = {
     if (!confirmText || confirmText.trim().toUpperCase() !== 'SEND') {
       return interaction.reply({
         content: '❌ You must type "SEND" exactly to send this message!',
-        ephemeral: true
+        flags: 64
       });
     }
 
@@ -97,7 +97,7 @@ module.exports = {
       ? await interaction.client.channels.fetch(channelId).catch(() => null)
       : interaction.channel;
     if (!targetChannel)
-      return interaction.reply({ content: '❌ Invalid channel ID.', ephemeral: true });
+      return interaction.reply({ content: '❌ Invalid channel ID.', flags: 64 });
 
     // --- Append txt file if provided ---
     const txtAttachment = interaction.options.getAttachment('txtfile');
@@ -108,7 +108,7 @@ module.exports = {
         description = description ? `${description}\n\n${txtContent}` : txtContent;
       } catch (err) {
         console.error('❌ Failed to fetch .txt file:', err);
-        return interaction.reply({ content: '❌ Failed to read the uploaded .txt file.', ephemeral: true });
+        return interaction.reply({ content: '❌ Failed to read the uploaded .txt file.', flags: 64 });
       }
     }
 
@@ -154,9 +154,9 @@ module.exports = {
       if (messageId) {
         const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
         if (!targetMessage)
-          return interaction.reply({ content: '❌ Message not found.', ephemeral: true });
+          return interaction.reply({ content: '❌ Message not found.', flags: 64 });
         if (!targetMessage.editable)
-          return interaction.reply({ content: "❌ I can't edit this message.", ephemeral: true });
+          return interaction.reply({ content: "❌ I can't edit this message.", flags: 64 });
 
         await targetMessage.edit({ content, embeds: allEmbeds });
         console.log(`[message] Edited message ${targetMessage.id}`);
@@ -165,10 +165,10 @@ module.exports = {
         console.log(`[message] Sent new message ${sent.id}`);
       }
 
-      await interaction.reply({ content: '✅ Message processed successfully!', ephemeral: true });
+      await interaction.reply({ content: '✅ Message processed successfully!', flags: 64 });
     } catch (err) {
       console.error('❌ Failed to send/edit message:', err);
-      return interaction.reply({ content: '❌ Failed to send or edit message.', ephemeral: true });
+      return interaction.reply({ content: '❌ Failed to send or edit message.', flags: 64 });
     }
   }
 };

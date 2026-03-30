@@ -18,7 +18,7 @@ module.exports = {
             if (!hasRequiredRole && !isAllowedUser) {
                 return interaction.reply({
                     content: '❌ You do not have permission to use this command.',
-                    ephemeral: true  // Make this message visible only to the user
+                    flags: 64  // Make this message visible only to the user
                 });
             }
 

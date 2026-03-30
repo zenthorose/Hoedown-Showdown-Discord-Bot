@@ -7,7 +7,11 @@ module.exports = {
     .setDescription('Developer-only command that separates members by East/West roles.'),
 
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    try {
+      await interaction.deferReply({ flags: 64 });
+    } catch (err) {
+      console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
+    }
 
     if (interaction.user.id !== config.devID) {
       return interaction.editReply('❌ You do not have permission to use this command.');

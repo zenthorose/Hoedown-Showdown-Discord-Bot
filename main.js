@@ -154,19 +154,19 @@ client.on('messageCreate', async (message) => {
 
 // --- Interaction handler ---
 client.on('interactionCreate', async (interaction) => {
-  try {
-    if (interaction.isButton() && interaction.customId === 'muffin') {
+      try {
+        if (interaction.isButton() && interaction.customId === 'muffin') {
       try {
         await interaction.update({
           content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>',
           embeds: [{ image: { url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' } }],
           components: []
         });
-      } catch (err) {
-        console.error('Muffin button error:', err);
-        if (!interaction.replied && !interaction.deferred)
-          await interaction.reply({ content: '❌ Something went wrong!', ephemeral: true });
-      }
+        } catch (err) {
+          console.error('Muffin button error:', err);
+          if (!interaction.replied && !interaction.deferred)
+            await interaction.reply({ content: '❌ Something went wrong!', flags: 64 });
+        }
       return;
     }
 
@@ -174,14 +174,14 @@ client.on('interactionCreate', async (interaction) => {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
 
-    try {
-      await command.execute(interaction, reactionPostsManager);
-    } catch (err) {
-      console.error(`❌ Error executing command ${interaction.commandName}:`, err);
-      if (!interaction.replied && !interaction.deferred)
-        await interaction.reply({ content: '❌ There was an error executing this command!', ephemeral: true });
-      else await interaction.editReply({ content: '❌ There was an error executing this command!' });
-    }
+      try {
+        await command.execute(interaction, reactionPostsManager);
+      } catch (err) {
+        console.error(`❌ Error executing command ${interaction.commandName}:`, err);
+        if (!interaction.replied && !interaction.deferred)
+          await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
+        else await interaction.editReply({ content: '❌ There was an error executing this command!' });
+      }
   } catch (err) {
     console.error('Unexpected interactionCreate error:', err);
   }

@@ -30,7 +30,7 @@ module.exports = {
 
   async execute(interaction) {
     if (!interaction.guild) {
-      return interaction.reply({ content: "❌ This command can't be used in DMs.", ephemeral: true });
+      return interaction.reply({ content: "❌ This command can't be used in DMs.", flags: 64 });
     }
 
     const round = interaction.options.getInteger('round');
@@ -41,10 +41,10 @@ module.exports = {
 
     // --- Validation ---
     if (!(removeUser || removeFillerNum)) {
-      return interaction.reply({ content: '❌ You must specify either a player or a filler to remove.', ephemeral: true });
+      return interaction.reply({ content: '❌ You must specify either a player or a filler to remove.', flags: 64 });
     }
     if (!(addUser || addFillerNum)) {
-      return interaction.reply({ content: '❌ You must specify either a player or a filler to add.', ephemeral: true });
+      return interaction.reply({ content: '❌ You must specify either a player or a filler to add.', flags: 64 });
     }
 
     // --- Convert filler numbers to "Filler #" ---
@@ -86,7 +86,7 @@ module.exports = {
       const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
 
       if (!hasRequiredRole) {
-        await interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
+        await interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
         await logUsage("⚠️ Permission denied.");
         return;
       }
@@ -172,7 +172,7 @@ module.exports = {
       if (interaction.replied || interaction.deferred) {
         await interaction.editReply('❌ Replacement failed. Please try again.');
       } else {
-        await interaction.reply({ content: '❌ Replacement failed. Please try again.', ephemeral: true });
+        await interaction.reply({ content: '❌ Replacement failed. Please try again.', flags: 64 });
       }
 
       await logUsage(`❌ Error: ${error.message}`);

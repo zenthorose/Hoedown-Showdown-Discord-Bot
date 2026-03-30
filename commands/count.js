@@ -41,9 +41,11 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      if (replied) return interaction.followUp({ content, ephemeral: isEphemeral });
+      const options = { content };
+      if (isEphemeral) options.flags = 64;
+      if (replied) return interaction.followUp(options);
       replied = true;
-      return interaction.reply({ content, ephemeral: isEphemeral });
+      return interaction.reply(options);
     }
 
     async function logUsage(extra = "") {
@@ -117,9 +119,9 @@ module.exports = {
       await logUsage("❌ Unexpected error during count");
       try {
         if (replied || interaction.deferred)
-          await interaction.followUp({ content: "❌ Error executing command.", ephemeral: true });
+          await interaction.followUp({ content: "❌ Error executing command.", flags: 64 });
         else
-          await interaction.reply({ content: "❌ Error executing command.", ephemeral: true });
+          await interaction.reply({ content: "❌ Error executing command.", flags: 64 });
       } catch (err) {
         console.error("❌ Failed to send error message:", err);
       }

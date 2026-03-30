@@ -12,11 +12,13 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
+      const options = { content: String(content) };
+      if (isEphemeral) options.flags = 64;
       if (replied || interaction.deferred) {
-        return interaction.followUp({ content: String(content), ephemeral: isEphemeral });
+        return interaction.followUp(options);
       } else {
         replied = true;
-        return interaction.reply({ content: String(content), ephemeral: isEphemeral });
+        return interaction.reply(options);
       }
     }
 
@@ -51,7 +53,11 @@ module.exports = {
       }
 
       // Defer reply to avoid interaction timeout
-      await interaction.deferReply({ ephemeral: true });
+      try {
+        await interaction.deferReply({ flags: 64 });
+      } catch (err) {
+        console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
+      }
 
       // Fetch last 100 messages
       const messages = await interaction.channel.messages.fetch({ limit: 100 });

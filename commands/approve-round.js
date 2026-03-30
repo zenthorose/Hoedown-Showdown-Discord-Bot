@@ -41,7 +41,7 @@ module.exports = {
       if (!hasPermission) {
         return interaction.reply({
           content: '❌ You do not have permission to use this command!',
-          ephemeral: true
+          flags: 64
         });
       }
 
@@ -52,7 +52,7 @@ module.exports = {
         await logUsage("(❌ Invalid round input)");
         return interaction.reply({
           content: '❌ Invalid round number. Please enter a number between 1 and 16.',
-          ephemeral: true
+          flags: 64
         });
       }
 
@@ -268,7 +268,7 @@ module.exports = {
       await logUsage("❌ Unexpected error occurred");
       return interaction.reply({
         content: "❌ An unexpected error occurred.",
-        ephemeral: true
+        flags: 64
       });
     }
   },

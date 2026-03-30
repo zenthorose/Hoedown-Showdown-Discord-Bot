@@ -37,7 +37,7 @@ module.exports = {
       if (!hasRequiredRole && !isAllowedUser) {
         await interaction.reply({
           content: "❌ You don't have the required role or ID to use this command.",
-          ephemeral: true
+          flags: 64
         });
         await logUsage("❌ Permission denied.");
         return;
@@ -47,7 +47,7 @@ module.exports = {
       const targetChannel = await interaction.client.channels.fetch(config.OptInChannelID);
       if (!targetChannel) {
         console.error("❌ Could not find OptInChannelID in this server");
-        await interaction.reply({ content: "❌ Could not find the Opt-In channel.", ephemeral: true });
+        await interaction.reply({ content: "❌ Could not find the Opt-In channel.", flags: 64 });
         await logUsage("❌ Failed - Opt-In channel not found.");
         return;
       }
@@ -117,7 +117,7 @@ module.exports = {
     } catch (error) {
       console.error("❌ Error executing time-slots command:", error);
       try {
-        await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
+        await interaction.followUp({ content: 'There was an error while executing this command!', flags: 64 });
       } catch (_) {}
       await logUsage(`❌ Error: ${error.message}`);
     }
