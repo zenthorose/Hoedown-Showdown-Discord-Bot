@@ -2,6 +2,12 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json'); // 👈 make sure LOG_CHANNEL_ID is inside config.json
 
+// Per-feature send toggles for this command
+const SENDS = {
+  LOGS: true,
+  REPLIES: false,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('commands')
@@ -35,7 +41,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel) {
+        if (logChannel && SENDS.LOGS) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
@@ -99,8 +105,9 @@ module.exports = {
 
     } catch (error) {
       console.error("❌ Error executing /commands:", error);
-      await logUsage("❌ Unexpected error");
+      if (SENDS.LOGS) await logUsage("❌ Unexpected error");
       try {
+        if (!SENDS.REPLIES) return;
         if (replied || interaction.deferred) {
           await interaction.followUp({ content: '❌ There was an error executing this command!', flags: 64 });
         } else {

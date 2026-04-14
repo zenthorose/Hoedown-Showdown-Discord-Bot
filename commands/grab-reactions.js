@@ -3,6 +3,13 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
+// Per-feature send toggles for this command
+const SENDS = {
+  LOGS: true,
+  REPLIES: true,
+  CHANNEL_NOTIF: true,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('grab-reactions')
@@ -21,7 +28,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel) {
+        if (logChannel && SENDS.LOGS) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
@@ -42,13 +49,14 @@ module.exports = {
 
       if (!hasPermission) {
         await logUsage("❌ Permission denied");
-        return interaction.reply({
+        if (SENDS.REPLIES) return interaction.reply({
           content: '❌ You do not have permission to use this command!',
           flags: 64
         });
+        return;
       }
 
-      replyMessage = await interaction.reply({
+      if (SENDS.REPLIES) replyMessage = await interaction.reply({
         content: '🔄 Grabbing reactions... Please wait.',
         fetchReply: true
       });
@@ -97,16 +105,16 @@ module.exports = {
         discordPlayers: Array.from(uniquePlayers.values())
       });
 
-      await logUsage(`✅ Sent ${uniquePlayers.size} players to Google Sheets`);
+      if (SENDS.LOGS) await logUsage(`✅ Sent ${uniquePlayers.size} players to Google Sheets`);
 
-      if (replyMessage) await replyMessage.delete();
+      if (replyMessage && SENDS.REPLIES) await replyMessage.delete();
 
     } catch (error) {
       console.error("❌ Error in grab-reactions:", error);
       await logUsage(`❌ Error: ${error.message}`);
 
       try {
-        await interaction.channel.send("❌ Failed to trigger Google Apps Script.");
+        if (SENDS.CHANNEL_NOTIF) await interaction.channel.send("❌ Failed to trigger Google Apps Script.");
       } catch (err) {
         console.error("❌ Failed to notify channel:", err);
       }

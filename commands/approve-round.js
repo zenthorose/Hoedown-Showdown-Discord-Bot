@@ -3,6 +3,12 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
+// Per-feature send toggles for this command
+const SENDS = {
+  LOGS: true,
+  PUBLISH_TEAMS: true,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('approve-round')
@@ -20,17 +26,17 @@ module.exports = {
     // --- Helper: log command usage + outcomes ---
     async function logUsage(extra = "") {
       try {
-        const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel) {
-          const userTag = interaction.user.tag;
-          const channelName = interaction.channel?.name || "DM/Unknown";
-          await logChannel.send(
-            `📝 **/approve-round** used by **${userTag}** in **#${channelName}** ${extra}`
-          );
+          const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+          if (logChannel && SENDS.LOGS) {
+            const userTag = interaction.user.tag;
+            const channelName = interaction.channel?.name || "DM/Unknown";
+            await logChannel.send(
+              `📝 **/approve-round** used by **${userTag}** in **#${channelName}** ${extra}`
+            );
+          }
+        } catch (logError) {
+          console.error("❌ Failed to send log message:", logError);
         }
-      } catch (logError) {
-        console.error("❌ Failed to send log message:", logError);
-      }
     }
 
     try {
@@ -163,10 +169,14 @@ module.exports = {
               if (teamChannelId) {
                 try {
                   const teamChannel = await interaction.client.channels.fetch(teamChannelId);
-                  if (teamChannel) {
+                    if (teamChannel) {
                     // Send the team message
-                    await teamChannel.send(teamOutput);
-                    console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
+                    if (SENDS.PUBLISH_TEAMS) {
+                      await teamChannel.send(teamOutput);
+                      console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
+                    } else {
+                      console.log(`⚠️ Skipped sending team ${teamKey} (SENDS.PUBLISH_TEAMS=false)`);
+                    }
 
                     // --- 🔹 NEW: Fetch the "Fill In" role ---
                     const fillInRole = interaction.guild.roles.cache.find(

@@ -2,6 +2,12 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
 
+// Per-feature send toggles for this command
+const SENDS = {
+  LOGS: true,
+  REPLIES: true,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('register')
@@ -39,7 +45,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel) {
+        if (logChannel && SENDS.LOGS) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
@@ -55,16 +61,16 @@ module.exports = {
     try {
       // --- Validate Steam ID (digits only) ---
       if (!/^\d+$/.test(steamId)) {
-        await interaction.editReply('❌ Invalid Steam ID. Must only contain numbers.');
-        await logUsage("❌ Invalid Steam ID entered.");
+        if (SENDS.REPLIES) await interaction.editReply('❌ Invalid Steam ID. Must only contain numbers.');
+        if (SENDS.LOGS) await logUsage("❌ Invalid Steam ID entered.");
         return;
       }
 
       // --- Validate Stream Link ---
       const validLinkRegex = /^(?:(?:https?:\/\/)?(?:www\.)?twitch\.tv\/[a-zA-Z0-9_\-/?=&#%.]+|https?:\/\/(?:www\.|m\.)?(kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+|N\/A)$/i;
       if (!validLinkRegex.test(streamLink)) {
-        await interaction.editReply('❌ Invalid stream link. Must be Twitch, Kick, YouTube, or TikTok.');
-        await logUsage("❌ Invalid stream link entered.");
+        if (SENDS.REPLIES) await interaction.editReply('❌ Invalid stream link. Must be Twitch, Kick, YouTube, or TikTok.');
+        if (SENDS.LOGS) await logUsage("❌ Invalid stream link entered.");
         return;
       }
 
@@ -72,12 +78,12 @@ module.exports = {
       // --- Check if already Registered ---
       const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');
       if (registeredRole && member.roles.cache.has(registeredRole.id)) {
-        await interaction.editReply(
+        if (SENDS.REPLIES) await interaction.editReply(
           "⚠️ You are already registered.\n" +
           "➡️ Use `/update-info` to change any info you need to.\n" +
           "➡️ Use `/info-check` to see your current submitted info."
         );
-        await logUsage("⚠️ Already registered, stopped.");
+        if (SENDS.LOGS) await logUsage("⚠️ Already registered, stopped.");
         return;
       }
 
@@ -118,8 +124,8 @@ module.exports = {
         );
       }
 
-      await interaction.editReply('✅ You have been successfully registered!');
-      await logUsage("✅ Registration successful.");
+      if (SENDS.REPLIES) await interaction.editReply('✅ You have been successfully registered!');
+      if (SENDS.LOGS) await logUsage("✅ Registration successful.");
     } catch (error) {
       console.error('❌ Error with register command:', error);
       await interaction.editReply('❌ Registration failed. Please try again.');

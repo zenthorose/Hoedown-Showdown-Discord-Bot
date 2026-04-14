@@ -2,6 +2,12 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
+// Per-feature send toggles for this command
+const SENDS = {
+  LOGS: true,
+  REPLIES: true,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('count')
@@ -51,7 +57,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel) {
+        if (logChannel && SENDS.LOGS) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(`🧮 **/count** used by **${userTag}** in **#${channelName}** ${extra}`);
@@ -66,8 +72,9 @@ module.exports = {
       await logUsage("Attempting to count roles");
 
       if (!hasPermission) {
-        await logUsage("❌ Permission denied");
-        return safeReply("❌ You do not have permission to run this command!", true);
+        if (SENDS.LOGS) await logUsage("❌ Permission denied");
+        if (SENDS.REPLIES) return safeReply("❌ You do not have permission to run this command!", true);
+        return;
       }
 
       const guild = interaction.guild;
@@ -111,8 +118,9 @@ module.exports = {
         desc
       ].join('\n');
 
-      await logUsage(`✅ Count completed (${type}): ${count}`);
-      return safeReply(result);
+      if (SENDS.LOGS) await logUsage(`✅ Count completed (${type}): ${count}`);
+      if (SENDS.REPLIES) return safeReply(result);
+      return;
 
     } catch (error) {
       console.error("❌ Error executing /count:", error);

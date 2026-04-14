@@ -2,6 +2,12 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 
+// Per-feature send toggles for this command
+const SENDS = {
+  LOGS: true,
+  REPLIES: true,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('info-check')
@@ -14,7 +20,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel) {
+        if (logChannel && SENDS.LOGS) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
@@ -27,15 +33,16 @@ module.exports = {
     }
 
     if (!triggerUrl) {
-      await logUsage("❌ GAS URL missing");
-      return await interaction.reply({
+      if (SENDS.LOGS) await logUsage("❌ GAS URL missing");
+      if (SENDS.REPLIES) return await interaction.reply({
           content: '❌ Error: Google Apps Script URL is not defined.',
           flags: 64
         });
+      return;
     }
 
     try {
-      await interaction.reply({
+      if (SENDS.REPLIES) await interaction.reply({
         content: '🔄 Fetching your info...',
         flags: 64
       });
@@ -63,13 +70,13 @@ module.exports = {
         `**Stream Link:** ${data.streamLink || 'Not set'}`
       ].join('\n');
 
-      await safeEdit(interaction, msg);
-      await logUsage("✅ Info fetched successfully");
+      if (SENDS.REPLIES) await safeEdit(interaction, msg);
+      if (SENDS.LOGS) await logUsage("✅ Info fetched successfully");
 
     } catch (error) {
       console.error("❌ Error in /info-check:", error);
-      await safeEdit(interaction, '⚠️ Error fetching info. Please try again later.');
-      await logUsage(`❌ Error: ${error.message}`);
+      if (SENDS.REPLIES) await safeEdit(interaction, '⚠️ Error fetching info. Please try again later.');
+      if (SENDS.LOGS) await logUsage(`❌ Error: ${error.message}`);
     }
 
     async function safeEdit(interaction, content) {

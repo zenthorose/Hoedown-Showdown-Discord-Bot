@@ -3,6 +3,12 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 
+// Per-feature send toggles for this command
+const SENDS = {
+  LOGS: true,
+  REPLIES: true,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('member-update')
@@ -13,7 +19,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel) {
+        if (logChannel && SENDS.LOGS) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
@@ -29,11 +35,12 @@ module.exports = {
     // 🔒 Permission check
     const hasPermission = await checkPermissions(interaction);
     if (!hasPermission) {
-      await logUsage("❌ Permission denied");
-      return interaction.reply({
+      if (SENDS.LOGS) await logUsage("❌ Permission denied");
+      if (SENDS.REPLIES) return interaction.reply({
         content: '❌ You do not have permission to use this command!',
         flags: 64
       });
+      return;
     }
 
     // ⏳ Defer reply (ephemeral so only invoker sees it)
@@ -112,15 +119,15 @@ module.exports = {
       // ✅ Success message to invoker
       const resultMsg =
         `✅ Member update complete!\n- Synced with Google Sheets\n- Nicknames reset: ${successCount}\n- Skipped: ${skippedCount}`;
-      await interaction.editReply(resultMsg);
+      if (SENDS.REPLIES) await interaction.editReply(resultMsg);
 
       // 📝 Public log
-      await logUsage(`✅ Completed | Reset: ${successCount}, Skipped: ${skippedCount}`);
+      if (SENDS.LOGS) await logUsage(`✅ Completed | Reset: ${successCount}, Skipped: ${skippedCount}`);
 
     } catch (error) {
       console.error("❌ Error with member-update:", error);
-      await interaction.editReply("❌ Failed to update members. Check bot permissions and Google Apps Script URL.");
-      await logUsage(`❌ Error: ${error.message}`);
+      if (SENDS.REPLIES) await interaction.editReply("❌ Failed to update members. Check bot permissions and Google Apps Script URL.");
+      if (SENDS.LOGS) await logUsage(`❌ Error: ${error.message}`);
     }
   },
 };

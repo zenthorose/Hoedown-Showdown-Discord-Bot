@@ -1,6 +1,11 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const config = require('../config.json');
 
+// Per-feature send toggles for this command
+const SENDS = {
+  REPLIES: true,
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
@@ -14,7 +19,8 @@ module.exports = {
     }
 
     if (interaction.user.id !== config.devID) {
-      return interaction.editReply('❌ You do not have permission to use this command.');
+      if (SENDS.REPLIES) return interaction.editReply('❌ You do not have permission to use this command.');
+      return;
     }
 
     try {
@@ -48,11 +54,11 @@ module.exports = {
         `**East (${eastMembers.length}):** ${eastList}\n\n` +
         `**West (${westMembers.length}):** ${westList}`;
 
-      await interaction.editReply({ content: message });
+      if (SENDS.REPLIES) await interaction.editReply({ content: message });
 
     } catch (err) {
       console.error('❌ Error separating members:', err);
-      await interaction.editReply(`❌ Error: ${err.message}`);
+      if (SENDS.REPLIES) await interaction.editReply(`❌ Error: ${err.message}`);
     }
   },
 };
