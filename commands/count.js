@@ -120,7 +120,15 @@ module.exports = {
         console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
       }
 
-      await guild.members.fetch();
+      // Try to fetch all members; if it times out (large guilds / missing intent),
+      // fall back to using the cached members so the command still returns results.
+      let fetchedAllMembers = true;
+      try {
+        await guild.members.fetch();
+      } catch (err) {
+        fetchedAllMembers = false;
+        console.warn('⚠️ Failed to fetch all guild members — using cached members instead:', err?.message || err);
+      }
 
       const type = interaction.options.getString('type');
       const role1 = interaction.options.getRole('role1');
