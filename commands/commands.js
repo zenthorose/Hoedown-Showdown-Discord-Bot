@@ -28,6 +28,12 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
+      // If replies are globally disabled for this command, do nothing.
+      if (!SENDS.REPLIES) {
+        replied = true; // mark as replied to avoid followUp attempts later
+        return null;
+      }
+
       const options = typeof content === 'string' ? { content } : content;
       if (isEphemeral) options.flags = 64;
       if (replied) {
