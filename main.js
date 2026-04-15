@@ -294,7 +294,7 @@ app.post('/sendmessage', async (req, res) => {
   // Blocking controls: prefer environment variable, fallback to hard-coded toggle in code
   // - To control without editing code, set env `BLOCK_GAS_POSTS=true`.
   // - Otherwise change `HARD_BLOCK_GAS` below and restart to pick up the code toggle.
-  const HARD_BLOCK_GAS = false; // <-- change this value in-code to enable/disable GAS blocking
+  const HARD_BLOCK_GAS = true; // <-- change this value in-code to enable/disable GAS blocking
 
   let blockGas;
   if (typeof process.env.BLOCK_GAS_POSTS !== 'undefined' && String(process.env.BLOCK_GAS_POSTS) !== '') {
