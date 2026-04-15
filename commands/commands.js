@@ -122,14 +122,10 @@ module.exports = {
       console.error("❌ Error executing /commands:", error);
       if (SENDS.LOGS) await logUsage("❌ Unexpected error");
       try {
-        if (!SENDS.REPLIES) return;
-        if (replied || interaction.deferred) {
-          await interaction.followUp({ content: '❌ There was an error executing this command!', flags: 64 });
-        } else {
-          await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
-        }
+        // Use safeReply so the SENDS.REPLIES flag and reply/followUp logic are respected.
+        await safeReply('❌ There was an error executing this command!', true);
       } catch (err) {
-        console.error('❌ Failed to send error message:', err);
+        console.error('❌ Failed to send error message via safeReply:', err);
       }
     }
   }
