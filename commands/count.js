@@ -5,7 +5,7 @@ const config = require('../config.json');
 // Per-feature send toggles for this command
 const SENDS = {
   LOGS: true,
-  REPLIES: false,
+  REPLIES: true,
 };
 
 module.exports = {
