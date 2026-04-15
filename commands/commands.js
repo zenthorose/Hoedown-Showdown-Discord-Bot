@@ -28,10 +28,19 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      // If replies are globally disabled for this command, do nothing.
+      // If replies are globally disabled for this command, inform the user.
       if (!SENDS.REPLIES) {
         replied = true; // mark as replied to avoid followUp attempts later
-        return null;
+        try {
+          if (replied || interaction.deferred) {
+            return interaction.followUp({ content: 'This command is disabled', flags: 64 });
+          } else {
+            return interaction.reply({ content: 'This command is disabled', flags: 64 });
+          }
+        } catch (err) {
+          // If replying fails (e.g., interaction already acknowledged), swallow the error
+          return null;
+        }
       }
 
       const options = typeof content === 'string' ? { content } : content;
