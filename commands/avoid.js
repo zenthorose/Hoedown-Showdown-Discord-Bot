@@ -112,14 +112,13 @@ module.exports = {
 
       console.log('📤 Sending avoid data to GAS:', JSON.stringify({ command: 'avoid', users }, null, 2));
 
-      // --- Defer reply to avoid Unknown interaction errors ---
+      // --- Acknowledge the interaction with a safe processing reply ---
       try {
         if (SENDS.REPLIES) {
-          await interaction.deferReply({ flags: 64 });
-          replyMessage = true;
+          replyMessage = await safeReply({ content: '🔄 Processing avoid request...', fetchReply: true });
         } else replyMessage = false;
       } catch (err) {
-        console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
+        console.warn('⚠️ Initial reply failed, continuing without initial reply:', err?.message || err);
         replyMessage = false;
       }
 
@@ -136,11 +135,16 @@ module.exports = {
         ? `✅ Avoid list updated. Added: ${addedPairs}, Skipped (existing): ${skippedPairs}`
         : `❌ Failed to update avoid list.`;
 
-      // --- Edit deferred reply with result ---
+      // --- Edit reply with result (robust flow) ---
       if (SENDS.REPLIES) {
         try {
-          if (replyMessage || interaction.deferred) await interaction.editReply(displayMessage);
-          else await safeReply(displayMessage);
+          if (replyMessage && typeof replyMessage.edit === 'function') {
+            await replyMessage.edit(displayMessage);
+          } else if (interaction.deferred || interaction.replied) {
+            await interaction.editReply(displayMessage);
+          } else {
+            await safeReply(displayMessage);
+          }
         } catch (err) {
           await safeReply(displayMessage);
         }
