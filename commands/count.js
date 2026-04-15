@@ -105,30 +105,13 @@ module.exports = {
 
       if (!hasPermission) {
         if (SENDS.LOGS) await logUsage("❌ Permission denied");
-        if (SENDS.REPLIES) return safeReply("❌ You do not have permission to run this command!", true);
-        return;
+        return safeReply("❌ You do not have permission to run this command!", true);
       }
 
       const guild = interaction.guild;
       if (!guild) return safeReply("❌ This command can only be used in a server.", true);
 
-      // Defer reply early for potentially long-running operations to avoid
-      // "The application did not respond" errors when fetching many members.
-      try {
-        if (SENDS.REPLIES && !interaction.deferred) await interaction.deferReply({ flags: 64 });
-      } catch (err) {
-        console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
-      }
-
-      // Try to fetch all members; if it times out (large guilds / missing intent),
-      // fall back to using the cached members so the command still returns results.
-      let fetchedAllMembers = true;
-      try {
-        await guild.members.fetch();
-      } catch (err) {
-        fetchedAllMembers = false;
-        console.warn('⚠️ Failed to fetch all guild members — using cached members instead:', err?.message || err);
-      }
+      await guild.members.fetch();
 
       const type = interaction.options.getString('type');
       const role1 = interaction.options.getRole('role1');
@@ -167,8 +150,7 @@ module.exports = {
       ].join('\n');
 
       if (SENDS.LOGS) await logUsage(`✅ Count completed (${type}): ${count}`);
-      if (SENDS.REPLIES) return safeReply(result);
-      return;
+      return safeReply(result);
 
     } catch (error) {
       console.error("❌ Error executing /count:", error);
