@@ -226,9 +226,28 @@ client.on('interactionCreate', async (interaction) => {
         await command.execute(interaction, reactionPostsManager);
       } catch (err) {
         console.error(`❌ Error executing command ${interaction.commandName}:`, err);
-        if (!interaction.replied && !interaction.deferred)
-          await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
-        else await interaction.editReply({ content: '❌ There was an error executing this command!' });
+        try {
+          const alreadyAcknowledged = (typeof interaction.acknowledged !== 'undefined') ? interaction.acknowledged : (interaction.replied || interaction.deferred);
+          if (!interaction.replied && !interaction.deferred && !alreadyAcknowledged) {
+            await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
+          } else {
+            try {
+              await interaction.editReply({ content: '❌ There was an error executing this command!' });
+            } catch (editErr) {
+              console.warn('⚠️ Failed to edit interaction reply for error message:', editErr?.message || editErr);
+              // Fallback: attempt to reply if safe
+              try {
+                if (!interaction.replied && !interaction.deferred && !alreadyAcknowledged) {
+                  await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
+                }
+              } catch (replyErr) {
+                console.warn('⚠️ Could not send error reply to interaction (already acknowledged?).', replyErr?.message || replyErr);
+              }
+            }
+          }
+        } catch (replyErr) {
+          console.warn('⚠️ Failed to send error response to interaction (possible already acknowledged):', replyErr?.message || replyErr);
+        }
       }
   } catch (err) {
     console.error('Unexpected interactionCreate error:', err);
