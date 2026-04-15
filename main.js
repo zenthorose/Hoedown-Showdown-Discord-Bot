@@ -255,9 +255,21 @@ app.post('/sendmessage', async (req, res) => {
   const headerGas = String(req.headers['x-from-gas'] || '').toLowerCase();
   const isFromGAS = (source === 'GAS') || (headerGas === 'true') || ua.includes('google-apps-script') || ua.includes('google-apps-script/');
 
+  // Debug logging to inspect incoming request headers and detection logic
+  try {
+    console.log('📥 /sendmessage incoming request — channelId:', channelId);
+    console.log('📥 Headers:', Object.keys(req.headers).length ? req.headers : '(no headers)');
+    console.log(`📥 GAS detection inputs: source='${source}', x-from-gas='${req.headers['x-from-gas']}', user-agent='${req.headers['user-agent']}'`);
+    console.log(`📥 Computed flags: blockGas=${blockGas}, headerGas='${headerGas}', ua='${ua}', isFromGAS=${isFromGAS}`);
+  } catch (logErr) {
+    console.error('❌ Failed to log /sendmessage request details:', logErr);
+  }
+
   if (blockGas && isFromGAS) {
     console.log(`ℹ️ Skipped posting to ${channelId} — request identified as GAS and BLOCK_GAS_POSTS=true`);
     return res.status(200).json({ skipped: 'blocked_source', reason: 'identified_as_gas' });
+  } else {
+    console.log(`ℹ️ /sendmessage will proceed: blockGas=${blockGas}, isFromGAS=${isFromGAS}`);
   }
 
   // Note: phrase-based blocking removed — use BLOCK_GAS_POSTS and explicit source/header detection instead
