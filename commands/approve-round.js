@@ -294,10 +294,25 @@ module.exports = {
     } catch (error) {
       console.error("❌ Unexpected error:", error);
       await logUsage("❌ Unexpected error occurred");
-      return interaction.reply({
-        content: "❌ An unexpected error occurred.",
-        flags: 64
-      });
+
+      // Safely notify the user without causing "already acknowledged" errors
+      try {
+        if (!interaction.replied && !interaction.deferred && typeof interaction.acknowledged === 'undefined') {
+          return interaction.reply({ content: "❌ An unexpected error occurred.", flags: 64 });
+        }
+
+        // If the interaction was already replied/deferred, try to edit the original reply
+        if (replyMessage && typeof replyMessage.edit === 'function') {
+          try { await replyMessage.edit('❌ An unexpected error occurred.'); return; } catch (e) { /* fall through */ }
+        }
+
+        // As a last resort, try followUp (may fail if interaction truly unknown)
+        try { await interaction.followUp({ content: '❌ An unexpected error occurred.', flags: 64 }); } catch (fuErr) {
+          console.warn('⚠️ Could not followUp for unexpected error (interaction may be unknown):', fuErr?.message || fuErr);
+        }
+      } catch (notifyErr) {
+        console.warn('⚠️ Failed to notify user about unexpected error:', notifyErr?.message || notifyErr);
+      }
     }
   },
 };
