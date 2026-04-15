@@ -9,6 +9,7 @@ const ENABLE_ROUND_CHANNEL_PERMS = false; // Step 2: update round channel permis
 const ENABLE_TEAM_CLEANUP = false;       // Step 4a: clear old messages from team text channels
 const ENABLE_VC_RESET = false;           // Step 4a: reset voice channel permission overwrites
 const ENABLE_TEAM_POSTING_PERMS = false; // Step 4b: grant players and "Fill In" role channel perms
+const ENABLE_DISCORD_POSTING = false;    // Control whether the bot actually posts teamOutput messages
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -183,9 +184,14 @@ module.exports = {
                 try {
                   const teamChannel = await interaction.client.channels.fetch(teamChannelId);
                   if (teamChannel) {
-                    // Send the team message and capture the sent message
-                    const sentMsg = await teamChannel.send(teamOutput);
-                    console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId} (msg ${sentMsg.id})`);
+                    // Send the team message and capture the sent message (toggle-controlled)
+                    let sentMsg = null;
+                    if (ENABLE_DISCORD_POSTING) {
+                      sentMsg = await teamChannel.send(teamOutput);
+                      console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}` + (sentMsg ? ` (msg ${sentMsg.id})` : ''));
+                    } else {
+                      console.log(`ℹ️ Skipped sending team ${teamKey} to channel ${teamChannelId} (ENABLE_DISCORD_POSTING disabled).`);
+                    }
 
                     // --- 🔹 NEW: Fetch the "Fill In" role ---
                     const fillInRole = interaction.guild.roles.cache.find(
