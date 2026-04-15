@@ -3,6 +3,13 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
+// Toggle controls for permission-changing and cleanup behavior.
+// Set to `true` to allow the operation, `false` to skip it.
+const ENABLE_ROUND_CHANNEL_PERMS = true; // Step 2: update round channel permission overwrites
+const ENABLE_TEAM_CLEANUP = true;       // Step 4a: clear old messages from team text channels
+const ENABLE_VC_RESET = true;           // Step 4a: reset voice channel permission overwrites
+const ENABLE_TEAM_POSTING_PERMS = true; // Step 4b: grant players and "Fill In" role channel perms
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('approve-round')
@@ -66,21 +73,25 @@ module.exports = {
       });
 
       // --- Step 2: Update round channel permissions (optional global perms) ---
-      try {
-        const channelId = config.roundChannels[round];
-        if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
+      if (ENABLE_ROUND_CHANNEL_PERMS) {
+        try {
+          const channelId = config.roundChannels[round];
+          if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
 
-        const channel = await interaction.client.channels.fetch(channelId);
-        if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
+          const channel = await interaction.client.channels.fetch(channelId);
+          if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
-        // Example: uncomment if you want @everyone to see the round channel
-        await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
-          ViewChannel: true,
-          SendMessages: false,
-        });
-      } catch (permError) {
-        console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
-        await logUsage(`❌ Failed to update permissions for Round #${round}`);
+          // Example: uncomment if you want @everyone to see the round channel
+          await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+            ViewChannel: true,
+            SendMessages: false,
+          });
+        } catch (permError) {
+          console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
+          await logUsage(`❌ Failed to update permissions for Round #${round}`);
+        }
+      } else {
+        console.log(`ℹ️ Skipped round channel permission edits for Round #${round} (toggle disabled).`);
       }
 
       // --- Step 3: Trigger GAS ---
@@ -118,27 +129,35 @@ module.exports = {
 
               // Clear messages if it's a text channel
               if (channel?.isTextBased()) {
-                let messages;
-                do {
-                  messages = await channel.messages.fetch({ limit: 50 });
-                  if (messages.size > 0) {
-                    await channel.bulkDelete(messages, true);
-                    console.log(`🧹 Cleared ${messages.size} messages from ${teamKey}`);
-                  }
-                } while (messages.size >= 2);
+                if (ENABLE_TEAM_CLEANUP) {
+                  let messages;
+                  do {
+                    messages = await channel.messages.fetch({ limit: 50 });
+                    if (messages.size > 0) {
+                      await channel.bulkDelete(messages, true);
+                      console.log(`🧹 Cleared ${messages.size} messages from ${teamKey}`);
+                    }
+                  } while (messages.size >= 2);
+                } else {
+                  console.log(`ℹ️ Skipped clearing messages in ${teamKey} (toggle disabled).`);
+                }
               }
 
               // Reset VC perms if it's a voice channel
               if (channel?.type === 2) { // 2 = GuildVoice
-                const allowedIds = [interaction.guild.roles.everyone.id]; // keep @everyone
-                for (const overwrite of channel.permissionOverwrites.cache.values()) {
-                  if (!allowedIds.includes(overwrite.id)) {
-                    await overwrite.delete().catch(err =>
-                      console.error(`❌ Failed to remove overwrite in VC ${teamKey}:`, err)
-                    );
+                if (ENABLE_VC_RESET) {
+                  const allowedIds = [interaction.guild.roles.everyone.id]; // keep @everyone
+                  for (const overwrite of channel.permissionOverwrites.cache.values()) {
+                    if (!allowedIds.includes(overwrite.id)) {
+                      await overwrite.delete().catch(err =>
+                        console.error(`❌ Failed to remove overwrite in VC ${teamKey}:`, err)
+                      );
+                    }
                   }
+                  console.log(`🔄 Reset permission overwrites in VC ${teamKey}`);
+                } else {
+                  console.log(`ℹ️ Skipped VC permission reset for ${teamKey} (toggle disabled).`);
                 }
-                console.log(`🔄 Reset permission overwrites in VC ${teamKey}`);
               }
             } catch (err) {
               console.error(`❌ Failed to reset ${teamKey} (${channelId}):`, err);
@@ -178,38 +197,46 @@ module.exports = {
                     }
 
                     // Grant perms to each player
-                    for (const player of players) {
-                      if (!player?.discordId) {
-                        console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
-                        continue;
+                    if (ENABLE_TEAM_POSTING_PERMS) {
+                      for (const player of players) {
+                        if (!player?.discordId) {
+                          console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
+                          continue;
+                        }
+                        try {
+                          await teamChannel.permissionOverwrites.edit(player.discordId, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true,
+                            Connect: true,
+                            Speak: true,
+                          });
+                          console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
+                        } catch (permErr) {
+                          console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
+                        }
                       }
-                      try {
-                        await teamChannel.permissionOverwrites.edit(player.discordId, {
-                          ViewChannel: true,
-                          SendMessages: true,
-                          ReadMessageHistory: true,
-                          Connect: true,
-                          Speak: true,
-                        });
-                        console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
-                      } catch (permErr) {
-                        console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
-                      }
+                    } else {
+                      console.log(`ℹ️ Skipped granting per-player perms in ${teamKey} (toggle disabled).`);
                     }
 
                     // --- 🔹 NEW: Also grant same perms to "Fill In" role ---
                     if (fillInRole) {
-                      try {
-                        await teamChannel.permissionOverwrites.edit(fillInRole.id, {
-                          ViewChannel: true,
-                          SendMessages: true,
-                          ReadMessageHistory: true,
-                          Connect: true,
-                          Speak: true,
-                        });
-                        console.log(`🎭 Granted "Fill In" role access to ${teamKey}`);
-                      } catch (fillErr) {
-                        console.error(`❌ Failed to set perms for "Fill In" role in ${teamKey}:`, fillErr);
+                      if (ENABLE_TEAM_POSTING_PERMS) {
+                        try {
+                          await teamChannel.permissionOverwrites.edit(fillInRole.id, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true,
+                            Connect: true,
+                            Speak: true,
+                          });
+                          console.log(`🎭 Granted "Fill In" role access to ${teamKey}`);
+                        } catch (fillErr) {
+                          console.error(`❌ Failed to set perms for "Fill In" role in ${teamKey}:`, fillErr);
+                        }
+                      } else {
+                        console.log(`ℹ️ Skipped granting "Fill In" role perms in ${teamKey} (toggle disabled).`);
                       }
                     }
 
