@@ -183,9 +183,9 @@ module.exports = {
                 try {
                   const teamChannel = await interaction.client.channels.fetch(teamChannelId);
                   if (teamChannel) {
-                    // Send the team message
-                    await teamChannel.send(teamOutput);
-                    console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
+                    // Send the team message and capture the sent message
+                    const sentMsg = await teamChannel.send(teamOutput);
+                    console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId} (msg ${sentMsg.id})`);
 
                     // --- 🔹 NEW: Fetch the "Fill In" role ---
                     const fillInRole = interaction.guild.roles.cache.find(
@@ -196,7 +196,7 @@ module.exports = {
                       console.warn(`⚠️ "Fill In" role not found in guild. Skipping role permission assignment.`);
                     }
 
-                    // Grant perms to each player
+                    // Grant perms to each player (and optionally the Fill In role) together
                     if (ENABLE_TEAM_POSTING_PERMS) {
                       for (const player of players) {
                         if (!player?.discordId) {
@@ -216,13 +216,8 @@ module.exports = {
                           console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
                         }
                       }
-                    } else {
-                      console.log(`ℹ️ Skipped granting per-player perms in ${teamKey} (toggle disabled).`);
-                    }
 
-                    // --- 🔹 NEW: Also grant same perms to "Fill In" role ---
-                    if (fillInRole) {
-                      if (ENABLE_TEAM_POSTING_PERMS) {
+                      if (fillInRole) {
                         try {
                           await teamChannel.permissionOverwrites.edit(fillInRole.id, {
                             ViewChannel: true,
@@ -235,16 +230,16 @@ module.exports = {
                         } catch (fillErr) {
                           console.error(`❌ Failed to set perms for "Fill In" role in ${teamKey}:`, fillErr);
                         }
-                      } else {
-                        console.log(`ℹ️ Skipped granting "Fill In" role perms in ${teamKey} (toggle disabled).`);
                       }
+                    } else {
+                      console.log(`ℹ️ Skipped granting per-player and role perms in ${teamKey} (toggle disabled).`);
                     }
 
                   } else {
                     console.warn(`⚠️ Could not fetch channel for ${teamKey} (${teamChannelId})`);
                   }
                 } catch (err) {
-                  console.error(`❌ Failed to send team output for ${teamKey}:`, err);
+                  console.error(`❌ Failed to send team output or set perms for ${teamKey}:`, err);
                 }
               } else {
                 console.warn(`⚠️ No channel mapping found for ${teamKey} in config.teamChannels`);
