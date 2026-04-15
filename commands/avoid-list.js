@@ -3,12 +3,6 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('avoid-list')
@@ -25,7 +19,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(`📝 **/avoid-list** used by **${userTag}** in **#${channelName}** ${extra}`);
@@ -40,12 +34,11 @@ module.exports = {
       await logUsage();
 
       if (!hasPermission) {
-        if (SENDS.LOGS) await logUsage("❌ Permission denied");
-        if (SENDS.REPLIES) return interaction.reply({
+        await logUsage("❌ Permission denied");
+        return interaction.reply({
           content: '❌ You do not have permission to use this command!',
           flags: 64
         });
-        return;
       }
 
       const selectedUser = interaction.options.getUser('player');
@@ -72,8 +65,8 @@ module.exports = {
       console.log("✅ GAS response:", response.data);
 
       if (!response.data.success) {
-        if (SENDS.LOGS) await logUsage("❌ GAS error");
-        if (SENDS.REPLIES) await interaction.editReply("❌ Failed to fetch avoid list.");
+        await logUsage("❌ GAS error");
+        await interaction.editReply("❌ Failed to fetch avoid list.");
         return;
       }
 
@@ -82,7 +75,7 @@ module.exports = {
         const noResultMsg = selectedUser
           ? `✅ No avoid pairs found for **${selectedUser.username}**.`
           : "✅ Avoid list is currently empty.";
-        if (SENDS.REPLIES) await interaction.editReply(noResultMsg);
+        await interaction.editReply(noResultMsg);
         return;
       }
 
@@ -95,8 +88,8 @@ module.exports = {
         : `📋 Avoid List (showing ${pairs.length}):`;
 
       const finalMessage = `${title}\n${list}`;
-      if (SENDS.REPLIES) await interaction.editReply(finalMessage);
-      if (SENDS.LOGS) await logUsage(`→ Returned ${pairs.length} pairs${selectedUser ? ` for ${selectedUser.username}` : ""}`);
+      await interaction.editReply(finalMessage);
+      await logUsage(`→ Returned ${pairs.length} pairs${selectedUser ? ` for ${selectedUser.username}` : ""}`);
 
       // Optional: delete reply after 10 seconds (to keep things tidy)
       //setTimeout(async () => {

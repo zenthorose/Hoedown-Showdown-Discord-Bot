@@ -72,16 +72,6 @@ const reactionPostsManager = new ReactionPostsManager();
 // Config
 const { Hoedown_New_banner, STATUS_CHANNEL_ID, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
 
-// Per-feature send toggles (set to `false` to prevent this file from issuing those Discord API calls)
-const SENDS = {
-  STARTUP_STATUS: true,
-  EXPRESS_SEND: true,
-  AUTO_REACT: true,
-  GENERIC_REPLIES: true,
-  PING: true,
-  LOGS: true,
-};
-
 // Google credentials
 const credentials = {
   type: "service_account",
@@ -145,7 +135,7 @@ async function onClientReady() {
     const statusChannel = client.channels.cache.get(STATUS_CHANNEL_ID);
     if (statusChannel) {
       const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]");
-      if (SENDS.STARTUP_STATUS) await statusChannel.send(`✅ The Hoedown Showdown Bot is now online! 🚀\n🕒 Current Time: **${currentTime}**`);
+      await statusChannel.send(`✅ The Hoedown Showdown Bot is now online! 🚀\n🕒 Current Time: **${currentTime}**`);
     } else console.warn("⚠️ Status channel not found.");
   } catch (err) {
     console.error("❌ Failed to send startup status:", err);
@@ -173,7 +163,7 @@ client.on('guildMemberAdd', async (member) => {
       options: { getString: () => null, getUser: () => null, getRole: () => null, getChannel: () => null },
       reply: async (data) => {
         const logChannel = member.guild.channels.cache.get(STATUS_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) await logChannel.send(data?.content || `✅ Auto-run ${commandName} for ${member.user.tag}`);
+        if (logChannel) await logChannel.send(data?.content || `✅ Auto-run ${commandName} for ${member.user.tag}`);
         console.log(`[auto-command] Replied for ${member.user.tag}`);
       },
       deferReply: async () => {},
@@ -196,16 +186,14 @@ client.on('messageDelete', msg => swampmail.handleMessageDelete(client, msg));
 // --- Muffin watcher in the messageCreate listener ---
 client.on('messageCreate', async (message) => {
   try {
-    if (message.content === '!ping') {
-      if (SENDS.PING) await message.channel.send('Pong!');
-    }
+    if (message.content === '!ping') await message.channel.send('Pong!');
 
     const targetChannelId = '1052393482699948132';
     const targetWord = 'muffin';
     if (!message.author.bot && message.channel?.id === targetChannelId && message.content.toLowerCase().includes(targetWord)) {
       const customEmoji = message.guild?.emojis.cache.find(e => e.name === 'Muffin');
-      if (customEmoji && SENDS.AUTO_REACT) await message.react(customEmoji);
-      else if (!customEmoji) console.warn('Custom muffin emoji not found.');
+      if (customEmoji) await message.react(customEmoji);
+      else console.warn('Custom muffin emoji not found.');
     }
   } catch (err) {
     console.error('Unexpected messageCreate error:', err);
@@ -224,7 +212,7 @@ client.on('interactionCreate', async (interaction) => {
         });
         } catch (err) {
           console.error('Muffin button error:', err);
-          if (!interaction.replied && !interaction.deferred && SENDS.GENERIC_REPLIES)
+          if (!interaction.replied && !interaction.deferred)
             await interaction.reply({ content: '❌ Something went wrong!', flags: 64 });
         }
       return;

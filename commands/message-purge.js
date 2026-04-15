@@ -2,12 +2,6 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('message-purge')
@@ -18,49 +12,20 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      if (!SENDS.REPLIES) {
-        try {
-          if (replied || interaction.deferred) {
-            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          } else {
-            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          }
-        } catch (err) {
-          return null;
-        }
-      }
-
       const options = { content: String(content) };
       if (isEphemeral) options.flags = 64;
-      try {
-        if (replied || interaction.deferred) {
-          const res = await interaction.followUp(options);
-          replied = true;
-          return res;
-        } else {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        }
-      } catch (err) {
-        try {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        } catch (err2) {
-          return null;
-        }
+      if (replied || interaction.deferred) {
+        return interaction.followUp(options);
+      } else {
+        replied = true;
+        return interaction.reply(options);
       }
     }
 
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
@@ -77,9 +42,8 @@ module.exports = {
       // --- Permission check ---
       const permResult = await checkPermissions(interaction);
       if (typeof permResult === 'string') {
-        if (SENDS.LOGS) await logUsage(`❌ Permission denied (${permResult})`);
-        if (SENDS.REPLIES) return safeReply(permResult, true);
-        return;
+        await logUsage(`❌ Permission denied (${permResult})`);
+        return safeReply(permResult, true);
       }
 
       // Ensure bot has Manage Messages permission
@@ -90,7 +54,7 @@ module.exports = {
 
       // Defer reply to avoid interaction timeout
       try {
-        if (SENDS.REPLIES) await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply({ flags: 64 });
       } catch (err) {
         console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
       }
@@ -100,8 +64,8 @@ module.exports = {
       const botMessages = messages.filter(msg => msg.author.bot);
 
       if (botMessages.size === 0) {
-        if (SENDS.REPLIES) await interaction.editReply("✅ No bot messages found to delete.");
-        if (SENDS.LOGS) await logUsage("✅ No bot messages found");
+        await interaction.editReply("✅ No bot messages found to delete.");
+        await logUsage("✅ No bot messages found");
         return;
       }
 
@@ -109,8 +73,8 @@ module.exports = {
       await interaction.channel.bulkDelete(botMessages, true);
 
       const resultMsg = `✅ Deleted ${botMessages.size} bot messages!`;
-      if (SENDS.REPLIES) await interaction.editReply(resultMsg);
-      if (SENDS.LOGS) await logUsage(`✅ Deleted ${botMessages.size} bot messages`);
+      await interaction.editReply(resultMsg);
+      await logUsage(`✅ Deleted ${botMessages.size} bot messages`);
 
     } catch (error) {
       console.error("❌ Error deleting messages:", error);

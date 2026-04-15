@@ -2,12 +2,6 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('replace')
@@ -72,7 +66,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
@@ -92,8 +86,8 @@ module.exports = {
       const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
 
       if (!hasRequiredRole) {
-        if (SENDS.REPLIES) await interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
-        if (SENDS.LOGS) await logUsage("⚠️ Permission denied.");
+        await interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
+        await logUsage("⚠️ Permission denied.");
         return;
       }
 
@@ -114,7 +108,7 @@ module.exports = {
       // --- Acknowledge Command ---
       let replyMessage;
       try {
-        if (SENDS.REPLIES) replyMessage = await interaction.reply({
+        replyMessage = await interaction.reply({
           content: `🔄 Processing replacement for Round #${round}...`,
           fetchReply: true
         });
@@ -163,25 +157,25 @@ module.exports = {
       }
 
       // --- Edit original reply ---
-      if (replyMessage && SENDS.REPLIES) {
+      if (replyMessage) {
         await replyMessage.edit(userMessage);
         setTimeout(async () => {
           try { await replyMessage.delete(); } catch (err) { console.error(err); }
         }, 8000);
       }
 
-      if (SENDS.LOGS) await logUsage(logSuffix);
+      await logUsage(logSuffix);
 
     } catch (error) {
       console.error("❌ Error in replace command:", error);
 
       if (interaction.replied || interaction.deferred) {
-        if (SENDS.REPLIES) await interaction.editReply('❌ Replacement failed. Please try again.');
+        await interaction.editReply('❌ Replacement failed. Please try again.');
       } else {
-        if (SENDS.REPLIES) await interaction.reply({ content: '❌ Replacement failed. Please try again.', flags: 64 });
+        await interaction.reply({ content: '❌ Replacement failed. Please try again.', flags: 64 });
       }
 
-      if (SENDS.LOGS) await logUsage(`❌ Error: ${error.message}`);
+      await logUsage(`❌ Error: ${error.message}`);
     }
   },
 };

@@ -3,12 +3,6 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  PUBLISH_TEAMS: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('approve-round')
@@ -22,60 +16,21 @@ module.exports = {
 
   async execute(interaction) {
     let replyMessage;
-    let replied = false;
-
-    async function safeReply(content, isEphemeral = false) {
-      if (!SENDS.REPLIES) {
-        try {
-          if (replied || interaction.deferred) {
-            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          } else {
-            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          }
-        } catch (err) {
-          return null;
-        }
-      }
-
-      const options = typeof content === 'string' ? { content } : content;
-      if (isEphemeral) options.flags = 64;
-      try {
-        if (replied || interaction.deferred) {
-          return await interaction.followUp(options);
-        } else {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        }
-      } catch (err) {
-        try {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        } catch (err2) {
-          return null;
-        }
-      }
-    }
 
     // --- Helper: log command usage + outcomes ---
     async function logUsage(extra = "") {
       try {
-          const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-          if (logChannel && SENDS.LOGS) {
-            const userTag = interaction.user.tag;
-            const channelName = interaction.channel?.name || "DM/Unknown";
-            await logChannel.send(
-              `📝 **/approve-round** used by **${userTag}** in **#${channelName}** ${extra}`
-            );
-          }
-        } catch (logError) {
-          console.error("❌ Failed to send log message:", logError);
+        const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
+        if (logChannel) {
+          const userTag = interaction.user.tag;
+          const channelName = interaction.channel?.name || "DM/Unknown";
+          await logChannel.send(
+            `📝 **/approve-round** used by **${userTag}** in **#${channelName}** ${extra}`
+          );
         }
+      } catch (logError) {
+        console.error("❌ Failed to send log message:", logError);
+      }
     }
 
     try {
@@ -208,14 +163,10 @@ module.exports = {
               if (teamChannelId) {
                 try {
                   const teamChannel = await interaction.client.channels.fetch(teamChannelId);
-                    if (teamChannel) {
+                  if (teamChannel) {
                     // Send the team message
-                    if (SENDS.PUBLISH_TEAMS) {
-                      await teamChannel.send(teamOutput);
-                      console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
-                    } else {
-                      console.log(`⚠️ Skipped sending team ${teamKey} (SENDS.PUBLISH_TEAMS=false)`);
-                    }
+                    await teamChannel.send(teamOutput);
+                    console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
 
                     // --- 🔹 NEW: Fetch the "Fill In" role ---
                     const fillInRole = interaction.guild.roles.cache.find(

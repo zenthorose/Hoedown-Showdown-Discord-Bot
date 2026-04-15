@@ -10,15 +10,6 @@ const GUILD_ID = process.env.GUILD_ID;
 const SUPPORT_CATEGORY_NAME = 'Support Tickets';
 const config = require('../config.json');
 
-// Per-feature send toggles for this event handler
-const SENDS = {
-  REPLIES: true,        // message.reply / interaction.reply outputs
-  TICKETS: true,        // ticketChannel sends (creating/updating tickets)
-  DMS: true,            // direct messages to users (user.send)
-  EDITS: true,          // editing ticket messages (embed sync)
-  REACTIONS: true,      // adding reactions like ✅ or custom emojis
-};
-
 const STAFF_ROLE_IDS = [
   "1069716885467312188",
   "1253964506317586453",
@@ -136,7 +127,7 @@ module.exports = {
       // !commands list
       if (content === COMMANDS_PREFIX) {
         const commandList = COMMANDS.map(c => `**${c.prefix}** — ${c.desc}`);
-        if (SENDS.REPLIES) await message.reply(`📜 **Available Commands:**\n${commandList.join('\n')}`);
+        await message.reply(`📜 **Available Commands:**\n${commandList.join('\n')}`);
         return;
       }
 
@@ -149,7 +140,7 @@ module.exports = {
           const targetId = args[0];
 
           if (!targetId || !/^\d+$/.test(targetId)) {
-            if (SENDS.REPLIES) await message.reply('⚠️ Please provide a valid Discord user ID. Example: `!contact 123456789012345678`');
+            await message.reply('⚠️ Please provide a valid Discord user ID. Example: `!contact 123456789012345678`');
             return;
           }
 
@@ -160,7 +151,7 @@ module.exports = {
           try {
             user = await client.users.fetch(targetId);
           } catch {
-            if (SENDS.REPLIES) await message.reply('❌ Could not find that user.');
+            await message.reply('❌ Could not find that user.');
             return;
           }
 
@@ -201,18 +192,18 @@ module.exports = {
               .setDescription(`Ticket manually created for **${user.tag}** by staff.`)
               .setTimestamp();
 
-            if (SENDS.TICKETS) await ticketChannel.send({
+            await ticketChannel.send({
               content: `🎟️ **New Support Ticket (Created by Staff)**\nFor: **${user.tag}**\nID: ${user.id}`,
               embeds: [embed],
             });
 
-            if (SENDS.DMS) await user.send(`📩 A support ticket has been created for you by staff.`)
+            await user.send(`📩 A support ticket has been created for you by staff.`)
               .catch(() => console.warn(`⚠️ Could not DM ${user.tag}`));
 
-            if (SENDS.REPLIES) await message.reply(`✅ Ticket created for **${user.tag}**.`);
+            await message.reply(`✅ Ticket created for **${user.tag}**.`);
             console.log(`📨 Staff manually created ticket for ${user.tag}`);
           } else {
-            if (SENDS.REPLIES) await message.reply(`⚠️ A ticket already exists for **${user.tag}**.`);
+            await message.reply(`⚠️ A ticket already exists for **${user.tag}**.`);
           }
           return;
         }
@@ -224,7 +215,7 @@ module.exports = {
       if (message.channel.type === ChannelType.DM) {
         const supporttickets = config.supporttickets;
         if (!supporttickets) {
-          if (SENDS.REPLIES) await message.reply('❌ Sorry, support tickets are currently closed.');
+          await message.reply('❌ Sorry, support tickets are currently closed.');
           console.log(`⚠️ Ignored DM from ${message.author.tag} (support disabled).`);
           return;
         }
@@ -270,16 +261,16 @@ module.exports = {
             ],
           });
 
-          if (SENDS.TICKETS) await ticketChannel.send({
+          await ticketChannel.send({
             content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}\n<@&1069083357100642316>`,
             embeds: [userEmbed],
           });
 
-          if (SENDS.REPLIES) await message.reply('✅ Ticket opened. The support team will respond soon.');
+          await message.reply('✅ Ticket opened. The support team will respond soon.');
           console.log(`📨 New ticket opened for ${message.author.tag}`);
         } else {
-          if (SENDS.TICKETS) await ticketChannel.send({ embeds: [userEmbed] });
-          if (SENDS.REACTIONS) await message.react('✅');
+          await ticketChannel.send({ embeds: [userEmbed] });
+          await message.react('✅');
           console.log(`📩 DM added to existing ticket for ${message.author.tag}`);
         }
       } else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
@@ -317,7 +308,7 @@ module.exports = {
       const newDesc = buildStackedDescription(newMessage.content || '*No content / embed / attachment*', previousDesc);
 
       const embed = EmbedBuilder.from(targetMsg.embeds[0]).setDescription(newDesc);
-      if (SENDS.EDITS) await targetMsg.edit({ embeds: [embed] });
+      await targetMsg.edit({ embeds: [embed] });
 
       console.log(`✏️ Synced edit for ${newMessage.author.tag} in ticket channel ${ticketChannel.name}`);
 
@@ -359,9 +350,9 @@ module.exports = {
       );
 
       const embed = EmbedBuilder.from(targetMsg.embeds[0]).setDescription(newDescription);
-      if (SENDS.EDITS) await targetMsg.edit({ embeds: [embed] });
+      await targetMsg.edit({ embeds: [embed] });
 
-      if (SENDS.TICKETS) await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
+      await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
 
     } catch (err) {
       console.error('❌ Support Ticket delete sync failed:', err);

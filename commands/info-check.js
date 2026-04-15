@@ -1,12 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
+const { MessageFlags } = require('discord.js');
 const axios = require('axios');
 const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
-
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -20,7 +15,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
@@ -33,18 +28,17 @@ module.exports = {
     }
 
     if (!triggerUrl) {
-      if (SENDS.LOGS) await logUsage("❌ GAS URL missing");
-      if (SENDS.REPLIES) return await interaction.reply({
-          content: '❌ Error: Google Apps Script URL is not defined.',
-          flags: 64
-        });
-      return;
+      await logUsage("❌ GAS URL missing");
+      return await interaction.reply({
+        content: '❌ Error: Google Apps Script URL is not defined.',
+        flags: MessageFlags.Ephemeral
+      });
     }
 
     try {
-      if (SENDS.REPLIES) await interaction.reply({
+      await interaction.reply({
         content: '🔄 Fetching your info...',
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     } catch {
       // Ignore if already acknowledged
@@ -70,13 +64,13 @@ module.exports = {
         `**Stream Link:** ${data.streamLink || 'Not set'}`
       ].join('\n');
 
-      if (SENDS.REPLIES) await safeEdit(interaction, msg);
-      if (SENDS.LOGS) await logUsage("✅ Info fetched successfully");
+      await safeEdit(interaction, msg);
+      await logUsage("✅ Info fetched successfully");
 
     } catch (error) {
       console.error("❌ Error in /info-check:", error);
-      if (SENDS.REPLIES) await safeEdit(interaction, '⚠️ Error fetching info. Please try again later.');
-      if (SENDS.LOGS) await logUsage(`❌ Error: ${error.message}`);
+      await safeEdit(interaction, '⚠️ Error fetching info. Please try again later.');
+      await logUsage(`❌ Error: ${error.message}`);
     }
 
     async function safeEdit(interaction, content) {
@@ -84,7 +78,7 @@ module.exports = {
         await interaction.editReply({ content });
       } catch {
         try {
-          await interaction.followUp({ content, flags: 64 });
+          await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
         } catch {}
       }
     }

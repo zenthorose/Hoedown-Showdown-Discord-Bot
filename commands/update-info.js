@@ -2,12 +2,6 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('update-info')
@@ -62,7 +56,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
@@ -76,27 +70,27 @@ module.exports = {
     }
 
     if (!triggerUrl) {
-      if (SENDS.REPLIES) await interaction.reply({
+      await interaction.reply({
         content: '❌ Error: Google Apps Script URL is not set in environment variables.',
         flags: 64
       });
-      if (SENDS.LOGS) await logUsage("❌ Failed - Missing Google Apps Script URL.");
+      await logUsage("❌ Failed - Missing Google Apps Script URL.");
       return;
     }
 
     // --- Require Registered role ---
     const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');
     if (!registeredRole || !member.roles.cache.has(registeredRole.id)) {
-      if (SENDS.REPLIES) await interaction.reply({
+      await interaction.reply({
         content: "❌ You must be registered to use this command. Use `/register` first.",
         flags: 64
       });
-      if (SENDS.LOGS) await logUsage("❌ Permission denied - not registered.");
+      await logUsage("❌ Permission denied - not registered.");
       return;
     }
 
     try {
-      if (SENDS.REPLIES) await interaction.reply({ content: '⏳ Processing your update…', flags: 64 });
+      await interaction.reply({ content: '⏳ Processing your update…', flags: 64 });
     } catch {}
 
     let infoType, newValue;
@@ -127,8 +121,8 @@ module.exports = {
 
       // Only digits allowed, no length restriction
       if (!/^\d+$/.test(newValue)) {
-        if (SENDS.REPLIES) await interaction.editReply({ content: '❌ Invalid Steam ID. Must only contain numbers.' });
-        if (SENDS.LOGS) await logUsage("❌ Failed - Invalid Steam ID.");
+        await interaction.editReply({ content: '❌ Invalid Steam ID. Must only contain numbers.' });
+        await logUsage("❌ Failed - Invalid Steam ID.");
         return;
       }
     }
@@ -139,8 +133,8 @@ module.exports = {
 
       const validLinkRegex = /^(?:(?:https?:\/\/)?(?:www\.)?twitch\.tv\/[a-zA-Z0-9_\-/?=&#%.]+|https?:\/\/(?:www\.|m\.)?(kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+|N\/A)$/i;
       if (!validLinkRegex.test(newValue)) {
-        if (SENDS.REPLIES) await interaction.editReply({ content: '❌ Invalid link. Must be Twitch, Kick, YouTube, or TikTok.' });
-        if (SENDS.LOGS) await logUsage("❌ Failed - Invalid stream link.");
+        await interaction.editReply({ content: '❌ Invalid link. Must be Twitch, Kick, YouTube, or TikTok.' });
+        await logUsage("❌ Failed - Invalid stream link.");
         return;
       }
     }
@@ -154,15 +148,15 @@ module.exports = {
       await axios.post(triggerUrl, updateData);
 
       try {
-        if (SENDS.REPLIES) await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue} **!` });
-        if (SENDS.LOGS) await logUsage(`✅ Successfully updated **${infoType}** → **${newValue} **.`);
+        await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue} **!` });
+        await logUsage(`✅ Successfully updated **${infoType}** → **${newValue} **.`);
       } catch {}
     } catch (error) {
       console.error("❌ Error updating info:", error);
       try {
-        if (SENDS.REPLIES) await interaction.editReply({ content: '❌ Failed to update your info.' });
+        await interaction.editReply({ content: '❌ Failed to update your info.' });
       } catch {}
-      if (SENDS.LOGS) await logUsage(`❌ Error: ${error.message}`);
+      await logUsage(`❌ Error: ${error.message}`);
     }
   }
 };

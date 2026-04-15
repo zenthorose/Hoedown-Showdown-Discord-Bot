@@ -2,12 +2,6 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('count')
@@ -47,49 +41,17 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      // If replies are globally disabled for this command, inform the user.
-      if (!SENDS.REPLIES) {
-        try {
-          if (replied || interaction.deferred) {
-            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          } else {
-            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          }
-        } catch (err) {
-          return null;
-        }
-      }
-
-      const options = typeof content === 'string' ? { content } : content;
+      const options = { content };
       if (isEphemeral) options.flags = 64;
-      try {
-        if (replied || interaction.deferred) {
-          return await interaction.followUp(options);
-        } else {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        }
-      } catch (err) {
-        // Fallback: try reply if followUp failed because interaction wasn't replied/deferred
-        try {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        } catch (err2) {
-          return null;
-        }
-      }
+      if (replied) return interaction.followUp(options);
+      replied = true;
+      return interaction.reply(options);
     }
 
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(`🧮 **/count** used by **${userTag}** in **#${channelName}** ${extra}`);
@@ -104,7 +66,7 @@ module.exports = {
       await logUsage("Attempting to count roles");
 
       if (!hasPermission) {
-        if (SENDS.LOGS) await logUsage("❌ Permission denied");
+        await logUsage("❌ Permission denied");
         return safeReply("❌ You do not have permission to run this command!", true);
       }
 
@@ -149,16 +111,19 @@ module.exports = {
         desc
       ].join('\n');
 
-      if (SENDS.LOGS) await logUsage(`✅ Count completed (${type}): ${count}`);
+      await logUsage(`✅ Count completed (${type}): ${count}`);
       return safeReply(result);
 
     } catch (error) {
       console.error("❌ Error executing /count:", error);
-      if (SENDS.LOGS) await logUsage("❌ Unexpected error during count");
+      await logUsage("❌ Unexpected error during count");
       try {
-        await safeReply("❌ Error executing command.", true);
+        if (replied || interaction.deferred)
+          await interaction.followUp({ content: "❌ Error executing command.", flags: 64 });
+        else
+          await interaction.reply({ content: "❌ Error executing command.", flags: 64 });
       } catch (err) {
-        console.error("❌ Failed to send error message via safeReply:", err);
+        console.error("❌ Failed to send error message:", err);
       }
     }
   }

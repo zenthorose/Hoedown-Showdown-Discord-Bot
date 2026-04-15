@@ -2,11 +2,6 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { checkPermissions } = require('../permissions'); 
 const fetch = require('node-fetch'); // Make sure node-fetch is installed
 
-// Per-feature send toggles for this command
-const SENDS = {
-  MESSAGE_SEND: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('message')
@@ -156,10 +151,6 @@ module.exports = {
 
     // --- Send or edit ---
     try {
-      if (!SENDS.MESSAGE_SEND) {
-        await interaction.reply({ content: '⚠️ Sending is disabled by configuration.', flags: 64 });
-        return;
-      }
       if (messageId) {
         const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
         if (!targetMessage)

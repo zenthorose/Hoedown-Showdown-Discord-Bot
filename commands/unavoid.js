@@ -3,12 +3,6 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('unavoid')
@@ -29,7 +23,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(`📝 **/unavoid** used by **${userTag}** in **#${channelName}** ${extra}`);
@@ -45,8 +39,7 @@ module.exports = {
 
       if (!hasPermission) {
         await logUsage("❌ Permission denied");
-        if (SENDS.REPLIES) return interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
-        return;
+        return interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
       }
 
       // Collect the two users
@@ -64,10 +57,8 @@ module.exports = {
 
       // --- Defer reply to avoid Unknown interaction errors ---
       try {
-        if (SENDS.REPLIES) {
-          await interaction.deferReply({ flags: 64 });
-          replyMessage = true;
-        } else replyMessage = false;
+        await interaction.deferReply({ flags: 64 });
+        replyMessage = true;
       } catch (err) {
         console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
         replyMessage = false;
@@ -87,8 +78,8 @@ module.exports = {
         : `❌ Failed to update avoid list.`;
 
       // --- Edit deferred reply with result ---
-      if (SENDS.REPLIES) await interaction.editReply(displayMessage);
-      if (SENDS.LOGS) await logUsage(`→ ${displayMessage}. Players: ${users.map(u => u.username).join(', ')}`);
+      await interaction.editReply(displayMessage);
+      await logUsage(`→ ${displayMessage}. Players: ${users.map(u => u.username).join(', ')}`);
 
       // Optional: delete reply after 5 seconds
       setTimeout(async () => {

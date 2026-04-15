@@ -3,12 +3,6 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('avoid')
@@ -37,50 +31,11 @@ module.exports = {
 
   async execute(interaction) {
     let replyMessage;
-    let replied = false;
-
-    async function safeReply(content, isEphemeral = false) {
-      if (!SENDS.REPLIES) {
-        try {
-          if (replied || interaction.deferred) {
-            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          } else {
-            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          }
-        } catch (err) {
-          return null;
-        }
-      }
-
-      const options = typeof content === 'string' ? { content } : content;
-      if (isEphemeral) options.flags = 64;
-      try {
-        if (replied || interaction.deferred) {
-          return await interaction.followUp(options);
-        } else {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        }
-      } catch (err) {
-        try {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        } catch (err2) {
-          return null;
-        }
-      }
-    }
 
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(`📝 **/avoid** used by **${userTag}** in **#${channelName}** ${extra}`);
@@ -96,7 +51,7 @@ module.exports = {
 
       if (!hasPermission) {
         await logUsage("❌ Permission denied");
-        return safeReply('❌ You do not have permission to use this command!', true);
+        return interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
       }
 
       // Collect selected users
@@ -107,20 +62,17 @@ module.exports = {
       }
 
       if (users.length < 2) {
-        return safeReply('❌ You must select at least 2 players.', true);
+        return interaction.reply({ content: '❌ You must select at least 2 players.', flags: 64 });
       }
 
       console.log('📤 Sending avoid data to GAS:', JSON.stringify({ command: 'avoid', users }, null, 2));
 
-      // --- Acknowledge the interaction with a safe processing reply ---
+      // --- Defer reply to avoid Unknown interaction errors ---
       try {
-        const ack = await safeReply({ content: '🔄 Processing avoid request...', fetchReply: true });
-        // If replies are disabled, safeReply will have sent "This command is disabled".
-        // Stop processing further to avoid doing work when SENDS.REPLIES is false.
-        if (!SENDS.REPLIES) return;
-        replyMessage = ack;
+        await interaction.deferReply({ flags: 64 });
+        replyMessage = true;
       } catch (err) {
-        console.warn('⚠️ Initial reply failed, continuing without initial reply:', err?.message || err);
+        console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
         replyMessage = false;
       }
 
@@ -137,20 +89,8 @@ module.exports = {
         ? `✅ Avoid list updated. Added: ${addedPairs}, Skipped (existing): ${skippedPairs}`
         : `❌ Failed to update avoid list.`;
 
-      // --- Edit reply with result (robust flow) ---
-      if (SENDS.REPLIES) {
-        try {
-          if (replyMessage && typeof replyMessage.edit === 'function') {
-            await replyMessage.edit(displayMessage);
-          } else if (interaction.deferred || interaction.replied) {
-            await interaction.editReply(displayMessage);
-          } else {
-            await safeReply(displayMessage);
-          }
-        } catch (err) {
-          await safeReply(displayMessage);
-        }
-      }
+      // --- Edit deferred reply with result ---
+      await interaction.editReply(displayMessage);
       await logUsage(`→ ${displayMessage}. Players: ${users.map(u => u.username).join(', ')}`);
 
       // Optional: delete reply after 5 seconds
@@ -163,9 +103,13 @@ module.exports = {
       await logUsage(`❌ Error: ${error.message}`);
 
       try {
-        await safeReply('❌ There was an error executing this command. Please try again.', true);
+        if (replyMessage) {
+          await interaction.editReply('❌ There was an error executing this command. Please try again.');
+        } else {
+          await interaction.reply({ content: '❌ There was an error executing this command. Please try again.', flags: 64 });
+        }
       } catch (err) {
-        console.error('❌ Failed to send error message via safeReply:', err);
+        console.error('❌ Failed to send error message:', err);
       }
     }
   },

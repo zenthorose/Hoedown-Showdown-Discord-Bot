@@ -2,12 +2,6 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json'); // 👈 make sure LOG_CHANNEL_ID is inside config.json
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('commands')
@@ -28,50 +22,20 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      // If replies are globally disabled for this command, inform the user.
-      if (!SENDS.REPLIES) {
-        try {
-          if (replied || interaction.deferred) {
-            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          } else {
-            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
-            replied = true;
-            return res;
-          }
-        } catch (err) {
-          // If replying fails (e.g., interaction already acknowledged), swallow the error
-          return null;
-        }
-      }
-
       const options = typeof content === 'string' ? { content } : content;
       if (isEphemeral) options.flags = 64;
-      try {
-        if (replied || interaction.deferred) {
-          return await interaction.followUp(options);
-        } else {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        }
-      } catch (err) {
-        // If followUp fails because interaction wasn't replied/deferred, try reply as a fallback
-        try {
-          const res = await interaction.reply(options);
-          replied = true;
-          return res;
-        } catch (err2) {
-          return null;
-        }
+      if (replied) {
+        return interaction.followUp(options);
+      } else {
+        replied = true;
+        return interaction.reply(options);
       }
     }
 
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
@@ -135,12 +99,15 @@ module.exports = {
 
     } catch (error) {
       console.error("❌ Error executing /commands:", error);
-      if (SENDS.LOGS) await logUsage("❌ Unexpected error");
+      await logUsage("❌ Unexpected error");
       try {
-        // Use safeReply so the SENDS.REPLIES flag and reply/followUp logic are respected.
-        await safeReply('❌ There was an error executing this command!', true);
+        if (replied || interaction.deferred) {
+          await interaction.followUp({ content: '❌ There was an error executing this command!', flags: 64 });
+        } else {
+          await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
+        }
       } catch (err) {
-        console.error('❌ Failed to send error message via safeReply:', err);
+        console.error('❌ Failed to send error message:', err);
       }
     }
   }

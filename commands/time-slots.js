@@ -2,13 +2,6 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  TIME_SLOTS: true,
-  REACTIONS: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('time-slots')
@@ -19,7 +12,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
@@ -78,7 +71,7 @@ module.exports = {
         .setDescription("React to the messages below to sign up for a time slot. Make sure to remove your reaction if you are no longer available.")
         .setTimestamp();
 
-      if (SENDS.TIME_SLOTS) await targetChannel.send({ embeds: [introEmbed] });
+      await targetChannel.send({ embeds: [introEmbed] });
 
       // --- Post each time slot ---
       let roundNumber = 1;
@@ -92,7 +85,7 @@ module.exports = {
           .setDescription(`React to the emoji below to join the ${timeSlot} time slot!`)
           .setTimestamp();
 
-        const message = SENDS.TIME_SLOTS ? await targetChannel.send({ embeds: [exampleEmbed] }) : null;
+        const message = await targetChannel.send({ embeds: [exampleEmbed] });
         if (reactionPostsManager && typeof reactionPostsManager.addPost === 'function') {
           reactionPostsManager.addPost({
             channelId: message.channel.id,
@@ -103,7 +96,7 @@ module.exports = {
         }
 
         console.log(`Posted time slot for: ${timeSlot} in ${targetChannel.name} with emoji ${emoji}`);
-        if (message && SENDS.REACTIONS) await message.react(emoji);
+        await message.react(emoji);
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         roundNumber++;

@@ -2,12 +2,6 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
 
-// Per-feature send toggles for this command
-const SENDS = {
-  LOGS: true,
-  REPLIES: true,
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('swap')
@@ -73,7 +67,7 @@ module.exports = {
     async function logUsage(extra = "") {
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (logChannel && SENDS.LOGS) {
+        if (logChannel) {
           const userTag = interaction.user.tag;
           const userId = interaction.user.id;
           const channelName = interaction.channel?.name || "DM/Unknown";
@@ -94,8 +88,8 @@ module.exports = {
       const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
 
       if (!hasRequiredRole) {
-        if (SENDS.REPLIES) await interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
-        if (SENDS.LOGS) await logUsage("⚠️ Permission denied.");
+        await interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
+        await logUsage("⚠️ Permission denied.");
         return;
       }
 
@@ -114,8 +108,7 @@ module.exports = {
       }
 
       // --- Initial Reply ---
-      let replyMessage = null;
-      if (SENDS.REPLIES) replyMessage = await interaction.reply({
+      let replyMessage = await interaction.reply({
         content: `🔄 Processing ${swaps.length} swap(s) for Round #${round}...`,
         fetchReply: true
       });
@@ -131,8 +124,8 @@ module.exports = {
       console.log("✅ GAS response:", response.data);
 
       if (!response.data.success) {
-        if (replyMessage && SENDS.REPLIES) await replyMessage.edit("❌ Swap request failed.");
-        if (SENDS.LOGS) await logUsage("❌ GAS returned failure.");
+        await replyMessage.edit("❌ Swap request failed.");
+        await logUsage("❌ GAS returned failure.");
         return;
       }
 
@@ -146,8 +139,8 @@ module.exports = {
 
       const finalMessage = `📋 Swap results for Round #${round}:\n${details}\n\n✅ ${successCount} succeeded | ❌ ${failCount} failed`;
 
-      if (replyMessage && SENDS.REPLIES) await replyMessage.edit(finalMessage);
-      if (SENDS.LOGS) await logUsage(`✅ ${successCount} success | ❌ ${failCount} failed`);
+      await replyMessage.edit(finalMessage);
+      await logUsage(`✅ ${successCount} success | ❌ ${failCount} failed`);
 
       // Optionally auto-delete after 15s
       setTimeout(async () => {
