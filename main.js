@@ -243,8 +243,24 @@ app.use(express.json());
 app.get('/ping', (req, res) => res.send('Pong!'));
 
 app.post('/sendmessage', async (req, res) => {
-  const { channelId, message } = req.body;
+  const { channelId, message, source } = req.body;
   if (!channelId || !message) return res.status(400).json({ error: 'Missing required fields: channelId and message' });
+
+  // Blocking controls (configurable via environment variables):
+  // - BLOCK_GAS_POSTS: if 'true', requests identified as coming from Google Apps Script will be skipped.
+  const blockGas = String(process.env.BLOCK_GAS_POSTS || '').toLowerCase() === 'true';
+
+  // Heuristics to detect Apps Script requests: explicit `source` field, special header, or User-Agent
+  const ua = String(req.headers['user-agent'] || '').toLowerCase();
+  const headerGas = String(req.headers['x-from-gas'] || '').toLowerCase();
+  const isFromGAS = (source === 'GAS') || (headerGas === 'true') || ua.includes('google-apps-script') || ua.includes('google-apps-script/');
+
+  if (blockGas && isFromGAS) {
+    console.log(`ℹ️ Skipped posting to ${channelId} — request identified as GAS and BLOCK_GAS_POSTS=true`);
+    return res.status(200).json({ skipped: 'blocked_source', reason: 'identified_as_gas' });
+  }
+
+  // Note: phrase-based blocking removed — use BLOCK_GAS_POSTS and explicit source/header detection instead
 
   try {
     const channel = await client.channels.fetch(channelId);

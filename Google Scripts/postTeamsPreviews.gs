@@ -19,14 +19,18 @@ function postToDiscord(channelId, message, safeLog) {
     return;
   }
 
-  const payload = { channelId, message };
+  // Mark this payload as originating from Google Apps Script so the bot can detect and optionally block it
+  const payload = { channelId, message, source: 'GAS' };
 
   try {
     const response = UrlFetchApp.fetch(renderUrl, {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify(payload),
-      muteHttpExceptions: true
+      muteHttpExceptions: true,
+      headers: {
+        'x-from-gas': 'true'
+      }
     });
     log(`✅ Post status: ${response.getResponseCode()}, body: ${response.getContentText()}`);
   } catch (e) {
