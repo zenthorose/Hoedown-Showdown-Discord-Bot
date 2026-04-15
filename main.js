@@ -228,25 +228,51 @@ client.on('interactionCreate', async (interaction) => {
         console.error(`❌ Error executing command ${interaction.commandName}:`, err);
         try {
           const alreadyAcknowledged = (typeof interaction.acknowledged !== 'undefined') ? interaction.acknowledged : (interaction.replied || interaction.deferred);
-          if (!interaction.replied && !interaction.deferred && !alreadyAcknowledged) {
-            await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
-          } else {
+          const errorContent = { content: '❌ There was an error executing this command!', flags: 64 };
+
+          if (!alreadyAcknowledged) {
+            // Safe to reply directly
             try {
-              await interaction.editReply({ content: '❌ There was an error executing this command!' });
-            } catch (editErr) {
-              console.warn('⚠️ Failed to edit interaction reply for error message:', editErr?.message || editErr);
-              // Fallback: attempt to reply if safe
-              try {
-                if (!interaction.replied && !interaction.deferred && !alreadyAcknowledged) {
-                  await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
+              await interaction.reply(errorContent);
+            } catch (replyErr) {
+              // If reply failed because interaction is already acknowledged or unknown, try followUp
+              if (replyErr?.code === 40060 || replyErr?.code === 10062) {
+                try { await interaction.followUp(errorContent); } catch (fuErr) {
+                  console.warn('⚠️ Follow-up failed after reply error:', fuErr?.message || fuErr);
                 }
-              } catch (replyErr) {
-                console.warn('⚠️ Could not send error reply to interaction (already acknowledged?).', replyErr?.message || replyErr);
+              } else {
+                console.warn('⚠️ Failed to send error reply to interaction:', replyErr?.message || replyErr);
               }
+            }
+          } else {
+            // Interaction already acknowledged — use followUp or editReply when possible
+            try {
+              if (interaction.deferred || interaction.replied) {
+                // Prefer editReply if we previously replied/deferred and can edit
+                try { await interaction.editReply({ content: errorContent.content }); }
+                catch (editErr) {
+                  // If edit fails, fallback to followUp
+                  if (editErr?.code === 10062) {
+                    console.warn('⚠️ Unknown interaction when attempting editReply — skipping.');
+                  } else {
+                    try { await interaction.followUp(errorContent); }
+                    catch (fuErr) { console.warn('⚠️ followUp failed after editReply error:', fuErr?.message || fuErr); }
+                  }
+                }
+              } else {
+                // If acknowledged but not replied/deferred (rare), try followUp
+                try { await interaction.followUp(errorContent); }
+                catch (fuErr) {
+                  if (fuErr?.code === 10062) console.warn('⚠️ Unknown interaction when attempting followUp — skipping.');
+                  else console.warn('⚠️ followUp failed for acknowledged interaction:', fuErr?.message || fuErr);
+                }
+              }
+            } catch (innerErr) {
+              console.warn('⚠️ Could not send error response to interaction (possible already acknowledged):', innerErr?.message || innerErr);
             }
           }
         } catch (replyErr) {
-          console.warn('⚠️ Failed to send error response to interaction (possible already acknowledged):', replyErr?.message || replyErr);
+          console.warn('⚠️ Failed to send error response to interaction (unexpected):', replyErr?.message || replyErr);
         }
       }
   } catch (err) {
