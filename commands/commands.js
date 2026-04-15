@@ -30,12 +30,15 @@ module.exports = {
     async function safeReply(content, isEphemeral = false) {
       // If replies are globally disabled for this command, inform the user.
       if (!SENDS.REPLIES) {
-        replied = true; // mark as replied to avoid followUp attempts later
         try {
           if (replied || interaction.deferred) {
-            return interaction.followUp({ content: 'This command is disabled', flags: 64 });
+            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
+            replied = true;
+            return res;
           } else {
-            return interaction.reply({ content: 'This command is disabled', flags: 64 });
+            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
+            replied = true;
+            return res;
           }
         } catch (err) {
           // If replying fails (e.g., interaction already acknowledged), swallow the error
@@ -45,11 +48,23 @@ module.exports = {
 
       const options = typeof content === 'string' ? { content } : content;
       if (isEphemeral) options.flags = 64;
-      if (replied) {
-        return interaction.followUp(options);
-      } else {
-        replied = true;
-        return interaction.reply(options);
+      try {
+        if (replied || interaction.deferred) {
+          return await interaction.followUp(options);
+        } else {
+          const res = await interaction.reply(options);
+          replied = true;
+          return res;
+        }
+      } catch (err) {
+        // If followUp fails because interaction wasn't replied/deferred, try reply as a fallback
+        try {
+          const res = await interaction.reply(options);
+          replied = true;
+          return res;
+        } catch (err2) {
+          return null;
+        }
       }
     }
 
