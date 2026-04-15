@@ -114,9 +114,11 @@ module.exports = {
 
       // --- Acknowledge the interaction with a safe processing reply ---
       try {
-        if (SENDS.REPLIES) {
-          replyMessage = await safeReply({ content: '🔄 Processing avoid request...', fetchReply: true });
-        } else replyMessage = false;
+        const ack = await safeReply({ content: '🔄 Processing avoid request...', fetchReply: true });
+        // If replies are disabled, safeReply will have sent "This command is disabled".
+        // Stop processing further to avoid doing work when SENDS.REPLIES is false.
+        if (!SENDS.REPLIES) return;
+        replyMessage = ack;
       } catch (err) {
         console.warn('⚠️ Initial reply failed, continuing without initial reply:', err?.message || err);
         replyMessage = false;
