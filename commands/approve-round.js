@@ -43,14 +43,15 @@ module.exports = {
 
     try {
       // --- Step 0: Permission check ---
-      const hasPermission = await checkPermissions(interaction);
       await logUsage(); // always log attempt
 
+      // Defer immediately (ephemeral) to acknowledge the interaction and avoid double-reply races.
+      await interaction.deferReply({ ephemeral: true });
+
+      const hasPermission = await checkPermissions(interaction);
       if (!hasPermission) {
-        return interaction.reply({
-          content: '❌ You do not have permission to use this command!',
-          flags: 64
-        });
+        await interaction.editReply({ content: '❌ You do not have permission to use this command!' });
+        return;
       }
 
       const round = interaction.options.getInteger('round');
@@ -58,10 +59,8 @@ module.exports = {
       // --- Step 0.5: Input validation ---
       if (isNaN(round) || round < 1 || round > 16) {
         await logUsage("(❌ Invalid round input)");
-        return interaction.reply({
-          content: '❌ Invalid round number. Please enter a number between 1 and 16.',
-          flags: 64
-        });
+        await interaction.editReply({ content: '❌ Invalid round number. Please enter a number between 1 and 16.' });
+        return;
       }
 
       console.log(`✅ Received approve-round command for Round #${round}`);
