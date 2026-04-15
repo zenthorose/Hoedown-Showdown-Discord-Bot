@@ -67,11 +67,10 @@ module.exports = {
       console.log(`✅ Received approve-round command for Round #${round}`);
       await logUsage(`(Round: ${round})`);
 
-      // --- Step 1: Processing reply ---
-      replyMessage = await interaction.reply({
-        content: `🔄 Processing approval for Round #${round}...`,
-        fetchReply: true
-      });
+      // --- Step 1: Acknowledge the interaction to avoid double-reply errors ---
+      // Use deferReply so we can safely `editReply` later instead of attempting multiple replies.
+      await interaction.deferReply();
+      replyMessage = null;
 
       // --- Step 2: Update round channel permissions (optional global perms) ---
       if (ENABLE_ROUND_CHANNEL_PERMS) {
@@ -270,22 +269,26 @@ module.exports = {
         // --- Step 5: Log outcome ---
         await logUsage(`→ ${logMessage}`);
 
-        // --- Step 6: Update reply & delete after 5s ---
-        if (replyMessage) {
-          await replyMessage.edit(displayMessage);
+        // --- Step 6: Update deferred reply & delete after 5s ---
+        try {
+          await interaction.editReply(displayMessage);
           setTimeout(async () => {
-            try { await replyMessage.delete(); } catch (err) { console.error(err); }
+            try { await interaction.deleteReply(); } catch (err) { console.error(err); }
           }, 5000);
+        } catch (editErr) {
+          console.warn('⚠️ Failed to edit or delete deferred reply:', editErr?.message || editErr);
         }
 
       } catch (gasError) {
         console.error("❌ Step 3: Error triggering Google Apps Script:", gasError);
 
-        if (replyMessage) {
-          await replyMessage.edit(`❌ There was an error triggering the Apps Script.`);
+        try {
+          await interaction.editReply(`❌ There was an error triggering the Apps Script.`);
           setTimeout(async () => {
-            try { await replyMessage.delete(); } catch (err) { console.error(err); }
+            try { await interaction.deleteReply(); } catch (err) { console.error(err); }
           }, 5000);
+        } catch (editErr) {
+          console.warn('⚠️ Failed to edit/delete deferred reply on GAS error:', editErr?.message || editErr);
         }
 
         await logUsage(`❌ Error with Google Apps Script: ${gasError.message}`);
