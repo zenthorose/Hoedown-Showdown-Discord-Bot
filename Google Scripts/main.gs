@@ -1,5 +1,5 @@
 const DEBUG = true;
-const SCRIPT_VERSION = 376;
+const SCRIPT_VERSION = 503;
 
 function logDebug(message) {
   if (DEBUG) logToSheet(message);
@@ -46,7 +46,8 @@ function doPost(e) {
     switch (command) {
       case "grab-reactions":
         logDebug(`[${timestamp}] Handling grab-reactions`);
-        return grabReactions(data);
+        // ✅ Now expects `discordPlayers: [{id, name}, ...]`
+        return grabReactions(data.discordPlayers);
 
       case "replace":
         logDebug(`[${timestamp}] Handling replace`);
@@ -54,14 +55,18 @@ function doPost(e) {
 
       case "swap":
         logDebug(`[${timestamp}] Handling swap`);
-        if (!data.round || !data.player1 || !data.player2) {
-          return createErrorResponse("Missing required parameters for swap: round, player1, player2.");
+
+        // Validate for new format: round + swaps array
+        if (!data.round || !data.swaps || !Array.isArray(data.swaps) || data.swaps.length === 0) {
+          return createErrorResponse("Missing required parameters for swap: round, swaps array.");
         }
+
+        // Pass the full data object to swapPlayers
         return swapPlayers(data);
 
-      case "approve-teams":
-        logDebug(`[${timestamp}] Handling approve-teams`);
-        return approveTeams(data);
+      case "approve-round":
+        logDebug(`[${timestamp}] Handling approve-round`);
+        return postRoundFinal(data);
 
       case "info-check":
         logDebug(`[${timestamp}] Handling info-check`);
@@ -78,6 +83,18 @@ function doPost(e) {
       case "update":
         logDebug(`[${timestamp}] Handling update`);
         return updatePlayerField(data);
+
+      case "avoid":
+        logDebug(`[${timestamp}] Handling avoid`);
+        return avoidPairings(data);
+
+      case "unavoid":
+        logDebug(`[${timestamp}] Handling unavoid`);
+        return unavoidPairings(data);
+
+      case "avoid-list":
+        logDebug(`[${timestamp}] Handling avoid-list`);
+        return avoidList(data);
 
       default:
         throw new Error(`Unknown command: ${command}`);

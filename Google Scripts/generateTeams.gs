@@ -1,10 +1,5 @@
-/**
- * generateTeams
- * Version: 1.2.0 (with log toggle)
- * Fully self-contained, safe logging
- */
 function generateTeams(players, safeLog) {
-  const SCRIPT_VERSION = "generateTeams v1.2.0";
+  const SCRIPT_VERSION = "generateTeams v2.0.0";
   const LOG_ENABLED = false; // <-- set to false to disable logs
 
   // Wrapper around safeLog that respects toggle
@@ -15,12 +10,14 @@ function generateTeams(players, safeLog) {
   }
 
   log("Starting generateTeams script");
-  const regionBuckets = groupPlayersByRegion(players, log); // pass log down
+
+  // Group players by region
+  const regionBuckets = groupPlayersByRegion(players, log);
   log(`Players grouped by region: ${JSON.stringify(regionBuckets)}`);
 
   for (const region of ['East','West','Both']) {
     shuffleArray(regionBuckets[region]);
-    log(`Shuffled ${region} players: ${regionBuckets[region].map(p => p.username).join(', ')}`);
+    log(`Shuffled ${region} players: ${regionBuckets[region].map(p => p.name).join(', ')}`);
   }
 
   const lowerCaseBuckets = {

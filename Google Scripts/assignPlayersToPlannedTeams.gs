@@ -1,16 +1,14 @@
 function assignPlayersToPlannedTeams(teamPlan, regionBuckets, safeLog) {
-  const SCRIPT_VERSION = "assignPlayersToPlannedTeams v1.2.0";
-  const LOG_ENABLED = false; // <-- toggle logging on/off
+  const SCRIPT_VERSION = "assignPlayersToPlannedTeams v2.1.0"; // schema unified
+  const LOG_ENABLED = false;
 
-  // Wrapper around safeLog that respects toggle
   function log(msg) {
     if (LOG_ENABLED && typeof safeLog === "function") {
-      safeLog(msg);
+      safeLog(`[${SCRIPT_VERSION}] ${msg}`);
     }
   }
 
-  log("Starting assignPlayersToPlannedTeams script");
-  log("Starting simplified assignPlayersToPlannedTeams");
+  log("Starting assignPlayersToPlannedTeams");
 
   try {
     const clonedBuckets = {
@@ -29,9 +27,13 @@ function assignPlayersToPlannedTeams(teamPlan, regionBuckets, safeLog) {
       for (const role of format) {
         if (role === "Filler") {
           fillerCount++;
-          const fillerPlayer = { username: `Filler #${fillerCount}`, region: "Filler" };
+          const fillerPlayer = {
+            id: `FILLER_${fillerCount}`,
+            name: `Filler #${fillerCount}`,
+            region: "Filler"
+          };
           team.push(fillerPlayer);
-          log(`Assigned ${fillerPlayer.username} to role Filler in team #${index + 1}`);
+          log(`Assigned ${fillerPlayer.name} to role Filler in team #${index + 1}`);
           continue;
         }
 
@@ -40,10 +42,14 @@ function assignPlayersToPlannedTeams(teamPlan, regionBuckets, safeLog) {
 
         if (!candidate) {
           fillerCount++;
-          candidate = { username: `Filler #${fillerCount}`, region: "Filler" };
-          log(`Bucket empty, assigned ${candidate.username} to ${role} in team #${index + 1}`);
+          candidate = {
+            id: `FILLER_${fillerCount}`,
+            name: `Filler #${fillerCount}`,
+            region: "Filler"
+          };
+          log(`Bucket empty, assigned ${candidate.name} to ${role} in team #${index + 1}`);
         } else {
-          log(`Assigned player ${candidate.username} to role ${role} in team #${index + 1}`);
+          log(`Assigned player ${candidate.name} (ID: ${candidate.id}) to role ${role} in team #${index + 1}`);
         }
 
         team.push(candidate);
@@ -53,10 +59,10 @@ function assignPlayersToPlannedTeams(teamPlan, regionBuckets, safeLog) {
     }
 
     log(`All teams assigned successfully`);
-
     return { success: true, teams, nextStep: "teamCheck" };
+
   } catch (error) {
-    log(`Error in simplified assignPlayersToPlannedTeams: ${error.message}`);
+    log(`Error in assignPlayersToPlannedTeams: ${error.message}`);
     return { success: false, teams: [], nextStep: "teamCheck" };
   }
 }

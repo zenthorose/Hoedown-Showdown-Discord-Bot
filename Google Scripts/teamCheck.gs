@@ -1,12 +1,10 @@
 /**
  * teamCheck
- * Version: 1.3.1 (audit object ready for teamFixer)
- * Checks teams against previous and avoid pairings and logs conflicts.
- * Returns full audit including Sets for duplicates, avoids, and region errors.
+ * Version: 2.2.0 (ID-based, fully normalized)
  */
 function teamCheck(teams, previousSheet, avoidSheet, safeLog) {
-  const SCRIPT_VERSION = "teamCheck v1.3.1";
-  const LOG_ENABLED = true; // toggle logging on/off
+  const SCRIPT_VERSION = "teamCheck v2.2.0";
+  const LOG_ENABLED = false;
 
   function log(msg) {
     if (LOG_ENABLED && typeof safeLog === "function") {
@@ -16,14 +14,15 @@ function teamCheck(teams, previousSheet, avoidSheet, safeLog) {
 
   log(`teamCheck called with ${teams.length} teams`);
 
+  // --- Load pairs from a sheet ---
   function loadPairs(sheet) {
     const values = sheet.getDataRange().getValues();
-    const pairSet = new Set();
+    const set = new Set();
     for (let i = 1; i < values.length; i++) {
       const [a, b] = values[i];
-      if (a && b) pairSet.add(pairKey(a, b));
+      if (a && b) set.add(pairKey({ id: a }, { id: b }));
     }
-    return pairSet;
+    return set;
   }
 
   const previousPairings = loadPairs(previousSheet);
@@ -35,11 +34,15 @@ function teamCheck(teams, previousSheet, avoidSheet, safeLog) {
   const regionErrors = new Set();
 
   teams.forEach((teamArray, tIndex) => {
+    log(`--- Checking Team #${tIndex + 1} ---`);
+    teamArray.forEach((p, idx) => {
+      log(`Slot ${idx}: id=${p?.id}, name=${p?.name}, region=${p?.region}`);
+    });
+
     const team = teamArray.filter(p => p.region !== "Filler");
     let previousCount = 0;
     let avoidCount = 0;
 
-    // Check for East/West mix without Both
     const regions = team.map(p => p.region);
     if (regions.includes("East") && regions.includes("West") && !regions.includes("Both")) {
       regionErrors.add(tIndex);
@@ -48,18 +51,19 @@ function teamCheck(teams, previousSheet, avoidSheet, safeLog) {
 
     for (let i = 0; i < team.length; i++) {
       for (let j = i + 1; j < team.length; j++) {
-        const pairStr = pairKey(team[i].username, team[j].username);
+        const pairStr = pairKey(team[i], team[j]); // <-- pass full objects
+        log(`Comparing pair: ${team[i].name} (${team[i].id}) ↔ ${team[j].name} (${team[j].id}) → key=${pairStr}`);
 
         if (previousPairings.has(pairStr)) {
           previousCount++;
           initialDuplicates.add(pairStr);
-          log(`Team #${tIndex + 1} previous pairing conflict: ${team[i].username} & ${team[j].username}`);
+          log(`Team #${tIndex + 1} previous pairing conflict: ${team[i].name} & ${team[j].name}`);
         }
 
         if (avoidPairings.has(pairStr)) {
           avoidCount++;
           initialAvoids.add(pairStr);
-          log(`Team #${tIndex + 1} avoid pairing conflict: ${team[i].username} & ${team[j].username}`);
+          log(`Team #${tIndex + 1} avoid pairing conflict: ${team[i].name} & ${team[j].name}`);
         }
       }
     }
@@ -70,7 +74,6 @@ function teamCheck(teams, previousSheet, avoidSheet, safeLog) {
   log(`teamCheck completed. Summary: ${JSON.stringify(summary)}`);
   log(`Snapshot → Duplicates: ${initialDuplicates.size}, Avoids: ${initialAvoids.size}, Region errors: ${regionErrors.size}`);
 
-  // Return audit object ready to be passed into teamFixer
   return {
     summary,
     initialDuplicates,
