@@ -37,6 +37,45 @@ module.exports = {
 
   async execute(interaction) {
     let replyMessage;
+    let replied = false;
+
+    async function safeReply(content, isEphemeral = false) {
+      if (!SENDS.REPLIES) {
+        try {
+          if (replied || interaction.deferred) {
+            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
+            replied = true;
+            return res;
+          } else {
+            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
+            replied = true;
+            return res;
+          }
+        } catch (err) {
+          return null;
+        }
+      }
+
+      const options = typeof content === 'string' ? { content } : content;
+      if (isEphemeral) options.flags = 64;
+      try {
+        if (replied || interaction.deferred) {
+          return await interaction.followUp(options);
+        } else {
+          const res = await interaction.reply(options);
+          replied = true;
+          return res;
+        }
+      } catch (err) {
+        try {
+          const res = await interaction.reply(options);
+          replied = true;
+          return res;
+        } catch (err2) {
+          return null;
+        }
+      }
+    }
 
     async function logUsage(extra = "") {
       try {
@@ -57,8 +96,7 @@ module.exports = {
 
       if (!hasPermission) {
         await logUsage("❌ Permission denied");
-        if (SENDS.REPLIES) return interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
-        return;
+        return safeReply('❌ You do not have permission to use this command!', true);
       }
 
       // Collect selected users
@@ -69,7 +107,7 @@ module.exports = {
       }
 
       if (users.length < 2) {
-        return interaction.reply({ content: '❌ You must select at least 2 players.', flags: 64 });
+        return safeReply('❌ You must select at least 2 players.', true);
       }
 
       console.log('📤 Sending avoid data to GAS:', JSON.stringify({ command: 'avoid', users }, null, 2));
@@ -99,7 +137,14 @@ module.exports = {
         : `❌ Failed to update avoid list.`;
 
       // --- Edit deferred reply with result ---
-      if (SENDS.REPLIES) await interaction.editReply(displayMessage);
+      if (SENDS.REPLIES) {
+        try {
+          if (replyMessage || interaction.deferred) await interaction.editReply(displayMessage);
+          else await safeReply(displayMessage);
+        } catch (err) {
+          await safeReply(displayMessage);
+        }
+      }
       await logUsage(`→ ${displayMessage}. Players: ${users.map(u => u.username).join(', ')}`);
 
       // Optional: delete reply after 5 seconds
@@ -112,13 +157,9 @@ module.exports = {
       await logUsage(`❌ Error: ${error.message}`);
 
       try {
-        if (replyMessage) {
-          if (SENDS.REPLIES) await interaction.editReply('❌ There was an error executing this command. Please try again.');
-        } else {
-          if (SENDS.REPLIES) await interaction.reply({ content: '❌ There was an error executing this command. Please try again.', flags: 64 });
-        }
+        await safeReply('❌ There was an error executing this command. Please try again.', true);
       } catch (err) {
-        console.error('❌ Failed to send error message:', err);
+        console.error('❌ Failed to send error message via safeReply:', err);
       }
     }
   },
