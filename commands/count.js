@@ -47,11 +47,43 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
-      const options = { content };
+      // If replies are globally disabled for this command, inform the user.
+      if (!SENDS.REPLIES) {
+        try {
+          if (replied || interaction.deferred) {
+            const res = await interaction.followUp({ content: 'This command is disabled', flags: 64 });
+            replied = true;
+            return res;
+          } else {
+            const res = await interaction.reply({ content: 'This command is disabled', flags: 64 });
+            replied = true;
+            return res;
+          }
+        } catch (err) {
+          return null;
+        }
+      }
+
+      const options = typeof content === 'string' ? { content } : content;
       if (isEphemeral) options.flags = 64;
-      if (replied) return interaction.followUp(options);
-      replied = true;
-      return interaction.reply(options);
+      try {
+        if (replied || interaction.deferred) {
+          return await interaction.followUp(options);
+        } else {
+          const res = await interaction.reply(options);
+          replied = true;
+          return res;
+        }
+      } catch (err) {
+        // Fallback: try reply if followUp failed because interaction wasn't replied/deferred
+        try {
+          const res = await interaction.reply(options);
+          replied = true;
+          return res;
+        } catch (err2) {
+          return null;
+        }
+      }
     }
 
     async function logUsage(extra = "") {
@@ -124,14 +156,11 @@ module.exports = {
 
     } catch (error) {
       console.error("❌ Error executing /count:", error);
-      await logUsage("❌ Unexpected error during count");
+      if (SENDS.LOGS) await logUsage("❌ Unexpected error during count");
       try {
-        if (replied || interaction.deferred)
-          await interaction.followUp({ content: "❌ Error executing command.", flags: 64 });
-        else
-          await interaction.reply({ content: "❌ Error executing command.", flags: 64 });
+        await safeReply("❌ Error executing command.", true);
       } catch (err) {
-        console.error("❌ Failed to send error message:", err);
+        console.error("❌ Failed to send error message via safeReply:", err);
       }
     }
   }
