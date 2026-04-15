@@ -265,9 +265,19 @@ app.post('/sendmessage', async (req, res) => {
   const { channelId, message, source } = req.body;
   if (!channelId || !message) return res.status(400).json({ error: 'Missing required fields: channelId and message' });
 
-  // Blocking controls (configurable via environment variables):
-  // - BLOCK_GAS_POSTS: if 'true', requests identified as coming from Google Apps Script will be skipped.
-  const blockGas = String(process.env.BLOCK_GAS_POSTS || '').toLowerCase() === 'true';
+  // Blocking controls: prefer environment variable, fallback to hard-coded toggle in code
+  // - To control without editing code, set env `BLOCK_GAS_POSTS=true`.
+  // - Otherwise change `HARD_BLOCK_GAS` below and restart to pick up the code toggle.
+  const HARD_BLOCK_GAS = true; // <-- change this value in-code to enable/disable GAS blocking
+
+  let blockGas;
+  if (typeof process.env.BLOCK_GAS_POSTS !== 'undefined' && String(process.env.BLOCK_GAS_POSTS) !== '') {
+    blockGas = String(process.env.BLOCK_GAS_POSTS).toLowerCase() === 'true';
+    console.log(`ℹ️ BLOCK_GAS_POSTS env override detected: ${blockGas}`);
+  } else {
+    blockGas = HARD_BLOCK_GAS;
+    console.log(`ℹ️ BLOCK_GAS_POSTS not set in env — using in-code toggle HARD_BLOCK_GAS=${HARD_BLOCK_GAS}`);
+  }
 
   // Heuristics to detect Apps Script requests: explicit `source` field, special header, or User-Agent
   const ua = String(req.headers['user-agent'] || '').toLowerCase();
