@@ -46,7 +46,18 @@ module.exports = {
       await logUsage(); // always log attempt
 
       // Defer immediately (ephemeral) to acknowledge the interaction and avoid double-reply races.
-      await interaction.deferReply({ ephemeral: true });
+      let didDefer = false;
+      try {
+        const alreadyAck = (typeof interaction.acknowledged !== 'undefined') ? interaction.acknowledged : (interaction.replied || interaction.deferred);
+        if (!alreadyAck) {
+          await interaction.deferReply({ ephemeral: true });
+          didDefer = true;
+        } else {
+          console.log('ℹ️ Interaction already acknowledged before initial defer; skipping deferReply.');
+        }
+      } catch (deferErr) {
+        console.warn('⚠️ Failed to initial deferReply:', deferErr?.message || deferErr);
+      }
 
       const hasPermission = await checkPermissions(interaction);
       if (!hasPermission) {
@@ -66,9 +77,17 @@ module.exports = {
       console.log(`✅ Received approve-round command for Round #${round}`);
       await logUsage(`(Round: ${round})`);
 
-      // --- Step 1: Acknowledge the interaction to avoid double-reply errors ---
-      // Use deferReply so we can safely `editReply` later instead of attempting multiple replies.
-      await interaction.deferReply();
+      // --- Step 1: Ensure we have acknowledged the interaction to avoid double-reply errors ---
+      // If we didn't defer earlier, defer now. Track didDefer accordingly.
+      try {
+        const alreadyAck2 = (typeof interaction.acknowledged !== 'undefined') ? interaction.acknowledged : (interaction.replied || interaction.deferred);
+        if (!alreadyAck2 && !didDefer) {
+          await interaction.deferReply({ ephemeral: true });
+          didDefer = true;
+        }
+      } catch (deferErr) {
+        console.warn('⚠️ Failed to deferReply in step 1:', deferErr?.message || deferErr);
+      }
       replyMessage = null;
 
       // --- Step 2: Update round channel permissions (optional global perms) ---
