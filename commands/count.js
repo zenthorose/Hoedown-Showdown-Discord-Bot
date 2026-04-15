@@ -112,6 +112,14 @@ module.exports = {
       const guild = interaction.guild;
       if (!guild) return safeReply("❌ This command can only be used in a server.", true);
 
+      // Defer reply early for potentially long-running operations to avoid
+      // "The application did not respond" errors when fetching many members.
+      try {
+        if (SENDS.REPLIES && !interaction.deferred) await interaction.deferReply({ flags: 64 });
+      } catch (err) {
+        console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
+      }
+
       await guild.members.fetch();
 
       const type = interaction.options.getString('type');
