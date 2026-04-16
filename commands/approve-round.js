@@ -9,7 +9,7 @@ const ENABLE_ROUND_CHANNEL_PERMS = false; // Step 2: update round channel permis
 const ENABLE_TEAM_CLEANUP = true;       // Step 4a: clear old messages from team text channels
 const ENABLE_VC_RESET = true;           // Step 4a: reset voice channel permission overwrites
 const ENABLE_TEAM_POSTING_PERMS = false; // Step 4b: grant players and "Fill In" role channel perms
-const ENABLE_DISCORD_POSTING = false;    // Control whether the bot actually posts teamOutput messages
+const ENABLE_DISCORD_POSTING = true;    // Control whether the bot actually posts teamOutput messages
 
 module.exports = {
   data: new SlashCommandBuilder()
