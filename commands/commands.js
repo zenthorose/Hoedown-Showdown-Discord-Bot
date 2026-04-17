@@ -64,6 +64,7 @@ module.exports = {
         { name: '/info-check', description: 'See what info you’ve submitted.' },
         { name: '/register', description: 'Register your information for the first time.' },
         { name: '/update-info', description: 'Update your registered information.' },
+        { name: '/faq', description: 'Frequently asked questions about the coumminty, event, and the bot.' },
       ];
 
       const adminCommands = [
