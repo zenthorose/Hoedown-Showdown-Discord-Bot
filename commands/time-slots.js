@@ -67,7 +67,7 @@ module.exports = {
       // --- Post introductory embed ---
       const introEmbed = new EmbedBuilder()
         .setColor('#ff0000')
-        .setTitle("Hoedown Showdown <t:1761440940:D> Time Slot Sign-Ups")
+        .setTitle("Hoedown Showdown <t:1779537600:D> Time Slot Sign-Ups")
         .setDescription("React to the messages below to sign up for a time slot. Make sure to remove your reaction if you are no longer available.")
         .setTimestamp();
 
