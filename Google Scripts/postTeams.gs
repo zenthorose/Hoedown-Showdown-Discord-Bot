@@ -13,11 +13,42 @@ function postTeams(sheet, teams, safeLog) {
 
   log("Starting postTeams");
 
-  // Helper to generate team letters (A-Z, then AA-ZZ)
-  const getLabelForTeam = (index) => {
-    index = index % 52;
-    if (index < 26) return String.fromCharCode(65 + index);
-    return String.fromCharCode(65 + (index - 26)) + String.fromCharCode(65 + (index - 26));
+  // Helper to generate team letters using repeated same-letter scheme:
+  // 1-letter: A..Z (26)
+  // 2-letter: AA..ZZ (26)
+  // 3-letter: AAA..ZZZ (26)
+  // total = 78, then wrap to A
+  const getLabelForTeam = (idx) => {
+    const index = Math.max(0, Math.floor(idx));
+    const perLength = 26;
+    const total = perLength * 3; // 78
+    const i = index % total; // wrap after ZZZ
+
+    if (i < perLength) {
+      return String.fromCharCode(65 + i);
+    } else if (i < perLength * 2) {
+      const k = i - perLength;
+      const ch = String.fromCharCode(65 + k);
+      return ch + ch;
+    } else {
+      const k = i - perLength * 2;
+      const ch = String.fromCharCode(65 + k);
+      return ch + ch + ch;
+    }
+  };
+
+  // Inverse: map labels of form A, BB, CCC to 0-based index
+  // If label has mixed characters (e.g., 'AB'), use first char and length as fallback
+  const labelToIndex = (label) => {
+    if (!label || typeof label !== 'string') return 0;
+    const clean = label.toUpperCase();
+    const len = Math.min(clean.length, 3);
+    const ch = clean[0];
+    const code = ch.charCodeAt(0) - 65;
+    if (code < 0 || code > 25) return 0;
+    const perLength = 26;
+    const offset = (len === 1) ? 0 : (len === 2) ? perLength : perLength * 2;
+    return offset + code;
   };
 
   // Determine next team index based on last label safely
@@ -31,9 +62,9 @@ function postTeams(sheet, teams, safeLog) {
         const parts = lastLabelCell.split(' ');
         const lastTeamLabel = parts[1];
         if (lastTeamLabel) {
-          if (lastTeamLabel.length === 1) nextTeamIndex = lastTeamLabel.charCodeAt(0) - 65 + 1;
-          else if (lastTeamLabel.length === 2 && lastTeamLabel[0] === lastTeamLabel[1])
-            nextTeamIndex = 26 + (lastTeamLabel.charCodeAt(0) - 65) + 1;
+          nextTeamIndex = labelToIndex(lastTeamLabel) + 1;
+          const MAX = 26 * 3;
+          if (nextTeamIndex >= MAX) nextTeamIndex = 0;
         }
       }
     } catch (e) {

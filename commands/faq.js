@@ -30,11 +30,11 @@ module.exports = {
       },
       {
         q: 'How often is there a Hoedown?',
-        a: 'Generally there is one every 6 months so twice a year normally.'
+        a: 'Generally, there is one every 6 months, so twice a year.'
       },
       {
         q: 'How do I sign up for rounds? (There are 16 rounds total and last 1.5 hours each)',
-        a: 'You are able to sign up for rounds through the opt-in channel by reacting to the emote linked with the timeslot you wish to join. You can sign up for as few or as many as you want. Please be signed up or remove yourself from the sign up 15 minutes prior to the start of the next round.'
+        a: 'You can sign up for rounds through the opt-in channel by reacting to the emote linked with the timeslot you wish to join. You are free to sign up for as few or as many rounds as you want. Please make sure you are signed up, or remove yourself from the sign-up, at least 15 minutes before the next round starts.'
       },
       {
         q: 'How do I register?',
@@ -42,23 +42,23 @@ module.exports = {
       },
       {
         q: 'How do I update my info?',
-        a: 'Use /update-info to change any info you previously submitted.'
+        a: 'Use /update-info to change any information you’ve previously submitted.'
       },
       {
         q: 'How do I check my submitted info?',
-        a: 'Use /info-check to view the information you submitted.'
+        a: 'Use /info-check to view the information you have submitted.'
       },
       {
         q: 'Where can I find information about the bounty board?',
-        a: 'All information about the bounty board can be found here https://discord.com/channels/1052393263644037200/1429633917098393661.'
+        a: 'All information about the bounty board can be found here: https://discord.com/channels/1052393263644037200/1429633917098393661.'
       },
       {
         q: 'What if there is someone I don’t want to be paired with?',
-        a: 'Notify a member of the event team directly or you can message the bot to open a ticket.'
+        a: 'Notify a member of the event team directly, or you can message the bot to open a ticket.'
       },
       {
         q: 'Who do I contact for help?',
-        a: 'Reach out to a member of the event team or you can message the bot to open a ticket.'
+        a: 'Reach out to a member of the event team, or you can message the bot to open a ticket.'
       }
     ];
 

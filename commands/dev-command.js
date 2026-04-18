@@ -1,10 +1,11 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
+const { ChannelType, PermissionsBitField } = require('discord.js');
 const config = require('../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only command that separates members by East/West roles.'),
+    .setDescription('Developer-only: create/fetch team voice channels AAA..ZZZ and output mapping'),
 
   async execute(interaction) {
     try {
@@ -19,39 +20,50 @@ module.exports = {
 
     try {
       const guild = interaction.guild;
-      const eastRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'east');
-      const westRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'west');
+      if (!guild) return interaction.editReply('❌ This command must be run in a server.');
 
-      if (!eastRole || !westRole) {
-        return interaction.editReply('❌ Could not find "East" or "West" roles.');
+      const me = guild.members.me;
+      if (!me || !me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+        return interaction.editReply('❌ Bot requires the Manage Channels permission to create channels.');
       }
 
-      // ✅ Fetch all members (important!)
-      const members = await guild.members.fetch();
+      const categoryName = 'Voice Channels Teams AAA-ZZZ';
 
-      const eastMembers = [];
-      const westMembers = [];
+      // Find or create the category
+      let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === categoryName);
+      if (!category) {
+        category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory, reason: 'Creating team voice category' });
+      }
 
-      members.forEach(member => {
-        if (member.roles.cache.has(eastRole.id)) {
-          eastMembers.push(member.user.username);
-        } else if (member.roles.cache.has(westRole.id)) {
-          westMembers.push(member.user.username);
+      const mapping = {};
+
+      // Create/fetch channels AAA..ZZZ (same-letter triplets)
+      for (let i = 0; i < 26; i++) {
+        const letter = String.fromCharCode(65 + i);
+        const label = letter.repeat(3); // e.g., 'AAA'
+        const channelName = `Team ${label}`;
+
+        // Try to find existing channel under the category
+        let channel = guild.channels.cache.find(ch => ch.parentId === category.id && ch.name === channelName && ch.type === ChannelType.GuildVoice);
+
+        if (!channel) {
+          // Create voice channel
+          channel = await guild.channels.create({ name: channelName, type: ChannelType.GuildVoice, parent: category.id, reason: 'Creating team voice channel' });
         }
-      });
 
-      const eastList = eastMembers.length ? eastMembers.join(', ') : 'None';
-      const westList = westMembers.length ? westMembers.join(', ') : 'None';
+        mapping[channelName] = channel.id;
+      }
 
-      const message =
-        `✅ **Member Separation Complete**\n\n` +
-        `**East (${eastMembers.length}):** ${eastList}\n\n` +
-        `**West (${westMembers.length}):** ${westList}`;
+      const jsonMapping = JSON.stringify(mapping, null, 2);
 
-      await interaction.editReply({ content: message });
+      const reply = `✅ Created/found channels under category **${categoryName}**.\n\n` +
+        'Copy the following JSON into your `teamChannels` in config.json:\n\n' +
+        '```json\n' + jsonMapping + '\n```';
+
+      await interaction.editReply({ content: reply });
 
     } catch (err) {
-      console.error('❌ Error separating members:', err);
+      console.error('❌ Error creating/fetching team voice channels:', err);
       await interaction.editReply(`❌ Error: ${err.message}`);
     }
   },
