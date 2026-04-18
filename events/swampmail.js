@@ -100,8 +100,8 @@ async function updateBotStatus(client) {
   try {
     const supporttickets = config.supporttickets;
     const statusText = supporttickets
-      ? '✅ Hoedown 5/23/2026.'
-      : '❌ Hoedown 5/23/2026.';
+      ? '✅ Hoedown 5/23/2026! Support Open'
+      : '❌ Hoedown 5/23/2026! Support Closed';
 
     await client.user.setPresence({
       activities: [{ name: statusText, type: 0 }],
