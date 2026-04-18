@@ -56,6 +56,19 @@ module.exports = {
 
       const jsonMapping = JSON.stringify(mapping, null, 2);
 
+      // Apply @everyone permission overwrites: deny view and connect on each VC
+      for (const [teamKey, channelId] of Object.entries(mapping)) {
+        try {
+          const ch = await guild.channels.fetch(channelId);
+          if (ch && ch.type === ChannelType.GuildVoice) {
+            await ch.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
+            console.log(`🔒 Set @everyone deny ViewChannel on ${teamKey} (${channelId})`);
+          }
+        } catch (permErr) {
+          console.error(`❌ Failed to set overwrites for ${teamKey} (${channelId}):`, permErr);
+        }
+      }
+
       const reply = `✅ Created/found channels under category **${categoryName}**.\n\n` +
         'Copy the following JSON into your `teamChannels` in config.json:\n\n' +
         '```json\n' + jsonMapping + '\n```';
