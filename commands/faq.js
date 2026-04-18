@@ -5,7 +5,7 @@ const config = require('../config.json'); // for LOG_CHANNEL_ID
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('faq')
-    .setDescription('Shows frequently asked questions about the bot and community.'),
+    .setDescription('Frequently asked questions about the community, event, and the bot.'),
 
   async execute(interaction) {
     async function logUsage(extra = "") {

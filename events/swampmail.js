@@ -11,10 +11,10 @@ const SUPPORT_CATEGORY_NAME = 'Support Tickets';
 const config = require('../config.json');
 
 const STAFF_ROLE_IDS = [
-  "1069716885467312188",
-  "1253964506317586453",
-  "1069083357100642316",
-  "1416904399208321164"
+  "1069716885467312188", //HOST
+  "1253964506317586453", //Ghost's Left Hand
+  "1069083357100642316",//Assistant
+  "1416904399208321164"//Hunt Hoedown Do-see-do Bot
 ];
 
 // =============================
@@ -262,7 +262,8 @@ module.exports = {
           });
 
           await ticketChannel.send({
-            content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}\n<@&1069083357100642316>`,
+            //content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}\n<@&1069083357100642316>`, //Readd this when it's finish testing Zentho
+            content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}`,
             embeds: [userEmbed],
           });
 
