@@ -109,14 +109,14 @@ module.exports = {
             try {
               if (!interaction.guild) throw new Error('Not in a guild');
               await optInChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
-              console.log('🔒 Set @everyone ViewChannel = false on Opt-In channel');
-              await logUsage('(set @everyone ViewChannel to false)');
+              console.log('🔒 Set everyone ViewChannel = false on Opt-In channel');
+              await logUsage('(set everyone ViewChannel to false)');
             } catch (permErr) {
-              console.error('Error setting @everyone perm on Opt-In channel:', permErr);
+              console.error('Error setting everyone perm on Opt-In channel:', permErr);
               await logUsage(`(perm error: ${permErr.message})`);
             }
           } else {
-            console.log('ℹ️ Skipped setting @everyone view deny (toggle disabled).');
+            console.log('ℹ️ Skipped setting everyone view deny (toggle disabled).');
             await logUsage('(skip perm set: toggle disabled)');
           }
 
@@ -154,14 +154,14 @@ module.exports = {
                   try {
                     if (!interaction.guild) throw new Error('Not in a guild');
                     await roundChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
-                    console.log(`🔒 Set @everyone ViewChannel = false on Round ${roundKey} channel`);
-                    await logUsage(`(set @everyone ViewChannel false on round ${roundKey})`);
+                    console.log(`🔒 Set everyone ViewChannel = false on Round ${roundKey} channel`);
+                    await logUsage(`(set everyone ViewChannel false on round ${roundKey})`);
                   } catch (permErr) {
-                    console.error(`Error setting @everyone perm on Round ${roundKey} channel:`, permErr);
+                    console.error(`Error setting everyone perm on Round ${roundKey} channel:`, permErr);
                     await logUsage(`(perm error round ${roundKey}: ${permErr.message})`);
                   }
                 } else {
-                  console.log(`ℹ️ Skipped setting @everyone view deny for Round ${roundKey} (toggle disabled).`);
+                  console.log(`ℹ️ Skipped setting everyone view deny for Round ${roundKey} (toggle disabled).`);
                 }
 
               } catch (err) {
@@ -208,14 +208,14 @@ module.exports = {
                   try {
                     if (!interaction.guild) throw new Error('Not in a guild');
                     await teamChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
-                    console.log(`🔒 Set @everyone ViewChannel = false on ${teamKey} channel`);
-                    await logUsage(`(set @everyone ViewChannel false on team ${teamKey})`);
+                    console.log(`🔒 Set everyone ViewChannel = false on ${teamKey} channel`);
+                    await logUsage(`(set everyone ViewChannel false on team ${teamKey})`);
                   } catch (permErr) {
-                    console.error(`Error setting @everyone perm on ${teamKey} channel:`, permErr);
+                    console.error(`Error setting everyone perm on ${teamKey} channel:`, permErr);
                     await logUsage(`(perm error team ${teamKey}: ${permErr.message})`);
                   }
                 } else {
-                  console.log(`ℹ️ Skipped setting @everyone view deny for ${teamKey} (toggle disabled).`);
+                  console.log(`ℹ️ Skipped setting everyone view deny for ${teamKey} (toggle disabled).`);
                 }
 
               } catch (err) {

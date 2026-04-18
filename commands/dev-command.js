@@ -62,7 +62,7 @@ module.exports = {
           const ch = await guild.channels.fetch(channelId);
           if (ch && ch.type === ChannelType.GuildVoice) {
             await ch.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
-            console.log(`🔒 Set @everyone deny ViewChannel on ${teamKey} (${channelId})`);
+            console.log(`🔒 Set everyone deny ViewChannel on ${teamKey} (${channelId})`);
           }
         } catch (permErr) {
           console.error(`❌ Failed to set overwrites for ${teamKey} (${channelId}):`, permErr);
