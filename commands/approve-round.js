@@ -5,7 +5,7 @@ const config = require('../config.json');
 
 // Toggle controls for permission-changing and cleanup behavior.
 // Set to `true` to allow the operation, `false` to skip it.
-const ENABLE_ROUND_CHANNEL_PERMS = false; // Step 2: update round channel permission overwrites
+const ENABLE_ROUND_CHANNEL_PERMS = true; // Step 2: update round channel permission overwrites
 const ENABLE_TEAM_CLEANUP = true;       // Step 4a: clear old messages from team text channels
 const ENABLE_VC_RESET = true;           // Step 4a: reset voice channel permission overwrites
 const ENABLE_TEAM_POSTING_PERMS = true; // Step 4b: grant players and "Fill In" role channel perms
@@ -228,7 +228,7 @@ module.exports = {
                         }
                         try {
                           await teamChannel.permissionOverwrites.edit(player.discordId, {
-                            ViewChannel: false, //Zentho change this back after testing
+                            ViewChannel: true,
                             SendMessages: true,
                             ReadMessageHistory: true,
                             Connect: true,
