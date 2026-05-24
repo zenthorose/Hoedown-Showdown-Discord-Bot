@@ -1,11 +1,11 @@
 /**
  * grabReactions
- * Version: 2.1.0 (ID-based, updated for new column layout)
+ * Version: 2.1.1 (ID-based, updated for new column layout)
  * Processes Discord players (id + name), generates teams, logs all steps safely.
  */
 function grabReactions(discordPlayers) {
-  const SCRIPT_VERSION = "grabReactions v2.1.0";
-  const LOG_ENABLED = false; // set to false to disable logs
+  const SCRIPT_VERSION = "grabReactions v2.1.1";
+  const LOG_ENABLED = true; // set to false to disable logs
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Players That Reacted");

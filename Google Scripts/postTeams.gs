@@ -1,11 +1,11 @@
 /**
  * postTeams
- * Version: 1.3.1 (Robust label handling)
+ * Version: 1.3.4 (Robust label handling)
  * Posts generated teams to the spreadsheet and sends Discord preview.
  */
 function postTeams(sheet, teams, safeLog) {
-  const SCRIPT_VERSION = "postTeams v1.3.1";
-  const LOG_ENABLED = false;
+  const SCRIPT_VERSION = "postTeams v1.3.4";
+  const LOG_ENABLED = true;
 
   function log(msg) {
     if (LOG_ENABLED && typeof safeLog === "function") safeLog(`[${SCRIPT_VERSION}] ${msg}`);
@@ -54,10 +54,37 @@ function postTeams(sheet, teams, safeLog) {
   // Determine next team index based on last label safely
   let nextTeamIndex = 0;
   const lastColumn = sheet.getLastColumn();
+
+  // Helper: find the last non-empty row in a specific column
+  const getLastRowInColumn = (col) => {
+    const overallLast = sheet.getLastRow();
+    const numRows = Math.max(overallLast, 1);
+    const vals = sheet.getRange(1, col, numRows, 1).getValues();
+    for (let i = vals.length - 1; i >= 0; i--) {
+      const v = vals[i] && vals[i][0];
+      if (v !== '' && v !== null && v !== undefined) return i + 1;
+    }
+    return 0;
+  };
+
   if (lastColumn > 1) {
     try {
-      const lastRow = sheet.getLastRow();
-      const lastLabelCell = sheet.getRange(Math.max(lastRow - 3, 1), lastColumn).getValue();
+      const lastRow = getLastRowInColumn(lastColumn);
+      const probeRow = Math.max(lastRow - 3, 1);
+      const lastLabelCell = lastRow > 0 ? sheet.getRange(probeRow, lastColumn).getValue() : '';
+
+      // Log what we found when checking the last column team label.
+      try {
+        const preview = (lastLabelCell && typeof lastLabelCell === 'string') ? lastLabelCell : String(lastLabelCell);
+        if (typeof safeLog === 'function') {
+          safeLog(`[${SCRIPT_VERSION}] Checked last column: lastColumn=${lastColumn}, lastRow=${lastRow}, lastLabelCell=${preview}`);
+        } else if (typeof Logger !== 'undefined' && Logger && Logger.log) {
+          Logger.log(`[${SCRIPT_VERSION}] Checked last column: lastColumn=%s, lastRow=%s, lastLabelCell=%s`, lastColumn, lastRow, preview);
+        }
+      } catch (logErr) {
+        // ignore logging errors
+      }
+
       if (lastLabelCell && typeof lastLabelCell === "string") {
         const parts = lastLabelCell.split(' ');
         const lastTeamLabel = parts[1];
