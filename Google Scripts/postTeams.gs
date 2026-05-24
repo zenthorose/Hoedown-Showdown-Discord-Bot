@@ -5,7 +5,7 @@
  */
 function postTeams(sheet, teams, safeLog) {
   const SCRIPT_VERSION = "postTeams v1.3.4";
-  const LOG_ENABLED = true;
+  const LOG_ENABLED = false;
 
   function log(msg) {
     if (LOG_ENABLED && typeof safeLog === "function") safeLog(`[${SCRIPT_VERSION}] ${msg}`);

@@ -5,7 +5,7 @@
  */
 function grabReactions(discordPlayers) {
   const SCRIPT_VERSION = "grabReactions v2.1.1";
-  const LOG_ENABLED = true; // set to false to disable logs
+  const LOG_ENABLED = false; // set to false to disable logs
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Players That Reacted");
