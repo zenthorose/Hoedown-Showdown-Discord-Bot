@@ -20,7 +20,12 @@ module.exports = {
     const hasPermission = await checkPermissions(interaction);
     if (!hasPermission) return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
 
-    const vcKey = interaction.options.getString('vc').trim();
+    let vcKey = interaction.options.getString('vc').trim();
+
+    // If user passes a short key like "A" or "AA", auto-prefix with "Team "
+    if (!vcKey.toLowerCase().startsWith('team ') && /^[a-zA-Z]+$/.test(vcKey)) {
+      vcKey = `Team ${vcKey.toUpperCase()}`;
+    }
     const users = [
       interaction.options.getUser('user1'),
       interaction.options.getUser('user2'),
