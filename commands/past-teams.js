@@ -61,7 +61,9 @@ module.exports = {
         return `**Round #${r.round} — Team ${r.team}**\n${r.members.join('\n')}`;
       });
 
-      const msg = ['Here are your past teams for **${eventName}**:\n'].concat(lines).join('\n\n');
+      const displayEvent = data.eventName || eventName;
+      const header = `Here are your past teams for **${displayEvent}**:\n`;
+      const msg = [header].concat(lines).join('\n\n');
 
       await safeEdit(interaction, msg);
       await logUsage('✅ past-teams successful');
