@@ -248,13 +248,10 @@ function postTeams(sheet, teams, safeLog) {
     log(`Error copying new column to column B: ${e.message}`);
   }
 
-  // Ensure the Players That Reacted column (column B) header matches and is styled
+  // Ensure the Players That Reacted column (column B) header matches (no color changes)
   try {
     const headerB = sheet.getRange(1, 2);
     headerB.setValue(`Round #${round}`);
-    headerB.setBackground('#ff0000');
-    headerB.setFontColor('#ffffff');
-    headerB.setHorizontalAlignment('center');
   } catch (e) {
     log(`Failed to set header in column B: ${e.message}`);
   }

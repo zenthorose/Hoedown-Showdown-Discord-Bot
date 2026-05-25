@@ -600,27 +600,17 @@ function postRoundFinal({ round }) {
 
     log(`✅ postRoundFinal posted ${messages.length} message(s) to ${roundChannelKey} (${channelId}) successfully`);
 
-    // Mark the round header as approved (green) so postTeams won't treat it as a redo
+    // Mark only the first row of the last column green if it matches this round header
     try {
-      const headerRange = teamsSheet.getRange(1, roundColIndex + 1);
-      headerRange.setBackground('#00ff00');
-      headerRange.setFontColor('#000000');
-      headerRange.setHorizontalAlignment('center');
-    } catch (e) {
-      log(`Failed to mark round header approved: ${e.message}`);
-    }
-
-    // Also mark the Players That Reacted header (column B) green if it matches this round
-    try {
-      const headerB = teamsSheet.getRange(1, 2);
-      const headerBVal = headerB.getValue();
-      if (headerBVal && headerBVal.toString().includes(`Round #${round}`)) {
-        headerB.setBackground('#00ff00');
-        headerB.setFontColor('#000000');
-        headerB.setHorizontalAlignment('center');
+      const lastCol = teamsSheet.getLastColumn();
+      const cell = teamsSheet.getRange(1, lastCol);
+      if (String(cell.getValue()) === roundHeader) {
+        cell.setBackground('#00ff00');
+        cell.setFontColor('#000000');
+        cell.setHorizontalAlignment('center');
       }
     } catch (e) {
-      log(`Failed to mark Players That Reacted header approved: ${e.message}`);
+      log(`Failed to mark last-column header approved: ${e.message}`);
     }
 
     return ContentService.createTextOutput(JSON.stringify({
