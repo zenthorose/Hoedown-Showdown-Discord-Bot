@@ -10,6 +10,7 @@ const GUILD_ID = process.env.GUILD_ID;
 const SUPPORT_CATEGORY_NAME = 'Support Tickets';
 const config = require('../config.json');
 
+const notifyManager = require('../database/notifyManager');
 const STAFF_ROLE_IDS = [
   "1069716885467312188", //HOST
   "1253964506317586453", //Ghost's Left Hand
@@ -28,6 +29,8 @@ const EDIT_PREFIX = '!edit';
 const DELETE_PREFIX = '!delete';
 const CONTACT_PREFIX = '!contact';
 const COMMANDS_PREFIX = '!commands';
+const NOTIFY_PREFIX = '!notify';
+const UNNOTIFY_PREFIX = '!unnotify';
 
 // =============================
 // COMMAND DESCRIPTIONS
@@ -40,6 +43,8 @@ const COMMANDS = [
   { prefix: SILENT_CLOSE_PREFIX, desc: 'Close the ticket without notifying the user.' },
   { prefix: CLEAR_PREFIX, desc: 'Clear recent bot messages in the user\'s DM.' },
   { prefix: CONTACT_PREFIX, desc: 'Manually create a ticket for a user using their Discord ID (staff channel only).' },
+  { prefix: NOTIFY_PREFIX, desc: 'Enable notifications for the staff member who runs this command for this ticket.' },
+  { prefix: UNNOTIFY_PREFIX, desc: 'Disable notifications for the staff member who runs this command for this ticket.' },
   { prefix: COMMANDS_PREFIX, desc: 'Show a list of available commands.' }
 ];
 
@@ -266,10 +271,32 @@ module.exports = {
             embeds: [userEmbed],
           });
 
+          // Notify any subscribers for this channel
+          try {
+            const subs = notifyManager.getSubscribers(ticketChannel.id);
+            if (subs.length > 0) {
+              const mentionText = subs.map(id => `<@${id}>`).join(' ');
+              await ticketChannel.send({ content: `🔔 Notifying: ${mentionText}` }).catch(() => {});
+            }
+          } catch (err) {
+            console.error('❌ Notify send failed:', err);
+          }
+
           await message.reply('✅ Ticket opened. The support team will respond soon.');
           console.log(`📨 New ticket opened for ${message.author.tag}`);
         } else {
           await ticketChannel.send({ embeds: [userEmbed] });
+          // Notify any subscribers for this channel
+          try {
+            const subs = notifyManager.getSubscribers(ticketChannel.id);
+            if (subs.length > 0) {
+              const mentionText = subs.map(id => `<@${id}>`).join(' ');
+              await ticketChannel.send({ content: `🔔 Notifying: ${mentionText}` }).catch(() => {});
+            }
+          } catch (err) {
+            console.error('❌ Notify send failed:', err);
+          }
+
           await message.react('✅');
           console.log(`📩 DM added to existing ticket for ${message.author.tag}`);
         }
@@ -477,6 +504,36 @@ async function handleStaffSubcommands(client, message, user) {
     } catch (err) {
       console.error('❌ Delete failed:', err);
       await message.channel.send('❌ Failed to delete message.');
+    }
+    await message.delete().catch(() => {});
+    return;
+  }
+
+  // --- Notify a staff user for new messages in this ticket ---
+  if (content.startsWith(NOTIFY_PREFIX)) {
+    // Subscribe the staff member who issued the command
+    const target = message.author;
+    try {
+      notifyManager.addSubscriber(message.channel.id, target.id);
+      await message.channel.send(`✅ Will notify **${target.tag}** for new messages in this ticket.`);
+    } catch (err) {
+      console.error('❌ Failed to add notify subscriber:', err);
+      await message.channel.send('❌ Failed to enable notifications.');
+    }
+    await message.delete().catch(() => {});
+    return;
+  }
+
+  // --- Remove notify subscription ---
+  if (content.startsWith(UNNOTIFY_PREFIX)) {
+    // Unsubscribe the staff member who issued the command
+    const target = message.author;
+    try {
+      notifyManager.removeSubscriber(message.channel.id, target.id);
+      await message.channel.send(`✅ Stopped notifying **${target.tag}** for this ticket.`);
+    } catch (err) {
+      console.error('❌ Failed to remove notify subscriber:', err);
+      await message.channel.send('❌ Failed to disable notifications.');
     }
     await message.delete().catch(() => {});
     return;
