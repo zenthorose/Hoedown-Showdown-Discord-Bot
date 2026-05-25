@@ -20,7 +20,7 @@ module.exports = {
           const userTag = interaction.user.tag;
           const channelName = interaction.channel?.name || "DM/Unknown";
           await logChannel.send(
-            `📝 **/lookup** used by **${userTag}** in **#${channelName}** ${extra}`
+            `📝 **/lookup** used by **${userTag}** (looked up: **${target.tag}**) in **#${channelName}** ${extra}`
           );
         }
       } catch (err) {
