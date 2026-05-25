@@ -72,7 +72,7 @@ module.exports = {
     if (!triggerUrl) {
       await interaction.reply({
         content: '❌ Error: Google Apps Script URL is not set in environment variables.',
-        ephemeral: true
+        flags: 64
       });
       await logUsage("❌ Failed - Missing Google Apps Script URL.");
       return;
@@ -83,14 +83,14 @@ module.exports = {
     if (!registeredRole || !member.roles.cache.has(registeredRole.id)) {
       await interaction.reply({
         content: "❌ You must be registered to use this command. Use `/register` first.",
-        ephemeral: true
+        flags: 64
       });
       await logUsage("❌ Permission denied - not registered.");
       return;
     }
 
     try {
-      await interaction.reply({ content: '⏳ Processing your update…', ephemeral: true });
+      await interaction.reply({ content: '⏳ Processing your update…', flags: 64 });
     } catch {}
 
     let infoType, newValue;

@@ -11,10 +11,10 @@ const SUPPORT_CATEGORY_NAME = 'Support Tickets';
 const config = require('../config.json');
 
 const STAFF_ROLE_IDS = [
-  "1069716885467312188",
-  "1253964506317586453",
-  "1069083357100642316",
-  "1416904399208321164"
+  "1069716885467312188", //HOST
+  "1253964506317586453", //Ghost's Left Hand
+  "1069083357100642316",//Assistant
+  "1416904399208321164"//Hunt Hoedown Do-see-do Bot
 ];
 
 // =============================
@@ -100,8 +100,8 @@ async function updateBotStatus(client) {
   try {
     const supporttickets = config.supporttickets;
     const statusText = supporttickets
-      ? '✅ Knocking off the dust and gearing up.'
-      : '❌ Knocking off the dust and gearing up.';
+      ? '✅ Hoedown 5/23/2026! Support Open'
+      : '❌ Hoedown 5/23/2026! Support Closed';
 
     await client.user.setPresence({
       activities: [{ name: statusText, type: 0 }],

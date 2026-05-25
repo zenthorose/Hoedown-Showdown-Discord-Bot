@@ -14,7 +14,7 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    let replyMessage;
+    let replyDeferred = false;
 
     async function logUsage(extra = "") {
       try {
@@ -37,7 +37,7 @@ module.exports = {
         await logUsage("❌ Permission denied");
         return interaction.reply({
           content: '❌ You do not have permission to use this command!',
-          ephemeral: true
+          flags: 64
         });
       }
 
@@ -48,7 +48,14 @@ module.exports = {
       console.log('📤 Sending avoid-list request to GAS:', JSON.stringify(payload, null, 2));
 
       // --- Defer reply to avoid Unknown interaction errors ---
-      replyMessage = await interaction.deferReply({ ephemeral: true });
+      try {
+        await interaction.deferReply({ flags: 64 });
+        replyDeferred = true;
+      } catch (err) {
+        // If defer fails, we'll continue and attempt to reply later
+        console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
+        replyDeferred = false;
+      }
 
       // --- Trigger the GAS avoid-list function ---
       const triggerUrl = process.env.Google_Apps_Script_URL;
@@ -94,10 +101,10 @@ module.exports = {
       await logUsage(`❌ Error: ${error.message}`);
 
       try {
-        if (replyMessage) {
+        if (interaction.deferred || interaction.replied || replyDeferred) {
           await interaction.editReply("❌ There was an error executing this command. Please try again.");
         } else {
-          await interaction.reply({ content: "❌ There was an error executing this command. Please try again.", ephemeral: true });
+          await interaction.reply({ content: "❌ There was an error executing this command. Please try again.", flags: 64 });
         }
       } catch (err) {
         console.error("❌ Failed to send error message:", err);

@@ -7,6 +7,46 @@ const axios = require('axios');
 const express = require('express');
 const { updateBotStatus } = require('./events/swampmail');
 
+// --- Global error & health handlers ---
+function safeAppend(path, text) {
+  try { fs.appendFileSync(path, text); } catch (e) { console.error('Failed to write log:', e); }
+}
+
+process.on('uncaughtException', (err) => {
+  const msg = `[${new Date().toISOString()}] uncaughtException: ${err && err.stack ? err.stack : String(err)}\n`;
+  safeAppend('./bot-crashes.log', msg);
+  console.error('uncaughtException:', err);
+  // Give logs a moment to flush, then exit so an external supervisor can restart if configured
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  const msg = `[${new Date().toISOString()}] unhandledRejection: ${String(reason)}\n`;
+  safeAppend('./bot-crashes.log', msg);
+  console.error('unhandledRejection at:', promise, 'reason:', reason);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received — shutting down gracefully.');
+  try { client?.destroy?.(); } catch (e) {}
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — shutting down gracefully.');
+  try { client?.destroy?.(); } catch (e) {}
+  process.exit(0);
+});
+
+// Periodic health snapshot (every 5 minutes)
+setInterval(() => {
+  try {
+    const mem = process.memoryUsage();
+    const msg = `[${new Date().toISOString()}] memory=${JSON.stringify(mem)}\n`;
+    safeAppend('./bot-health.log', msg);
+  } catch (e) { /* ignore */ }
+}, 5 * 60 * 1000);
+
 const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
   intents: [
@@ -71,9 +111,14 @@ const rest = new REST({ version: '10' }).setToken(botToken);
   }
 })();
 
-// --- Ready event ---
-client.once('ready', async () => {
+// --- Ready / clientReady event (compatibility across discord.js versions) ---
+let _readyHandled = false;
+async function onClientReady() {
+  if (_readyHandled) return;
+  _readyHandled = true;
+
   console.log(`✅ Bot online as ${client.user.tag}`);
+  try { safeAppend('./bot-starts.log', `[${new Date().toISOString()}] online as ${client.user?.tag || 'unknown'}\n`); } catch (e) {}
 
   // Test Google Apps Script
   try {
@@ -96,7 +141,10 @@ client.once('ready', async () => {
     console.error("❌ Failed to send startup status:", err);
   }
   await updateBotStatus(client);
-});
+}
+
+// Prefer the new event name; avoid registering the deprecated 'ready' listener
+client.once('clientReady', onClientReady);
 
 // --- Auto-run member-update ---
 client.on('guildMemberAdd', async (member) => {
@@ -154,19 +202,19 @@ client.on('messageCreate', async (message) => {
 
 // --- Interaction handler ---
 client.on('interactionCreate', async (interaction) => {
-  try {
-    if (interaction.isButton() && interaction.customId === 'muffin') {
+      try {
+        if (interaction.isButton() && interaction.customId === 'muffin') {
       try {
         await interaction.update({
           content: 'Howdy partner, here is your muffin! <:muffin:1355005309604593714>',
           embeds: [{ image: { url: 'https://static.wikia.nocookie.net/teamfourstar/images/e/e5/ImagesCAJ3ZF22.jpg/revision/latest?cb=20120306001642' } }],
           components: []
         });
-      } catch (err) {
-        console.error('Muffin button error:', err);
-        if (!interaction.replied && !interaction.deferred)
-          await interaction.reply({ content: '❌ Something went wrong!', ephemeral: true });
-      }
+        } catch (err) {
+          console.error('Muffin button error:', err);
+          if (!interaction.replied && !interaction.deferred)
+            await interaction.reply({ content: '❌ Something went wrong!', flags: 64 });
+        }
       return;
     }
 
@@ -174,14 +222,59 @@ client.on('interactionCreate', async (interaction) => {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
 
-    try {
-      await command.execute(interaction, reactionPostsManager);
-    } catch (err) {
-      console.error(`❌ Error executing command ${interaction.commandName}:`, err);
-      if (!interaction.replied && !interaction.deferred)
-        await interaction.reply({ content: '❌ There was an error executing this command!', ephemeral: true });
-      else await interaction.editReply({ content: '❌ There was an error executing this command!' });
-    }
+      try {
+        await command.execute(interaction, reactionPostsManager);
+      } catch (err) {
+        console.error(`❌ Error executing command ${interaction.commandName}:`, err);
+        try {
+          const alreadyAcknowledged = (typeof interaction.acknowledged !== 'undefined') ? interaction.acknowledged : (interaction.replied || interaction.deferred);
+          const errorContent = { content: '❌ There was an error executing this command!', flags: 64 };
+
+          if (!alreadyAcknowledged) {
+            // Safe to reply directly
+            try {
+              await interaction.reply(errorContent);
+            } catch (replyErr) {
+              // If reply failed because interaction is already acknowledged or unknown, try followUp
+              if (replyErr?.code === 40060 || replyErr?.code === 10062) {
+                try { await interaction.followUp(errorContent); } catch (fuErr) {
+                  console.warn('⚠️ Follow-up failed after reply error:', fuErr?.message || fuErr);
+                }
+              } else {
+                console.warn('⚠️ Failed to send error reply to interaction:', replyErr?.message || replyErr);
+              }
+            }
+          } else {
+            // Interaction already acknowledged — use followUp or editReply when possible
+            try {
+              if (interaction.deferred || interaction.replied) {
+                // Prefer editReply if we previously replied/deferred and can edit
+                try { await interaction.editReply({ content: errorContent.content }); }
+                catch (editErr) {
+                  // If edit fails, fallback to followUp
+                  if (editErr?.code === 10062) {
+                    console.warn('⚠️ Unknown interaction when attempting editReply — skipping.');
+                  } else {
+                    try { await interaction.followUp(errorContent); }
+                    catch (fuErr) { console.warn('⚠️ followUp failed after editReply error:', fuErr?.message || fuErr); }
+                  }
+                }
+              } else {
+                // If acknowledged but not replied/deferred (rare), try followUp
+                try { await interaction.followUp(errorContent); }
+                catch (fuErr) {
+                  if (fuErr?.code === 10062) console.warn('⚠️ Unknown interaction when attempting followUp — skipping.');
+                  else console.warn('⚠️ followUp failed for acknowledged interaction:', fuErr?.message || fuErr);
+                }
+              }
+            } catch (innerErr) {
+              console.warn('⚠️ Could not send error response to interaction (possible already acknowledged):', innerErr?.message || innerErr);
+            }
+          }
+        } catch (replyErr) {
+          console.warn('⚠️ Failed to send error response to interaction (unexpected):', replyErr?.message || replyErr);
+        }
+      }
   } catch (err) {
     console.error('Unexpected interactionCreate error:', err);
   }
@@ -195,8 +288,46 @@ app.use(express.json());
 app.get('/ping', (req, res) => res.send('Pong!'));
 
 app.post('/sendmessage', async (req, res) => {
-  const { channelId, message } = req.body;
+  const { channelId, message, source } = req.body;
   if (!channelId || !message) return res.status(400).json({ error: 'Missing required fields: channelId and message' });
+
+  // Blocking controls: prefer environment variable, fallback to hard-coded toggle in code
+  // - To control without editing code, set env `BLOCK_GAS_POSTS=true`.
+  // - Otherwise change `HARD_BLOCK_GAS` below and restart to pick up the code toggle.
+  const HARD_BLOCK_GAS = false; // <-- change this value in-code to enable/disable GAS blocking
+
+  let blockGas;
+  if (typeof process.env.BLOCK_GAS_POSTS !== 'undefined' && String(process.env.BLOCK_GAS_POSTS) !== '') {
+    blockGas = String(process.env.BLOCK_GAS_POSTS).toLowerCase() === 'true';
+    console.log(`ℹ️ BLOCK_GAS_POSTS env override detected: ${blockGas}`);
+  } else {
+    blockGas = HARD_BLOCK_GAS;
+    console.log(`ℹ️ BLOCK_GAS_POSTS not set in env — using in-code toggle HARD_BLOCK_GAS=${HARD_BLOCK_GAS}`);
+  }
+
+  // Heuristics to detect Apps Script requests: explicit `source` field, special header, or User-Agent
+  const ua = String(req.headers['user-agent'] || '').toLowerCase();
+  const headerGas = String(req.headers['x-from-gas'] || '').toLowerCase();
+  const isFromGAS = (source === 'GAS') || (headerGas === 'true') || ua.includes('google-apps-script') || ua.includes('google-apps-script/');
+
+  // Debug logging to inspect incoming request headers and detection logic
+  try {
+    console.log('📥 /sendmessage incoming request — channelId:', channelId);
+    console.log('📥 Headers:', Object.keys(req.headers).length ? req.headers : '(no headers)');
+    console.log(`📥 GAS detection inputs: source='${source}', x-from-gas='${req.headers['x-from-gas']}', user-agent='${req.headers['user-agent']}'`);
+    console.log(`📥 Computed flags: blockGas=${blockGas}, headerGas='${headerGas}', ua='${ua}', isFromGAS=${isFromGAS}`);
+  } catch (logErr) {
+    console.error('❌ Failed to log /sendmessage request details:', logErr);
+  }
+
+  if (blockGas && isFromGAS) {
+    console.log(`ℹ️ Skipped posting to ${channelId} — request identified as GAS and BLOCK_GAS_POSTS=true`);
+    return res.status(200).json({ skipped: 'blocked_source', reason: 'identified_as_gas' });
+  } else {
+    console.log(`ℹ️ /sendmessage will proceed: blockGas=${blockGas}, isFromGAS=${isFromGAS}`);
+  }
+
+  // Note: phrase-based blocking removed — use BLOCK_GAS_POSTS and explicit source/header detection instead
 
   try {
     const channel = await client.channels.fetch(channelId);
@@ -209,13 +340,19 @@ app.post('/sendmessage', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🌐 Express server running on port ${port}`);
-  if (!botToken) {
-    console.error('❌ BOT_TOKEN missing in environment!');
-    process.exit(1);
-  }
-  client.login(botToken).catch(err => {
-    console.error('❌ Failed to login bot:', err);
-    process.exit(1);
-  });
+  (async () => {
+    console.log(`🌐 Express server running on port ${port}`);
+    if (!botToken) {
+      console.error('❌ BOT_TOKEN missing in environment!');
+      process.exit(1);
+    }
+    try {
+      await client.login(botToken);
+      // If the library does not emit 'clientReady', call handler directly
+      try { await onClientReady(); } catch (e) { /* already handled or error */ }
+    } catch (err) {
+      console.error('❌ Failed to login bot:', err);
+      process.exit(1);
+    }
+  })();
 });

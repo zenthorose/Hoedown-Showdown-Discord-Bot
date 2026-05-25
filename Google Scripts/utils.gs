@@ -64,7 +64,9 @@ function logSanityCheck(teams, eastPool, westPool, bothPool, fillerCount) {
 }
 
 function pairKey(a, b) {
-  return [a, b].sort().join('|');
+  const idA = String(a.id ?? a.name).trim();
+  const idB = String(b.id ?? b.name).trim();
+  return [idA, idB].sort().join('|'); // simple string sort is fine
 }
 
 function groupPlayersByRegion(players, safeLog) {
@@ -76,19 +78,120 @@ function groupPlayersByRegion(players, safeLog) {
   };
 }
 
-function saveNewPairings(pairingsSheet, pairs, logSheet = null) {
-  if (!pairs.length) return;
+function saveNewPairings(round, safeLog) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const teamsSheet = ss.getSheetByName("Players That Reacted");
+  const membersSheet = ss.getSheetByName("Discord Member List");
+  const pairingsSheet = ss.getSheetByName("Previous Pairings");
+  const logSheet = ss.getSheetByName("Logs");
 
+  safeLog = safeLog || Logger.log;
+  safeLog(`Starting saveNewPairings for Round #${round}`);
+
+  if (!teamsSheet || !pairingsSheet || !membersSheet) {
+    safeLog("❌ Missing required sheet(s)");
+    return;
+  }
+
+  // --- Build member map: name -> Discord ID
+  const membersData = membersSheet.getRange(2, 1, membersSheet.getLastRow() - 1, 2).getValues();
+  const memberMap = {};
+  membersData.forEach(([name, discordId]) => {
+    if (name && discordId) {
+      memberMap[String(name).trim().toLowerCase()] = String(discordId).trim();
+    }
+  });
+
+  // --- Find round column
+  const headers = teamsSheet.getRange(1, 1, 1, teamsSheet.getLastColumn()).getValues()[0];
+  const roundHeader = `Round #${round}`;
+  const roundColIndex = headers.indexOf(roundHeader);
+  if (roundColIndex === -1) {
+    safeLog(`❌ Round column not found: ${roundHeader}`);
+    return;
+  }
+
+  // --- Get round data
+  const lastRow = teamsSheet.getLastRow();
+  const roundValues = teamsSheet.getRange(2, roundColIndex + 1, lastRow - 1, 1).getValues().flat();
+
+  // --- Extract teams
+  const teams = [];
+  let currentTeam = null;
+  let currentPlayers = [];
+
+  roundValues.forEach(val => {
+    if (!val) return;
+    const clean = String(val).trim();
+    if (/^Team [A-Z]+$/.test(clean)) {
+      if (currentTeam && currentPlayers.length > 1) {
+        teams.push({ team: currentTeam, players: currentPlayers });
+      }
+      currentTeam = clean.replace("Team ", "");
+      currentPlayers = [];
+    } else {
+      const playerName = clean.replace(/\s*\(.*\)$/, ""); // strip region
+      currentPlayers.push(playerName);
+    }
+  });
+
+  if (currentTeam && currentPlayers.length > 1) {
+    teams.push({ team: currentTeam, players: currentPlayers });
+  }
+
+  safeLog(`Found ${teams.length} teams for Round #${round}`);
+
+  // --- Build all pairings
+  const pairs = [];
+  for (const { team, players } of teams) {
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const p1 = players[i];
+        const p2 = players[j];
+        const id1 = memberMap[p1.toLowerCase()] || "";
+        const id2 = memberMap[p2.toLowerCase()] || "";
+        pairs.push([id1, id2]);
+      }
+    }
+  }
+
+  safeLog(`Generated ${pairs.length} new pairings`);
+
+  if (!pairs.length) {
+    safeLog("No pairings to save.");
+    return;
+  }
+
+  // --- Save to Previous Pairings sheet
   try {
-    const rows = pairs.map(([p1, p2]) => [p1, p2]);
-    pairingsSheet.getRange(pairingsSheet.getLastRow() + 1, 1, rows.length, 2).setValues(rows);
-    if (logSheet) logSheet.appendRow([`Saved ${rows.length} new pairings.`, new Date()]);
+    const startRow = pairingsSheet.getLastRow() + 1;
+
+    const rows = pairs.map(([p1, p2], i) => {
+      const row = startRow + i;
+      return [
+        p1, // Player 1 ID
+        p2, // Player 2 ID
+        `=IF(A${row}<>"", INDEX('Discord Member List'!A:A, MATCH(A${row}, 'Discord Member List'!B:B, 0)), "")`, // Player 1 Username
+        `=IF(B${row}<>"", INDEX('Discord Member List'!A:A, MATCH(B${row}, 'Discord Member List'!B:B, 0)), "")` // Player 2 Username
+      ];
+    });
+
+    pairingsSheet.getRange(startRow, 1, rows.length, 4).setValues(rows);
+    safeLog(`✅ Saved ${rows.length} pairings for Round #${round}`);
+
   } catch (e) {
-    if (logSheet) logSheet.appendRow([`Error saving pairings: ${e.message}`, new Date()]);
+    safeLog(`❌ Error saving pairings: ${e.message}`);
   }
 }
 
-function extractNewPairs(teams) {
+function extractNewPairs(teams, safeLog) {
+  // 🔍 Log full team composition before processing
+  safeLog(`extractNewPairs called with ${teams.length} teams`);
+  teams.forEach((team, idx) => {
+    const players = team.map(p => `${p.name} (${p.id}, ${p.region})`);
+    safeLog(`Team ${idx + 1}: ${players.join(" | ")}`);
+  });
+
   const pairs = [];
   for (const team of teams) {
     for (let i = 0; i < team.length; i++) {
@@ -96,10 +199,14 @@ function extractNewPairs(teams) {
         const p1 = team[i];
         const p2 = team[j];
         if (p1.region === 'Filler' || p2.region === 'Filler') continue;
-        pairs.push([p1.username, p2.username]);
+        pairs.push([p1.id, p2.id]);
       }
     }
   }
+
+  safeLog(`extractNewPairs generated ${pairs.length} pairs`);
+  safeLog(`Pairs: ${JSON.stringify(pairs)}`);
+
   return pairs;
 }
 
@@ -115,11 +222,12 @@ function getDuplicatePairings(player, team, previousPairings) {
   const dupes = [];
   for (const teammate of team) {
     if (teammate === player || teammate.region === "Filler") continue;
-    const key = pairKey(player.username, teammate.username);
-    if (previousPairings.has(key)) dupes.push(`${player.username}–${teammate.username}`);
+    const key = pairKey(player, teammate);
+    if (previousPairings.has(key)) dupes.push(`${player.name}–${teammate.name}`);
   }
   return dupes;
 }
+
 
 function regionSwapAllowed(playerA, playerB) {
   return !(playerA.region === "East" && playerB.region === "West") &&
@@ -134,48 +242,46 @@ function regionTeamValid(teamArray) {
 function hasAvoidConflict(teamArray, avoidPairings) {
   for (let i = 0; i < teamArray.length; i++) {
     for (let j = i + 1; j < teamArray.length; j++) {
-      if (avoidPairings.has(pairKey(teamArray[i].username, teamArray[j].username))) return true;
+      if (avoidPairings.has(pairKey(teamArray[i], teamArray[j]))) return true;
     }
   }
   return false;
 }
 
-
 //Command
-function approveTeams({ round }) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Teams");
-  const teams = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
-
-  const rowIndex = teams.findIndex(row => row[0] == round);
-  if (rowIndex === -1) return ContentService.createTextOutput(JSON.stringify({ error: "Team set not found." }));
-
-  sheet.getRange(rowIndex + 2, 6).setValue("Approved");
-  return ContentService.createTextOutput(JSON.stringify({ success: true }));
-}
-
 function infoCheck({ userId }) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Discord Member List");
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify({ error: "Discord Member List sheet not found." }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
 
-  // Grab columns A–F (6 columns total, assuming headers in row 1)
-  const members = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return ContentService.createTextOutput(JSON.stringify({ error: "No members found in the sheet." }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
 
-  // Find the row where column C (index 2) matches userId
-  const user = members.find(row => row[2] == userId);
+  // Grab columns A–E (5 columns total, headers in row 1)
+  const members = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+
+  // Find the row where column B (index 1) matches userId
+  const user = members.find(row => row[1] == userId);
 
   if (!user) {
     return ContentService.createTextOutput(JSON.stringify({ error: "User not found." }))
-      .setMimeType(ContentService.MimeType.JSON);
+                         .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Return region (D), steam code (E), and stream link (F)
+  // Return region (C), steam ID (D), and stream link (E)
   const result = {
-    region: user[3],
-    steamCode: user[4],
-    streamLink: user[5]
+    region: user[2],
+    steamCode: user[3],
+    streamLink: user[4]
   };
 
   return ContentService.createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
+                       .setMimeType(ContentService.MimeType.JSON);
 }
 
 function replacePlayers({ round, removePlayer, addPlayer }) {
@@ -189,139 +295,276 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
     if (logSheet) logSheet.appendRow([new Date(), message]);
   }
 
-  log(`replacePlayers called with round="${round}", removePlayer="${removePlayer}", addPlayer="${addPlayer}"`);
+  log(`replacePlayers called with round="${round}", removePlayer=${JSON.stringify(removePlayer)}, addPlayer=${JSON.stringify(addPlayer)}`);
 
-  if (!reactedSheet) {
-    log("Players That Reacted sheet not found.");
-    return ContentService.createTextOutput(JSON.stringify({ error: "Players That Reacted sheet not found." }))
-                         .setMimeType(ContentService.MimeType.JSON);
-  }
-  if (!discordSheet) {
-    log("Discord Member List sheet not found.");
-    return ContentService.createTextOutput(JSON.stringify({ error: "Discord Member List sheet not found." }))
+  if (!reactedSheet || !discordSheet) {
+    const missingSheet = !reactedSheet ? "Players That Reacted" : "Discord Member List";
+    log(`${missingSheet} sheet not found.`);
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: `${missingSheet} sheet not found.`, type: "sheet_missing" }))
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Build full names with region from Discord Member List
-  const discordData = discordSheet.getRange(2, 2, discordSheet.getLastRow() - 1, 3).getValues(); // Columns B-D
+  // Build member map (non-fillers)
+  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 5).getValues();
   const memberMap = {};
   discordData.forEach(row => {
-    const name = row[0];
-    const region = row[2]; // Column D is index 2
-    if (name) memberMap[name] = `${name} (${region})`;
+    const username = row[0];
+    const region = row[2];
+    if (username) memberMap[username] = `${username} (${region})`;
   });
 
-  if (!memberMap[removePlayer] || !memberMap[addPlayer]) {
-    log(`Error: One or both players not found. removePlayer="${removePlayer}", addPlayer="${addPlayer}"`);
-    return ContentService.createTextOutput(JSON.stringify({ error: "One or both players not found in Discord Member List." }))
-                         .setMimeType(ContentService.MimeType.JSON);
+  // --- Resolve remove target ---
+  let removeFull;
+  if (removePlayer.filler) {
+    const num = parseInt(removePlayer.username.replace(/\D/g, ""), 10);
+    if (isNaN(num)) {
+      log(`Invalid filler number for remove: ${removePlayer.username}`);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: `Invalid filler number: "${removePlayer.username}"`,
+        type: "invalid_filler"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    removeFull = `Filler #${num}`;
+  } else {
+    if (!memberMap[removePlayer.username]) {
+      log(`Remove player not found: ${removePlayer.username}`);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: `Remove player "${removePlayer.username}" not found.`,
+        type: "player_not_found",
+        missing: { removeMissing: true, addMissing: false }
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    removeFull = memberMap[removePlayer.username];
   }
 
-  const removeFull = memberMap[removePlayer];
-  const addFull = memberMap[addPlayer];
-  log(`Full names with regions: remove="${removeFull}", add="${addFull}"`);
+  // --- Resolve add target ---
+  let addFull;
+  if (addPlayer.filler) {
+    const num = parseInt(addPlayer.username.replace(/\D/g, ""), 10);
+    if (isNaN(num)) {
+      log(`Invalid filler number for add: ${addPlayer.username}`);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: `Invalid filler number: "${addPlayer.username}"`,
+        type: "invalid_filler"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    addFull = `Filler #${num}`;
+  } else {
+    if (!memberMap[addPlayer.username]) {
+      log(`Add player not found: ${addPlayer.username}`);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: `Add player "${addPlayer.username}" not found.`,
+        type: "player_not_found",
+        missing: { removeMissing: false, addMissing: true }
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    addFull = memberMap[addPlayer.username];
+  }
 
-  // Get headers from Players That Reacted
+  log(`Resolved names: remove="${removeFull}", add="${addFull}"`);
+
+  // --- Find round column ---
   const headers = reactedSheet.getRange(1, 1, 1, reactedSheet.getLastColumn()).getValues()[0];
   const roundHeader = `Round #${round}`;
   const roundColIndex = headers.indexOf(roundHeader);
   if (roundColIndex === -1) {
     log(`Round header not found: ${roundHeader}`);
-    return ContentService.createTextOutput(JSON.stringify({ error: `Round "${round}" not found.` }))
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: `Round "${round}" not found.`, type: "round_missing" }))
                          .setMimeType(ContentService.MimeType.JSON);
   }
   log(`Round column found at index ${roundColIndex} (1-based column: ${roundColIndex + 1})`);
 
-  // Get all values in that round column (skip header)
+  // --- Get round values ---
   const roundValues = reactedSheet.getRange(2, roundColIndex + 1, reactedSheet.getLastRow() - 1, 1).getValues().flat();
 
-  // Find removePlayer in the round column
-  const rowIndex = roundValues.findIndex(val => val === removeFull);
+  // --- Duplicate check ---
+  if (roundValues.some(val => val && addPlayer.filler
+        ? val.toLowerCase().startsWith(addFull.toLowerCase())
+        : val === addFull)) {
+    log(`Duplicate detected: "${addFull}" is already in Round #${round}`);
+    try { if (typeof repostTeamsPreview === "function") repostTeamsPreview(round, log); } catch (e) { log(`Error repostTeamsPreview: ${e.message}`); }
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: `"${addFull}" is already in Round #${round}`,
+      type: "duplicate",
+      player: addFull,
+      round
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- Find remove row ---
+  const rowIndex = removePlayer.filler
+    ? roundValues.findIndex(val => val && val.toLowerCase().startsWith(removeFull.toLowerCase()))
+    : roundValues.findIndex(val => val === removeFull);
+
   if (rowIndex === -1) {
-    log(`Player "${removeFull}" not found in Round #${round}`);
-    return ContentService.createTextOutput(JSON.stringify({ error: `"${removePlayer}" not found in Round #${round}` }))
-                         .setMimeType(ContentService.MimeType.JSON);
+    log(`Remove target "${removeFull}" not found in Round #${round}`);
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: `"${removeFull}" not found in Round #${round}`,
+      type: "remove_not_found",
+      player: removeFull,
+      round
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Log exact cell for round column
-  const roundCellRef = `R${rowIndex + 2}C${roundColIndex + 1}`;
-  log(`Replacing "${removeFull}" with "${addFull}" at round column cell ${roundCellRef}`);
+  // --- Replace in round column and update Column B on same row ---
+  const newValue = addPlayer.filler ? `${addFull} (Filler)` : addFull;
+  roundValues[rowIndex] = newValue;
 
-  // Replace the player in round column
-  roundValues[rowIndex] = addFull;
   reactedSheet.getRange(2, roundColIndex + 1, roundValues.length, 1).setValues(roundValues.map(v => [v]));
+  reactedSheet.getRange(rowIndex + 2, 2).setValue(newValue); // Column B same row
 
-  // Also replace in column 2 (Discord Member List column) same row with plain name
-  const col2CellRef = `R${rowIndex + 2}C2`;
-  log(`Also updating column 2 cell ${col2CellRef} with "${addPlayer}"`);
-  reactedSheet.getRange(rowIndex + 2, 2).setValue(addPlayer);
+  log(`Round #${round} updated successfully.`);
 
-  log(`Round #${round} column and column 2 updated successfully.`);
-
-  return ContentService.createTextOutput(JSON.stringify({ success: true, roundValues: roundValues }))
-                       .setMimeType(ContentService.MimeType.JSON);
-}
-
-function swapPlayers({ round, player1, player2 }) {
-  const spreadsheetId = getSpreadsheetId();
-  const sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName("Teams");
-  if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({ error: "Teams sheet not found." }))
-                         .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // Construct header to match "Round #<number>"
-  const targetHeader = `Round #${round}`;
-
-  // Get all headers (assumes first row contains round names)
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const roundIndex = headers.findIndex(h => h === targetHeader);
-
-  if (roundIndex === -1) {
-    return ContentService.createTextOutput(JSON.stringify({ error: `Round "${round}" not found.` }))
-                         .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // Get all player values in that round (excluding header row)
-  const playerValues = sheet.getRange(2, roundIndex + 1, sheet.getLastRow() - 1, 1).getValues().flat();
-
-  const idx1 = playerValues.findIndex(p => p === player1);
-  const idx2 = playerValues.findIndex(p => p === player2);
-
-  if (idx1 === -1) {
-    return ContentService.createTextOutput(JSON.stringify({ error: `"${player1}" not found in round "${round}".` }))
-                         .setMimeType(ContentService.MimeType.JSON);
-  }
-  if (idx2 === -1) {
-    return ContentService.createTextOutput(JSON.stringify({ error: `"${player2}" not found in round "${round}".` }))
-                         .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // Swap players
-  [playerValues[idx1], playerValues[idx2]] = [playerValues[idx2], playerValues[idx1]];
-
-  // Write updated column back to sheet
-  const updatedColumn = playerValues.map(p => [p]); // convert to 2D array
-  sheet.getRange(2, roundIndex + 1, updatedColumn.length, 1).setValues(updatedColumn);
-
-  // Optional log
-  const logSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Swap Log");
-  if (logSheet) {
-    logSheet.appendRow([new Date(), targetHeader, player1, player2]);
+  // --- Trigger repostTeamsPreview ---
+  try {
+    if (typeof repostTeamsPreview === "function") {
+      repostTeamsPreview(round, log);
+      log(`repostTeamsPreview triggered successfully for Round #${round}`);
+    }
+  } catch (e) {
+    log(`Error repostTeamsPreview: ${e.message}`);
   }
 
   return ContentService.createTextOutput(JSON.stringify({
     success: true,
-    round: targetHeader,
-    updatedColumn: playerValues
+    type: "success",
+    round,
+    removed: removeFull,
+    added: newValue,
+    roundValues
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
+function swapPlayers(data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const reactedSheet = ss.getSheetByName("Players That Reacted");
+  const discordSheet = ss.getSheetByName("Discord Member List");
+  const logSheet = ss.getSheetByName("Logs");
+
+  function log(message) {
+    console.log(message);
+    if (logSheet) logSheet.appendRow([new Date(), message]);
+  }
+
+  // --- Log raw input first ---
+  log(`swapPlayers called. RAW INPUT: ${JSON.stringify(data)}`);
+
+  const round = data?.round;
+  const swaps = Array.isArray(data?.swaps) ? data.swaps : [];
+
+  if (!round || swaps.length === 0) {
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: false, error: "Missing round or swaps array in request." })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (!reactedSheet || !discordSheet) {
+    log("Required sheets not found.");
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: false, error: "Required sheets not found." })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- Build member map for full names with regions ---
+  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 5).getValues();
+  const memberMap = {};
+  discordData.forEach(row => {
+    const username = row[0]; // Column A = Username
+    const region = row[2];   // Column C = Region
+    if (username) memberMap[username] = `${username} (${region})`;
+  });
+
+  // --- Find round column ---
+  const headers = reactedSheet.getRange(1, 1, 1, reactedSheet.getLastColumn()).getValues()[0];
+  const roundHeader = `Round #${round}`;
+  const roundColIndex = headers.indexOf(roundHeader);
+
+  if (roundColIndex === -1) {
+    log(`Round header not found: ${roundHeader}`);
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: false, error: `Round "${round}" not found.` })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+  log(`Round column found at index ${roundColIndex} (1-based col: ${roundColIndex + 1})`);
+
+  // --- Get values for round column + column B ---
+  const roundValues = reactedSheet.getRange(2, roundColIndex + 1, reactedSheet.getLastRow() - 1, 1).getValues().flat();
+  const colBValues = reactedSheet.getRange(2, 2, reactedSheet.getLastRow() - 1, 1).getValues();
+
+  log(`Round values before swaps: ${JSON.stringify(roundValues)}`);
+
+  // --- Track results per swap ---
+  const results = [];
+
+  swaps.forEach((swap, i) => {
+    const p1Full = memberMap[swap.player1?.username];
+    const p2Full = memberMap[swap.player2?.username];
+    const pair = [swap.player1?.username, swap.player2?.username];
+
+    if (!p1Full || !p2Full) {
+      const reason = "One or both players not in Discord Member List";
+      log(`Swap #${i+1}: ❌ Failed - ${reason}. Pair=${pair.join(" ↔ ")}`);
+      results.push({ pair, status: "failed", reason });
+      return;
+    }
+
+    log(`Swap #${i+1}: Full names: ${p1Full} ↔ ${p2Full}`);
+
+    const idx1 = roundValues.findIndex(val => val === p1Full);
+    const idx2 = roundValues.findIndex(val => val === p2Full);
+
+    if (idx1 === -1 || idx2 === -1) {
+      const reason = `Player(s) not found in Round #${round}`;
+      log(`Swap #${i+1}: ❌ Failed - ${reason}. idx1=${idx1}, idx2=${idx2}`);
+      results.push({ pair, status: "failed", reason });
+      return;
+    }
+
+    // Perform the swap
+    [roundValues[idx1], roundValues[idx2]] = [roundValues[idx2], roundValues[idx1]];
+    [colBValues[idx1][0], colBValues[idx2][0]] = [colBValues[idx2][0], colBValues[idx1][0]];
+
+    log(`Swap #${i+1}: ✅ Completed successfully.`);
+    results.push({ pair, status: "ok" });
+  });
+
+  // --- Save updates only if at least one succeeded ---
+  if (results.some(r => r.status === "ok")) {
+    reactedSheet.getRange(2, roundColIndex + 1, roundValues.length, 1).setValues(roundValues.map(v => [v]));
+    reactedSheet.getRange(2, 2, colBValues.length, 1).setValues(colBValues);
+    log(`All successful swaps applied. Final round values: ${JSON.stringify(roundValues)}`);
+  } else {
+    log("No successful swaps to apply.");
+  }
+
+  // --- Trigger repostTeamsPreview ---
+  try {
+    if (typeof repostTeamsPreview === "function") {
+      repostTeamsPreview(round, log);
+      log(`repostTeamsPreview triggered successfully for Round #${round}`);
+    } else {
+      log("repostTeamsPreview function not found.");
+    }
+  } catch (e) {
+    log(`Error triggering repostTeamsPreview: ${e.message}`);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: results.some(r => r.status === "ok"),
+    results
+  })).setMimeType(ContentService.MimeType.JSON);
+}
 
 function memberUpdate(data) {
   const timestamp = new Date().toISOString();
 
-  // Step 1: Validate data
+  // Step 1: Validate input
   if (!data.memberData || !Array.isArray(data.memberData)) {
     logErrorToSheet('Error: Invalid or missing memberData array in data.');
     throw new Error('Invalid or missing memberData array in data.');
@@ -329,49 +572,70 @@ function memberUpdate(data) {
 
   try {
     const sheet = SpreadsheetApp.openById(getSpreadsheetId()).getSheetByName("Discord Member List");
-    
-    // Step 2: Get current data
-    const existingData = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
-    const headers = existingData[0];
 
-    // Step 3: Prepare data for insertion
+    // Step 2: Ensure correct headers
+    const requiredHeaders = ["Username", "Discord ID", "Region"];
+    const existingHeaders = sheet.getRange(1, 1, 1, requiredHeaders.length).getValues()[0];
+
+    if (JSON.stringify(existingHeaders) !== JSON.stringify(requiredHeaders)) {
+      sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
+    }
+
+    // Step 3: Get current data (excluding headers)
+    const lastRow = sheet.getLastRow();
+    const existingData = lastRow > 1 
+      ? sheet.getRange(2, 1, lastRow - 1, requiredHeaders.length).getValues()
+      : [];
+
+    // Step 4: Prepare new or updated rows
     const memberData = data.memberData;
     const dataToInsert = [];
 
-    memberData.forEach((row) => {
-      // Skip if matching the header row
-      if (JSON.stringify(row) === JSON.stringify(headers)) return;
+    memberData.forEach(row => {
+      // Skip header row if sent
+      if (JSON.stringify(row.slice(0, 2)) === JSON.stringify(requiredHeaders.slice(0, 2))) return;
+
+      // Ensure row has at least 3 columns
+      while (row.length < 3) row.push("");
 
       // Check if Discord ID already exists
-      const existingIndex = existingData.findIndex(existingRow => existingRow[2] === row[2]);
+      const existingIndex = existingData.findIndex(existingRow => existingRow[1] === row[1]);
 
       if (existingIndex !== -1) {
+        // Preserve existing region if it exists, otherwise use incoming or default to "Both"
+        const existingRegion = existingData[existingIndex][2];
+        row[2] = existingRegion && existingRegion.trim() !== "" ? existingRegion : (row[2] || "Both");
+
         // Update existing row
-        sheet.getRange(existingIndex + 1, 1, 1, row.length).setValues([row]);
+        sheet.getRange(existingIndex + 2, 1, 1, requiredHeaders.length).setValues([row]);
       } else {
-        // Add to insertion array if not found
+        // New row: default region to "Both" if missing
+        if (!row[2] || row[2].trim() === "") row[2] = "Both";
         dataToInsert.push(row);
       }
     });
 
-    // Step 4: Insert new data at the bottom
+    // Step 5: Insert new members at the bottom
     if (dataToInsert.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, dataToInsert.length, dataToInsert[0].length).setValues(dataToInsert);
+      sheet.getRange(sheet.getLastRow() + 1, 1, dataToInsert.length, requiredHeaders.length)
+           .setValues(dataToInsert);
     }
 
-    // Step 5: Sort by Username (B column)
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn())
-         .sort({ column: 2, ascending: true });
+    // Step 6: Sort by Username (Column A)
+    if (sheet.getLastRow() > 2) {
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn())
+           .sort({ column: 1, ascending: true });
+    }
 
     return ContentService.createTextOutput("✅ Member list successfully updated.")
-                          .setMimeType(ContentService.MimeType.JSON);
+                         .setMimeType(ContentService.MimeType.JSON);
+
   } catch (error) {
     logErrorToSheet("Error in memberUpdate: " + error.message);
     return ContentService.createTextOutput("Error: " + error.message)
-                          .setMimeType(ContentService.MimeType.JSON);
+                         .setMimeType(ContentService.MimeType.JSON);
   }
 }
-
 
 function updatePlayerField(data) {
   const timestamp = new Date().toISOString();
@@ -385,11 +649,11 @@ function updatePlayerField(data) {
   const [userId, field, newValue] = data.updateData[0];
   const values = sheet.getDataRange().getValues();
 
-  // Column index mapping (0-based, adjust for 1-based sheet.getRange)
+  // Column index mapping (0-based)
   const fieldMap = {
-    region: 3,      // Column D
-    steamid: 4,     // Column E
-    streamlink: 5   // Column F
+    region: 2,      // Column C
+    steamid: 3,     // Column D
+    streamlink: 4   // Column E
   };
 
   const colIndex = fieldMap[field.toLowerCase()];
@@ -397,7 +661,7 @@ function updatePlayerField(data) {
     throw new Error(`Invalid field: ${field}`);
   }
 
-  const rowIndex = values.findIndex(row => row[2] == userId);
+  const rowIndex = values.findIndex(row => row[1] == userId); // Discord ID is column B (index 1)
   if (rowIndex === -1) {
     throw new Error(`User with ID ${userId} not found.`);
   }
@@ -406,77 +670,268 @@ function updatePlayerField(data) {
   logToSheet(`[${timestamp}] Updated ${field} for user ${userId} to "${newValue}"`);
 
   return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: `${field} updated.` }))
-    .setMimeType(ContentService.MimeType.JSON);
+                       .setMimeType(ContentService.MimeType.JSON);
 }
 
 function register(data) {
   const timestamp = new Date().toISOString();
-  
+
   // Step 1: Validate data
   if (!data.registerData || !Array.isArray(data.registerData)) {
-    logErrorToSheet('Error: Invalid or missing registerData array in data.');
-    throw new Error('Invalid or missing registerData array in data.');
+    const msg = 'Invalid or missing registerData array in data.';
+    logErrorToSheet(`[${timestamp}] ❌ ${msg}`);
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: false, message: msg })
+    ).setMimeType(ContentService.MimeType.JSON);
   } else {
     logToSheet(`[${timestamp}] ✅ Received valid registerData array.`);
   }
 
-  // Debug: Log the contents of registerData
   logToSheet(`[${timestamp}] registerData: ${JSON.stringify(data.registerData)}`);
 
   try {
     const sheet = SpreadsheetApp.openById(getSpreadsheetId()).getSheetByName("Discord Member List");
-    
+
     // Step 2: Set headers if missing
-    const headers = ["Nickname", "Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
+    const headers = ["Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
     const headerRange = sheet.getRange(1, 1, 1, headers.length);
     const existingHeaders = headerRange.getValues()[0];
-    
-    // If headers are missing or incorrect, set them
+
     if (!existingHeaders.every((header, index) => header === headers[index])) {
       headerRange.setValues([headers]);
       logToSheet(`[${timestamp}] ✅ Headers were set or corrected.`);
     }
 
-    // Step 3: Insert new data
+    // Step 3: Insert or update data
     const registerData = data.registerData;
-    logToSheet(`[${timestamp}] registerData length: ${registerData.length}`);
-    
-    const existingData = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+    const lastRow = sheet.getLastRow();
+    const existingData = lastRow > 1
+      ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
+      : [];
 
-    // Avoid duplicates by checking Discord ID
     registerData.forEach((row) => {
       if (row.length !== headers.length) {
-        logErrorToSheet(`[${timestamp}] Invalid row data`);
+        logErrorToSheet(`[${timestamp}] ❌ Invalid row data: ${JSON.stringify(row)}`);
         return;
       }
 
-      const discordId = row[2]; // Assuming Discord ID is the 3rd element
-      const existingIndex = existingData.findIndex(existingRow => existingRow[2] === discordId);
+      const discordId = row[1]; // Discord ID is column B / index 1
+      const existingIndex = existingData.findIndex(existingRow => existingRow[1] === discordId);
 
       if (existingIndex !== -1) {
         // Update existing entry
         sheet.getRange(existingIndex + 2, 1, 1, row.length).setValues([row]);
-        logToSheet(`[${timestamp}] ✅ Updated existing member: ${row[1]}`);
+        logToSheet(`[${timestamp}] 🔄 Updated existing member: ${row[0]}`);
       } else {
         // Add new entry
         sheet.appendRow(row);
-        logToSheet(`[${timestamp}] ✅ Added new member: ${row[1]}`);
+        logToSheet(`[${timestamp}] ➕ Added new member: ${row[0]}`);
       }
     });
 
-    // Step 4: Sort data by Username (Column B, index 2)
-    const lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      sheet.getRange(2, 1, lastRow - 1, headers.length)
-        .sort({ column: 2, ascending: true });
+    // Step 4: Sort data by Username (Column A, index 1)
+    const updatedLastRow = sheet.getLastRow();
+    if (updatedLastRow > 1) {
+      sheet.getRange(2, 1, updatedLastRow - 1, headers.length)
+           .sort({ column: 1, ascending: true });
       logToSheet(`[${timestamp}] ✅ Data sorted by Username.`);
     }
 
-    return ContentService.createTextOutput("✅ Member list successfully updated.")
-                          .setMimeType(ContentService.MimeType.JSON);
+    // ✅ SUCCESS RESPONSE
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: true, message: "Member list successfully updated." })
+    ).setMimeType(ContentService.MimeType.JSON);
+
   } catch (error) {
     logErrorToSheet("Error in register: " + error.message);
-    return ContentService.createTextOutput("Error: " + error.message)
-                          .setMimeType(ContentService.MimeType.JSON);
+
+    // ❌ FAILURE RESPONSE
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: false, message: error.message })
+    ).setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function avoidPairings(data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const avoidSheet = ss.getSheetByName("Avoid Pairings");
+  const discordSheet = ss.getSheetByName("Discord Member List");
+  const logSheet = ss.getSheetByName("Logs");
+
+  function log(message) {
+    console.log(message);
+    if (logSheet) logSheet.appendRow([new Date(), message]);
+  }
+
+  log(`avoidPairings called. RAW INPUT: ${JSON.stringify(data)}`);
+
+  const users = Array.isArray(data?.users) ? data.users : [];
+  if (users.length < 2) {
+    log("Error: At least 2 users are required.");
+    return ContentService.createTextOutput(JSON.stringify({ error: "At least 2 users required." }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (!avoidSheet || !discordSheet) {
+    log("Required sheets not found.");
+    return ContentService.createTextOutput(JSON.stringify({ error: "Required sheets not found." }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // --- Fetch existing pairs ---
+  const lastRow = Math.max(avoidSheet.getLastRow(), 1);
+  const existingPairs = avoidSheet.getRange(1, 1, lastRow, 2).getValues()
+    .map(row => [row[0]?.toString(), row[1]?.toString()]);
+
+  let addedCount = 0;
+  let skippedCount = 0;
+  const newRows = [];
+
+  const firstUser = users[0];
+
+  for (let i = 1; i < users.length; i++) {
+    const userA = firstUser.id.toString();
+    const userB = users[i].id.toString();
+
+    // --- Check if pair exists in either order ---
+    const exists = existingPairs.some(([a, b]) =>
+      (a === userA && b === userB) || (a === userB && b === userA)
+    );
+
+    if (exists) {
+      log(`Pair skipped (already exists): ${userA} =/ ${userB}`);
+      skippedCount++;
+      continue;
+    }
+
+    // --- Prepare formulas for columns C and D ---
+    const newRowIndex = avoidSheet.getLastRow() + newRows.length + 1;
+    const colCFormula = `=IF(A${newRowIndex}<>"", INDEX('Discord Member List'!A:A, MATCH(A${newRowIndex}, 'Discord Member List'!B:B, 0)), "")`;
+    const colDFormula = `=IF(B${newRowIndex}<>"", INDEX('Discord Member List'!A:A, MATCH(B${newRowIndex}, 'Discord Member List'!B:B, 0)), "")`;
+
+    newRows.push([userA, userB, colCFormula, colDFormula]);
+    log(`Pair added: ${userA} =/ ${userB}`);
+    addedCount++;
+  }
+
+  if (newRows.length > 0) {
+    avoidSheet.getRange(avoidSheet.getLastRow() + 1, 1, newRows.length, 4).setValues(newRows);
+  }
+
+  log(`Avoid Pairings update complete. Added: ${addedCount}, Skipped: ${skippedCount}`);
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    addedPairs: addedCount,
+    skippedPairs: skippedCount
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function unavoidPairings(data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const avoidSheet = ss.getSheetByName("Avoid Pairings");
+  const discordSheet = ss.getSheetByName("Discord Member List");
+  const logSheet = ss.getSheetByName("Logs");
+
+  function log(message) {
+    console.log(message);
+    if (logSheet) logSheet.appendRow([new Date(), message]);
+  }
+
+  log(`unavoidPairings called. RAW INPUT: ${JSON.stringify(data)}`);
+
+  const users = Array.isArray(data?.users) ? data.users : [];
+  if (users.length < 2) {
+    log("Error: At least 2 users are required.");
+    return ContentService.createTextOutput(JSON.stringify({ error: "At least 2 users required." }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (!avoidSheet || !discordSheet) {
+    log("Required sheets not found.");
+    return ContentService.createTextOutput(JSON.stringify({ error: "Required sheets not found." }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  const userA = users[0].id.toString();
+  const userB = users[1].id.toString();
+
+  const lastRow = Math.max(avoidSheet.getLastRow(), 1);
+  const existingPairs = avoidSheet.getRange(1, 1, lastRow, 2).getValues()
+    .map((row, i) => ({ a: row[0]?.toString(), b: row[1]?.toString(), rowNum: i + 1 }));
+
+  let removedCount = 0;
+  let skippedCount = 0;
+  const rowsToDelete = [];
+
+  // --- Find matching pairs (both directions) ---
+  existingPairs.forEach(pair => {
+    if ((pair.a === userA && pair.b === userB) || (pair.a === userB && pair.b === userA)) {
+      rowsToDelete.push(pair.rowNum);
+    }
+  });
+
+  if (rowsToDelete.length > 0) {
+    // Sort descending before deleting to avoid shifting row indices
+    rowsToDelete.sort((a, b) => b - a);
+    rowsToDelete.forEach(rowNum => {
+      avoidSheet.deleteRow(rowNum);
+      removedCount++;
+      log(`Pair removed: ${userA} <-> ${userB} (Row ${rowNum})`);
+    });
+  } else {
+    skippedCount++;
+    log(`No matching pair found for: ${userA} <-> ${userB}`);
+  }
+
+  log(`Unavoid Pairings complete. Removed: ${removedCount}, Skipped: ${skippedCount}`);
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    removedPairs: removedCount,
+    skippedPairs: skippedCount
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function avoidList(data) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const avoidSheet = ss.getSheetByName("Avoid Pairings");
+  const logSheet = ss.getSheetByName("Logs");
+
+  function log(message) {
+    console.log(message);
+    if (logSheet) logSheet.appendRow([new Date(), message]);
+  }
+
+  log(`avoidList called. RAW INPUT: ${JSON.stringify(data)}`);
+
+  if (!avoidSheet) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Sheet not found" }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  const lastRow = avoidSheet.getLastRow();
+  if (lastRow < 1) {
+    return ContentService.createTextOutput(JSON.stringify({ success: true, pairs: [] }))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  const values = avoidSheet.getRange(1, 1, lastRow, 4).getValues(); // A–D
+  let pairs = [];
+
+  if (data.userId) {
+    // Filter for specific user ID (check both A and B)
+    const userId = data.userId.toString();
+    pairs = values
+      .filter(r => r[0] && r[1] && (r[0].toString() === userId || r[1].toString() === userId))
+      .map(r => [r[2] || r[0], r[3] || r[1]]);
+    log(`Found ${pairs.length} avoid pairs for userId ${userId}`);
+  } else {
+    // Return ALL rows with valid names
+    pairs = values.filter(r => r[2] && r[3]).map(r => [r[2], r[3]]);
+    log(`Returning all avoid pairs: ${pairs.length} entries.`);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({ success: true, pairs }))
+                       .setMimeType(ContentService.MimeType.JSON);
 }

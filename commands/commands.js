@@ -22,17 +22,13 @@ module.exports = {
     let replied = false;
 
     async function safeReply(content, isEphemeral = false) {
+      const options = typeof content === 'string' ? { content } : content;
+      if (isEphemeral) options.flags = 64;
       if (replied) {
-        return interaction.followUp({
-          content,
-          ephemeral: isEphemeral,
-        });
+        return interaction.followUp(options);
       } else {
         replied = true;
-        return interaction.reply({
-          content,
-          ephemeral: isEphemeral,
-        });
+        return interaction.reply(options);
       }
     }
 
@@ -68,6 +64,7 @@ module.exports = {
         { name: '/info-check', description: 'See what info you’ve submitted.' },
         { name: '/register', description: 'Register your information for the first time.' },
         { name: '/update-info', description: 'Update your registered information.' },
+        { name: '/faq', description: 'Frequently asked questions about the community, event, and the bot.' },
       ];
 
       const adminCommands = [
@@ -82,6 +79,7 @@ module.exports = {
         { name: '/replace', description: 'You must enter the Round #, the person to remove from the list and then person to add that isn’t on the list.' },
         { name: '/swap', description: 'Swap’s the postion of 2-10 people on the list.' },
         { name: '/approve-round', description: 'Publishes the final Team List to the correct round channel and @’s everyone for that round.' },
+        { name: '/hoedown-reset', description: 'Resets all hoedown essential channels to a fresh state.' },
         { name: '/avoid', description: 'Let’s you add up to 5 people to the avoid list.' },
         { name: '/unavoid', description: 'Let’s you remove an avoided pair from the bot.' },
         { name: '/avoid-list', description: 'This allows you to pull the entire avoid list or just the list of a user if you add the name.' },
@@ -106,15 +104,9 @@ module.exports = {
       await logUsage("❌ Unexpected error");
       try {
         if (replied || interaction.deferred) {
-          await interaction.followUp({
-            content: '❌ There was an error executing this command!',
-            ephemeral: true,
-          });
+          await interaction.followUp({ content: '❌ There was an error executing this command!', flags: 64 });
         } else {
-          await interaction.reply({
-            content: '❌ There was an error executing this command!',
-            ephemeral: true,
-          });
+          await interaction.reply({ content: '❌ There was an error executing this command!', flags: 64 });
         }
       } catch (err) {
         console.error('❌ Failed to send error message:', err);

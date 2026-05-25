@@ -3,6 +3,14 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
+// Toggle controls for permission-changing and cleanup behavior.
+// Set to `true` to allow the operation, `false` to skip it.
+const ENABLE_ROUND_CHANNEL_PERMS = true; // Step 2: update round channel permission overwrites
+const ENABLE_TEAM_CLEANUP = true;       // Step 4a: clear old messages from team text channels
+const ENABLE_VC_RESET = true;           // Step 4a: reset voice channel permission overwrites
+const ENABLE_TEAM_POSTING_PERMS = true; // Step 4b: grant players and "Fill In" role channel perms
+const ENABLE_DISCORD_POSTING = true;    // Control whether the bot actually posts teamOutput messages
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('approve-round')
@@ -35,14 +43,26 @@ module.exports = {
 
     try {
       // --- Step 0: Permission check ---
-      const hasPermission = await checkPermissions(interaction);
       await logUsage(); // always log attempt
 
+      // Defer immediately (ephemeral) to acknowledge the interaction and avoid double-reply races.
+      let didDefer = false;
+      try {
+        const alreadyAck = (typeof interaction.acknowledged !== 'undefined') ? interaction.acknowledged : (interaction.replied || interaction.deferred);
+        if (!alreadyAck) {
+          await interaction.deferReply({ ephemeral: true });
+          didDefer = true;
+        } else {
+          console.log('ℹ️ Interaction already acknowledged before initial defer; skipping deferReply.');
+        }
+      } catch (deferErr) {
+        console.warn('⚠️ Failed to initial deferReply:', deferErr?.message || deferErr);
+      }
+
+      const hasPermission = await checkPermissions(interaction);
       if (!hasPermission) {
-        return interaction.reply({
-          content: '❌ You do not have permission to use this command!',
-          ephemeral: true
-        });
+        await interaction.editReply({ content: '❌ You do not have permission to use this command!' });
+        return;
       }
 
       const round = interaction.options.getInteger('round');
@@ -50,37 +70,46 @@ module.exports = {
       // --- Step 0.5: Input validation ---
       if (isNaN(round) || round < 1 || round > 16) {
         await logUsage("(❌ Invalid round input)");
-        return interaction.reply({
-          content: '❌ Invalid round number. Please enter a number between 1 and 16.',
-          ephemeral: true
-        });
+        await interaction.editReply({ content: '❌ Invalid round number. Please enter a number between 1 and 16.' });
+        return;
       }
 
       console.log(`✅ Received approve-round command for Round #${round}`);
       await logUsage(`(Round: ${round})`);
 
-      // --- Step 1: Processing reply ---
-      replyMessage = await interaction.reply({
-        content: `🔄 Processing approval for Round #${round}...`,
-        fetchReply: true
-      });
+      // --- Step 1: Ensure we have acknowledged the interaction to avoid double-reply errors ---
+      // If we didn't defer earlier, defer now. Track didDefer accordingly.
+      try {
+        const alreadyAck2 = (typeof interaction.acknowledged !== 'undefined') ? interaction.acknowledged : (interaction.replied || interaction.deferred);
+        if (!alreadyAck2 && !didDefer) {
+          await interaction.deferReply({ ephemeral: true });
+          didDefer = true;
+        }
+      } catch (deferErr) {
+        console.warn('⚠️ Failed to deferReply in step 1:', deferErr?.message || deferErr);
+      }
+      replyMessage = null;
 
       // --- Step 2: Update round channel permissions (optional global perms) ---
-      try {
-        const channelId = config.roundChannels[round];
-        if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
+      if (ENABLE_ROUND_CHANNEL_PERMS) {
+        try {
+          const channelId = config.roundChannels[round];
+          if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
 
-        const channel = await interaction.client.channels.fetch(channelId);
-        if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
+          const channel = await interaction.client.channels.fetch(channelId);
+          if (!channel) throw new Error(`Failed to fetch channel for Round #${round}.`);
 
-        // Example: uncomment if you want @everyone to see the round channel
-        await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
-          ViewChannel: true,
-          SendMessages: false,
-        });
-      } catch (permError) {
-        console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
-        await logUsage(`❌ Failed to update permissions for Round #${round}`);
+          // Example: uncomment if you want @everyone to see the round channel
+          await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+            ViewChannel: true,
+            SendMessages: false,
+          });
+        } catch (permError) {
+          console.error(`❌ Failed to update permissions for Round #${round}:`, permError);
+          await logUsage(`❌ Failed to update permissions for Round #${round}`);
+        }
+      } else {
+        console.log(`ℹ️ Skipped round channel permission edits for Round #${round} (toggle disabled).`);
       }
 
       // --- Step 3: Trigger GAS ---
@@ -118,27 +147,35 @@ module.exports = {
 
               // Clear messages if it's a text channel
               if (channel?.isTextBased()) {
-                let messages;
-                do {
-                  messages = await channel.messages.fetch({ limit: 50 });
-                  if (messages.size > 0) {
-                    await channel.bulkDelete(messages, true);
-                    console.log(`🧹 Cleared ${messages.size} messages from ${teamKey}`);
-                  }
-                } while (messages.size >= 2);
+                if (ENABLE_TEAM_CLEANUP) {
+                  let messages;
+                  do {
+                    messages = await channel.messages.fetch({ limit: 50 });
+                    if (messages.size > 0) {
+                      await channel.bulkDelete(messages, true);
+                      console.log(`🧹 Cleared ${messages.size} messages from ${teamKey}`);
+                    }
+                  } while (messages.size >= 2);
+                } else {
+                  console.log(`ℹ️ Skipped clearing messages in ${teamKey} (toggle disabled).`);
+                }
               }
 
               // Reset VC perms if it's a voice channel
               if (channel?.type === 2) { // 2 = GuildVoice
-                const allowedIds = [interaction.guild.roles.everyone.id]; // keep @everyone
-                for (const overwrite of channel.permissionOverwrites.cache.values()) {
-                  if (!allowedIds.includes(overwrite.id)) {
-                    await overwrite.delete().catch(err =>
-                      console.error(`❌ Failed to remove overwrite in VC ${teamKey}:`, err)
-                    );
+                if (ENABLE_VC_RESET) {
+                  const allowedIds = [interaction.guild.roles.everyone.id]; // keep @everyone
+                  for (const overwrite of channel.permissionOverwrites.cache.values()) {
+                    if (!allowedIds.includes(overwrite.id)) {
+                      await overwrite.delete().catch(err =>
+                        console.error(`❌ Failed to remove overwrite in VC ${teamKey}:`, err)
+                      );
+                    }
                   }
+                  console.log(`🔄 Reset permission overwrites in VC ${teamKey}`);
+                } else {
+                  console.log(`ℹ️ Skipped VC permission reset for ${teamKey} (toggle disabled).`);
                 }
-                console.log(`🔄 Reset permission overwrites in VC ${teamKey}`);
               }
             } catch (err) {
               console.error(`❌ Failed to reset ${teamKey} (${channelId}):`, err);
@@ -164,9 +201,14 @@ module.exports = {
                 try {
                   const teamChannel = await interaction.client.channels.fetch(teamChannelId);
                   if (teamChannel) {
-                    // Send the team message
-                    await teamChannel.send(teamOutput);
-                    console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}`);
+                    // Send the team message and capture the sent message (toggle-controlled)
+                    let sentMsg = null;
+                    if (ENABLE_DISCORD_POSTING) {
+                      sentMsg = await teamChannel.send(teamOutput);
+                      console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}` + (sentMsg ? ` (msg ${sentMsg.id})` : ''));
+                    } else {
+                      console.log(`ℹ️ Skipped sending team ${teamKey} to channel ${teamChannelId} (ENABLE_DISCORD_POSTING disabled).`);
+                    }
 
                     // --- 🔹 NEW: Fetch the "Fill In" role ---
                     const fillInRole = interaction.guild.roles.cache.find(
@@ -177,47 +219,50 @@ module.exports = {
                       console.warn(`⚠️ "Fill In" role not found in guild. Skipping role permission assignment.`);
                     }
 
-                    // Grant perms to each player
-                    for (const player of players) {
-                      if (!player?.discordId) {
-                        console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
-                        continue;
+                    // Grant perms to each player (and optionally the Fill In role) together
+                    if (ENABLE_TEAM_POSTING_PERMS) {
+                      for (const player of players) {
+                        if (!player?.discordId) {
+                          console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);
+                          continue;
+                        }
+                        try {
+                          await teamChannel.permissionOverwrites.edit(player.discordId, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true,
+                            Connect: true,
+                            Speak: true,
+                          });
+                          console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
+                        } catch (permErr) {
+                          console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
+                        }
                       }
-                      try {
-                        await teamChannel.permissionOverwrites.edit(player.discordId, {
-                          ViewChannel: true,
-                          SendMessages: true,
-                          ReadMessageHistory: true,
-                          Connect: true,
-                          Speak: true,
-                        });
-                        console.log(`🔑 Granted access to ${player.name} (${player.discordId}) in ${teamKey}`);
-                      } catch (permErr) {
-                        console.error(`❌ Failed to set perms for ${player.name} in ${teamKey}:`, permErr);
-                      }
-                    }
 
-                    // --- 🔹 NEW: Also grant same perms to "Fill In" role ---
-                    if (fillInRole) {
-                      try {
-                        await teamChannel.permissionOverwrites.edit(fillInRole.id, {
-                          ViewChannel: true,
-                          SendMessages: true,
-                          ReadMessageHistory: true,
-                          Connect: true,
-                          Speak: true,
-                        });
-                        console.log(`🎭 Granted "Fill In" role access to ${teamKey}`);
-                      } catch (fillErr) {
-                        console.error(`❌ Failed to set perms for "Fill In" role in ${teamKey}:`, fillErr);
+                      if (fillInRole) {
+                        try {
+                          await teamChannel.permissionOverwrites.edit(fillInRole.id, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true,
+                            Connect: true,
+                            Speak: true,
+                          });
+                          console.log(`🎭 Granted "Fill In" role access to ${teamKey}`);
+                        } catch (fillErr) {
+                          console.error(`❌ Failed to set perms for "Fill In" role in ${teamKey}:`, fillErr);
+                        }
                       }
+                    } else {
+                      console.log(`ℹ️ Skipped granting per-player and role perms in ${teamKey} (toggle disabled).`);
                     }
 
                   } else {
                     console.warn(`⚠️ Could not fetch channel for ${teamKey} (${teamChannelId})`);
                   }
                 } catch (err) {
-                  console.error(`❌ Failed to send team output for ${teamKey}:`, err);
+                  console.error(`❌ Failed to send team output or set perms for ${teamKey}:`, err);
                 }
               } else {
                 console.warn(`⚠️ No channel mapping found for ${teamKey} in config.teamChannels`);
@@ -242,22 +287,26 @@ module.exports = {
         // --- Step 5: Log outcome ---
         await logUsage(`→ ${logMessage}`);
 
-        // --- Step 6: Update reply & delete after 5s ---
-        if (replyMessage) {
-          await replyMessage.edit(displayMessage);
+        // --- Step 6: Update deferred reply & delete after 5s ---
+        try {
+          await interaction.editReply(displayMessage);
           setTimeout(async () => {
-            try { await replyMessage.delete(); } catch (err) { console.error(err); }
+            try { await interaction.deleteReply(); } catch (err) { console.error(err); }
           }, 5000);
+        } catch (editErr) {
+          console.warn('⚠️ Failed to edit or delete deferred reply:', editErr?.message || editErr);
         }
 
       } catch (gasError) {
         console.error("❌ Step 3: Error triggering Google Apps Script:", gasError);
 
-        if (replyMessage) {
-          await replyMessage.edit(`❌ There was an error triggering the Apps Script.`);
+        try {
+          await interaction.editReply(`❌ There was an error triggering the Apps Script.`);
           setTimeout(async () => {
-            try { await replyMessage.delete(); } catch (err) { console.error(err); }
+            try { await interaction.deleteReply(); } catch (err) { console.error(err); }
           }, 5000);
+        } catch (editErr) {
+          console.warn('⚠️ Failed to edit/delete deferred reply on GAS error:', editErr?.message || editErr);
         }
 
         await logUsage(`❌ Error with Google Apps Script: ${gasError.message}`);
@@ -266,10 +315,25 @@ module.exports = {
     } catch (error) {
       console.error("❌ Unexpected error:", error);
       await logUsage("❌ Unexpected error occurred");
-      return interaction.reply({
-        content: "❌ An unexpected error occurred.",
-        ephemeral: true
-      });
+
+      // Safely notify the user without causing "already acknowledged" errors
+      try {
+        if (!interaction.replied && !interaction.deferred && typeof interaction.acknowledged === 'undefined') {
+          return interaction.reply({ content: "❌ An unexpected error occurred.", flags: 64 });
+        }
+
+        // If the interaction was already replied/deferred, try to edit the original reply
+        if (replyMessage && typeof replyMessage.edit === 'function') {
+          try { await replyMessage.edit('❌ An unexpected error occurred.'); return; } catch (e) { /* fall through */ }
+        }
+
+        // As a last resort, try followUp (may fail if interaction truly unknown)
+        try { await interaction.followUp({ content: '❌ An unexpected error occurred.', flags: 64 }); } catch (fuErr) {
+          console.warn('⚠️ Could not followUp for unexpected error (interaction may be unknown):', fuErr?.message || fuErr);
+        }
+      } catch (notifyErr) {
+        console.warn('⚠️ Failed to notify user about unexpected error:', notifyErr?.message || notifyErr);
+      }
     }
   },
 };

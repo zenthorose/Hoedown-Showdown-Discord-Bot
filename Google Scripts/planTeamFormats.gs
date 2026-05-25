@@ -24,7 +24,7 @@ function planTeamFormats({ east, west, both }, safeLog) {
 
   while (east.length + west.length + both.length > 0) {
     iterationCounter++;
-    if (iterationCounter > 1000) {
+    if (iterationCounter > 200) {
       log("ERROR: exceeded 1000 iterations, possible infinite loop");
       throw new Error("planTeamFormats exceeded 1000 iterations, possible infinite loop");
     }

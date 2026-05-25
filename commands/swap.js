@@ -40,7 +40,7 @@ module.exports = {
 
   async execute(interaction) {
     if (!interaction.guild) {
-      return interaction.reply({ content: "❌ This command can't be used in DMs.", ephemeral: true });
+      return interaction.reply({ content: "❌ This command can't be used in DMs.", flags: 64 });
     }
 
     const round = interaction.options.getInteger('round');
@@ -61,7 +61,7 @@ module.exports = {
     }
 
     if (swaps.length === 0) {
-      return interaction.reply({ content: "❌ You must specify at least one swap pair.", ephemeral: true });
+      return interaction.reply({ content: "❌ You must specify at least one swap pair.", flags: 64 });
     }
 
     async function logUsage(extra = "") {
@@ -88,7 +88,7 @@ module.exports = {
       const hasRequiredRole = member.roles.cache.some(role => allowedRoles.includes(role.id));
 
       if (!hasRequiredRole) {
-        await interaction.reply({ content: '❌ You do not have permission to use this command!', ephemeral: true });
+        await interaction.reply({ content: '❌ You do not have permission to use this command!', flags: 64 });
         await logUsage("⚠️ Permission denied.");
         return;
       }
@@ -153,7 +153,7 @@ module.exports = {
       if (interaction.replied || interaction.deferred) {
         await interaction.editReply('❌ Swap failed. Please try again.');
       } else {
-        await interaction.reply({ content: '❌ Swap failed. Please try again.', ephemeral: true });
+        await interaction.reply({ content: '❌ Swap failed. Please try again.', flags: 64 });
       }
 
       await logUsage(`❌ Error: ${error.message}`);

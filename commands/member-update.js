@@ -32,12 +32,16 @@ module.exports = {
       await logUsage("❌ Permission denied");
       return interaction.reply({
         content: '❌ You do not have permission to use this command!',
-        ephemeral: true
+        flags: 64
       });
     }
 
     // ⏳ Defer reply (ephemeral so only invoker sees it)
-    await interaction.deferReply({ ephemeral: true });
+    try {
+      await interaction.deferReply({ flags: 64 });
+    } catch (err) {
+      console.warn('⚠️ Defer failed, continuing without defer:', err?.message || err);
+    }
 
     try {
       // Fetch all members from the guild
