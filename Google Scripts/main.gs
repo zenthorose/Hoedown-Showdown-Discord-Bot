@@ -68,6 +68,10 @@ function doPost(e) {
         logDebug(`[${timestamp}] Handling approve-round`);
         return postRoundFinal(data);
 
+      case "past-teams":
+        logDebug(`[${timestamp}] Handling past-teams`);
+        return pastTeams(data);
+
       case "info-check":
         logDebug(`[${timestamp}] Handling info-check`);
         return infoCheck(data);
