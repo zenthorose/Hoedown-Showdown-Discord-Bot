@@ -600,6 +600,29 @@ function postRoundFinal({ round }) {
 
     log(`✅ postRoundFinal posted ${messages.length} message(s) to ${roundChannelKey} (${channelId}) successfully`);
 
+    // Mark the round header as approved (green) so postTeams won't treat it as a redo
+    try {
+      const headerRange = teamsSheet.getRange(1, roundColIndex + 1);
+      headerRange.setBackground('#00ff00');
+      headerRange.setFontColor('#000000');
+      headerRange.setHorizontalAlignment('center');
+    } catch (e) {
+      log(`Failed to mark round header approved: ${e.message}`);
+    }
+
+    // Also mark the Players That Reacted header (column B) green if it matches this round
+    try {
+      const headerB = teamsSheet.getRange(1, 2);
+      const headerBVal = headerB.getValue();
+      if (headerBVal && headerBVal.toString().includes(`Round #${round}`)) {
+        headerB.setBackground('#00ff00');
+        headerB.setFontColor('#000000');
+        headerB.setHorizontalAlignment('center');
+      }
+    } catch (e) {
+      log(`Failed to mark Players That Reacted header approved: ${e.message}`);
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
       round,
