@@ -72,6 +72,10 @@ function doPost(e) {
         logDebug(`[${timestamp}] Handling past-teams`);
         return pastTeams(data);
 
+      case "team-info":
+        logDebug(`[${timestamp}] Handling team-info`);
+        return teamInfo(data);
+
       case "info-check":
         logDebug(`[${timestamp}] Handling info-check`);
         return infoCheck(data);
