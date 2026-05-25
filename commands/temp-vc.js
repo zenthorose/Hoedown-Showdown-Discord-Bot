@@ -83,6 +83,18 @@ module.exports = {
       }
     }
 
+    // Also grant the "Fill In" role if it exists (same perms as approve-round)
+    try {
+      const fillInRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'fill in');
+      if (fillInRole) {
+        await channel.permissionOverwrites.edit(fillInRole.id, perms);
+        // include in granted list for logging
+        granted.push(`Fill In role`);
+      }
+    } catch (err) {
+      console.error('❌ Failed to set perms for Fill In role on channel:', err);
+    }
+
     // Log to configured log channel
     try {
       const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID).catch(() => null);
