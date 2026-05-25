@@ -40,6 +40,8 @@ function pastTeams(data) {
     const eventSheet = ss.getSheetByName(String(data.eventSheetName));
     if (!eventSheet) return ContentService.createTextOutput(JSON.stringify({ error: 'Event sheet not found' })).setMimeType(ContentService.MimeType.JSON);
 
+    const eventName = eventSheet.getName();
+
     const lastCol = eventSheet.getLastColumn();
     const lastRow = Math.max(eventSheet.getLastRow(), 1);
 
@@ -99,7 +101,7 @@ function pastTeams(data) {
       }
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ success: true, results })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ success: true, eventName: eventName, results })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ error: err.message })).setMimeType(ContentService.MimeType.JSON);
