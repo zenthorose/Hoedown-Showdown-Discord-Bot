@@ -62,6 +62,7 @@ module.exports = {
       // Command lists
       const generalCommands = [
         { name: '/info-check', description: 'See what info you’ve submitted.' },
+        { name: '/lookup', description: "Lookup a user's Region, Steam Friend Code, and Stream Link." },
         { name: '/register', description: 'Register your information for the first time.' },
         { name: '/update-info', description: 'Update your registered information.' },
         { name: '/faq', description: 'Frequently asked questions about the community, event, and the bot.' },

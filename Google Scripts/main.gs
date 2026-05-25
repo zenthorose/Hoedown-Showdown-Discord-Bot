@@ -72,6 +72,11 @@ function doPost(e) {
         logDebug(`[${timestamp}] Handling info-check`);
         return infoCheck(data);
 
+      case "lookup":
+        logDebug(`[${timestamp}] Handling lookup`);
+        // For lookup we expect `targetId` in the POST body; reuse infoCheck logic
+        return infoCheck({ userId: data.targetId });
+
       case "register":
         logDebug(`[${timestamp}] Handling register`);
         return register(data);
