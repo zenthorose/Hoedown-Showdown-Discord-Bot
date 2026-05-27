@@ -26,10 +26,10 @@ function lookup({ targetId, targetName }) {
       row = members.find(r => String(r[2]) == String(targetId));
     }
 
-    // If not found by ID, try matching the username in column B (case-insensitive)
+    // If not found by ID, try matching the username (col B) or nickname (col A)
     if (!row && targetName) {
       const nameLower = String(targetName).trim().toLowerCase();
-      row = members.find(r => String(r[1]).trim().toLowerCase() == nameLower);
+      row = members.find(r => String(r[1] || '').trim().toLowerCase() == nameLower || String(r[0] || '').trim().toLowerCase() == nameLower);
     }
 
     if (!row) {

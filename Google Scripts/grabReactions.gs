@@ -40,8 +40,7 @@ function grabReactions(discordPlayers) {
 
   discordPlayers.forEach(p => {
     const { id, name } = p;
-    // Discord ID is now column C (index 2). Username is column B (index 1).
-    const match = data.find(row => row[2] === id);
+    const match = data.find(row => row[2] === id); // Discord ID is column C (index 2)
     if (match) {
       const [nickname, username, discordId, region] = match;
       playerData.push({ id: discordId, name: username, region });

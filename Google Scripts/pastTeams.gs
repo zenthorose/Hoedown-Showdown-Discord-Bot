@@ -21,10 +21,10 @@ function pastTeams(data) {
     let region = null;
     for (let i = 0; i < membersData.length; i++) {
       const row = membersData[i];
-      const nickname = row[0] ? String(row[0]).trim() : null;
-      const username = row[1] ? String(row[1]).trim() : null;
-      const discordId = row[2] ? String(row[2]).trim() : null;
-      const regionCell = row[3] ? String(row[3]).trim() : null; // column D
+      const nickname = row[0] ? String(row[0]).trim() : null; // Column A
+      const username = row[1] ? String(row[1]).trim() : null; // Column B
+      const discordId = row[2] ? String(row[2]).trim() : null; // Column C
+      const regionCell = row[3] ? String(row[3]).trim() : null; // Column D
       if (discordId && discordId === String(data.userId)) {
         displayName = username || nickname;
         region = regionCell;

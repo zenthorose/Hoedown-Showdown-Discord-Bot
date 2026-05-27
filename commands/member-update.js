@@ -52,9 +52,9 @@ module.exports = {
       //
       const sortedMembers = interaction.guild.members.cache
         .map(member => [
-          member.user.tag,     // Discord tag -> Column A (Nickname)
-          member.user.username, // Actual username -> Column B
-          member.user.id        // Discord ID -> Column C
+          member.user.tag,       // Discord tag -> Nickname column A
+          member.user.username,  // Actual username -> Column B
+          member.user.id         // Discord ID -> Column C
         ])
         .sort((a, b) => a[1].localeCompare(b[1], 'en', { sensitivity: 'base' }));
 
