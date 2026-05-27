@@ -52,9 +52,10 @@ module.exports = {
       //
       const sortedMembers = interaction.guild.members.cache
         .map(member => [
-          member.user.tag,       // Discord tag -> Nickname column A
-          member.user.username,  // Actual username -> Column B
-          member.user.id         // Discord ID -> Column C
+          // Desired nickname to reset to: guild nickname if present, otherwise username
+          member.nickname || member.user.username,
+          member.user.username,
+          member.user.id
         ])
         .sort((a, b) => a[1].localeCompare(b[1], 'en', { sensitivity: 'base' }));
 
@@ -72,6 +73,9 @@ module.exports = {
       //
       let successCount = 0;
       let skippedCount = 0;
+
+      // Build a map of desired nicknames from the data we sent to the sheet
+      const desiredNickMap = new Map(sortedMembers.map(([desired, username, id]) => [id, desired]));
 
       for (const member of interaction.guild.members.cache.values()) {
         try {
@@ -97,9 +101,10 @@ module.exports = {
             continue;
           }
 
-          // Reset nickname if different from username
-          if (member.displayName !== member.user.username) {
-            await member.setNickname(member.user.username);
+          // Reset nickname to desired nickname (from column A) if different
+          const desiredNick = desiredNickMap.get(member.id) || member.user.username;
+          if (member.displayName !== desiredNick) {
+            await member.setNickname(desiredNick);
             successCount++;
           } else {
             skippedCount++;
