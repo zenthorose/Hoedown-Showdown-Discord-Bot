@@ -935,3 +935,48 @@ function avoidList(data) {
   return ContentService.createTextOutput(JSON.stringify({ success: true, pairs }))
                        .setMimeType(ContentService.MimeType.JSON);
 }
+
+// Append a Discord user's data to the 'TEST' sheet in column A (next empty row)
+function appendDiscordUser(data) {
+  try {
+    if (!data || !data.user) {
+      return ContentService.createTextOutput(JSON.stringify({ error: 'Missing user data' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const spreadsheetId = getSpreadsheetId();
+    if (!spreadsheetId) {
+      return ContentService.createTextOutput(JSON.stringify({ error: 'Spreadsheet ID not set' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const sheet = ss.getSheetByName('TEST');
+    if (!sheet) {
+      return ContentService.createTextOutput(JSON.stringify({ error: "Sheet 'TEST' not found" })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Normalize user data into a single string for column A
+    const u = data.user;
+    const parts = [];
+    if (u.id) parts.push(`id:${u.id}`);
+    if (u.username) parts.push(`username:${u.username}`);
+    if (u.discriminator) parts.push(`disc:${u.discriminator}`);
+    if (u.tag) parts.push(`tag:${u.tag}`);
+    if (u.displayName) parts.push(`display:${u.displayName}`);
+    if (u.nick) parts.push(`nick:${u.nick}`);
+    if (u.isBot !== undefined) parts.push(`bot:${u.isBot}`);
+    if (u.avatarURL) parts.push(`avatar:${u.avatarURL}`);
+    if (u.createdAt) parts.push(`created:${u.createdAt}`);
+    if (u.joinedAt) parts.push(`joined:${u.joinedAt}`);
+    if (u.roles && Array.isArray(u.roles) && u.roles.length) parts.push(`roles:${u.roles.join('|')}`);
+
+    const line = parts.join(' | ');
+
+    sheet.appendRow([line]);
+
+    return ContentService.createTextOutput(JSON.stringify({ success: true, written: line })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    logErrorToSheet(`appendDiscordUser error: ${err.message}`);
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
