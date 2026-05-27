@@ -554,10 +554,20 @@ function memberUpdate(data) {
       // Normalize incoming rows to the new 6-column format
       // Accept legacy 3- or 5-column rows and pad/shift as needed.
       if (row.length === 3) {
-        // [username, discordId, region] -> ['', username, discordId, region, '', '']
-        row = ['', row[0], row[1], row[2], '', ''];
+        // Two possible 3-col formats may arrive:
+        // - New format from the bot: [Nickname, Username, DiscordID]
+        // - Legacy format: [Username, DiscordID, Region]
+        const maybeId = String(row[2] || '');
+        if (/^\d{16,}$/.test(maybeId)) {
+          // Looks like a Discord ID in column 3 -> treat as [Nickname, Username, DiscordID]
+          // Map to 6-column layout: [Nickname, Username, DiscordID, Region, SteamID, StreamLink]
+          row = [row[0] || '', row[1] || '', row[2] || '', 'Both', '', ''];
+        } else {
+          // Fallback to legacy interpretation: [Username, DiscordID, Region]
+          row = ['', row[0] || '', row[1] || '', row[2] || 'Both', '', ''];
+        }
       } else if (row.length === 5) {
-        // [username, discordId, region, steam, stream] -> ['', username, discordId, region, steam, stream]
+        // Legacy 5-col: [username, discordId, region, steam, stream] -> ['', username, discordId, region, steam, stream]
         row = ['', row[0], row[1], row[2], row[3], row[4]];
       } else if (row.length < 6) {
         while (row.length < 6) row.push('');
