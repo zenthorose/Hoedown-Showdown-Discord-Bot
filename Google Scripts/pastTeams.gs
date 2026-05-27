@@ -16,16 +16,17 @@ function pastTeams(data) {
     const membersSheet = ss.getSheetByName('Discord Member List');
     if (!membersSheet) return ContentService.createTextOutput(JSON.stringify({ error: 'Discord Member List sheet not found' })).setMimeType(ContentService.MimeType.JSON);
 
-    const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 5).getValues();
+    const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 6).getValues();
     let displayName = null;
     let region = null;
     for (let i = 0; i < membersData.length; i++) {
       const row = membersData[i];
-      const name = row[0] ? String(row[0]).trim() : null;
-      const discordId = row[1] ? String(row[1]).trim() : null;
-      const regionCell = row[2] ? String(row[2]).trim() : null; // column C
+      const nickname = row[0] ? String(row[0]).trim() : null;
+      const username = row[1] ? String(row[1]).trim() : null;
+      const discordId = row[2] ? String(row[2]).trim() : null;
+      const regionCell = row[3] ? String(row[3]).trim() : null; // column D
       if (discordId && discordId === String(data.userId)) {
-        displayName = name;
+        displayName = username || nickname;
         region = regionCell;
         break;
       }

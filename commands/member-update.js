@@ -52,12 +52,13 @@ module.exports = {
       //
       const sortedMembers = interaction.guild.members.cache
         .map(member => [
-          member.user.username, // Actual username
-          member.user.id        // Discord ID
+          member.user.tag,     // Discord tag -> Column A (Nickname)
+          member.user.username, // Actual username -> Column B
+          member.user.id        // Discord ID -> Column C
         ])
-        .sort((a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' }));
+        .sort((a, b) => a[1].localeCompare(b[1], 'en', { sensitivity: 'base' }));
 
-      const memberData = [["Username", "Discord ID"], ...sortedMembers];
+      const memberData = [["Nickname", "Username", "Discord ID"], ...sortedMembers];
       const triggerUrl = process.env.Google_Apps_Script_URL;
       if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
 

@@ -14,10 +14,10 @@ function teamInfo() {
     return ContentService.createTextOutput(JSON.stringify({ success: false, reason: 'missing_sheet' })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Build member map
-  const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 5).getValues();
+  // Build member map (now columns A-F: Nickname, Username, Discord ID, Region, Steam ID, Stream Link)
+  const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 6).getValues();
   const memberMap = {};
-  membersData.forEach(([name, discordId, unused, steamId, streamLink]) => {
+  membersData.forEach(([nickname, name, discordId, region, steamId, streamLink]) => {
     if (name) {
       memberMap[String(name).trim().toLowerCase()] = {
         discordId: discordId ? String(discordId).trim() : null,

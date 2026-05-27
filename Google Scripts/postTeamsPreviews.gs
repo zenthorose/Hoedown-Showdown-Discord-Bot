@@ -474,15 +474,17 @@ function postRoundFinal({ round }) {
   }
 
   // --- Build Discord member map ---
-  // Expecting: Name | DiscordID | (unused) | SteamID | StreamLink
-  const membersData = membersSheet.getRange(2, 1, membersSheet.getLastRow() - 1, 5).getValues();
+  // Expecting: Nickname | Username | DiscordID | Region | SteamID | StreamLink
+  const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow() - 1, 0), 6).getValues();
   const memberMap = {};
-  membersData.forEach(([name, discordId, unused, steamId, streamLink]) => {
+  membersData.forEach(([nickname, name, discordId, region, steamId, streamLink]) => {
     if (name) {
       memberMap[String(name).trim().toLowerCase()] = {
+        nickname: nickname ? String(nickname).trim() : null,
         discordId: discordId ? String(discordId).trim() : null,
         steamId: steamId ? String(steamId).trim() : null,
-        streamLink: streamLink ? String(streamLink).trim() : null
+        streamLink: streamLink ? String(streamLink).trim() : null,
+        region: region ? String(region).trim() : null
       };
     }
   });
