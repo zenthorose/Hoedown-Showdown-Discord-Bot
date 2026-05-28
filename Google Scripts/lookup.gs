@@ -39,7 +39,7 @@ function lookup({ targetId, targetName }) {
 
     const result = {
       region: row[2],
-      steamCode: row[3],
+      steamCode: row[4],
       streamLink: row[5]
     };
 

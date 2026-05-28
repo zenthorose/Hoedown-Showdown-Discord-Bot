@@ -276,7 +276,7 @@ function infoCheck({ userId }) {
   // Return region (C), steam ID (D), and stream link (E)
   const result = {
     region: user[2],
-    steamCode: user[3],
+    steamCode: user[4],
     streamLink: user[5]
   };
 
@@ -652,7 +652,7 @@ function updatePlayerField(data) {
   // Column index mapping (0-based)
   const fieldMap = {
     region: 2,      // Column C
-    steamid: 3,     // Column D
+    steamid: 4,     // Column E
     streamlink: 5   // Column F
   };
 

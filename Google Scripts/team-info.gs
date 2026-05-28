@@ -17,7 +17,7 @@ function teamInfo() {
   // Build member map (now reading through column F - StreamLink is column F)
   const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 6).getValues();
   const memberMap = {};
-  membersData.forEach(([name, discordId, unused, steamId, _extra, streamLink]) => {
+  membersData.forEach(([name, discordId, unused, _colD, steamId, streamLink]) => {
     if (name) {
       memberMap[String(name).trim().toLowerCase()] = {
         discordId: discordId ? String(discordId).trim() : null,
