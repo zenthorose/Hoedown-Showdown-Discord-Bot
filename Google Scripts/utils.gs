@@ -262,8 +262,8 @@ function infoCheck({ userId }) {
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Grab columns A–E (5 columns total, headers in row 1)
-  const members = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  // Grab columns A–F (6 columns total, headers in row 1)
+  const members = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
 
   // Find the row where column B (index 1) matches userId
   const user = members.find(row => row[1] == userId);
@@ -277,7 +277,7 @@ function infoCheck({ userId }) {
   const result = {
     region: user[2],
     steamCode: user[3],
-    streamLink: user[4]
+    streamLink: user[5]
   };
 
   return ContentService.createTextOutput(JSON.stringify(result))
@@ -305,7 +305,7 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
   }
 
   // Build member map (non-fillers)
-  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 5).getValues();
+  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 6).getValues();
   const memberMap = {};
   discordData.forEach(row => {
     const username = row[0];
@@ -472,7 +472,7 @@ function swapPlayers(data) {
   }
 
   // --- Build member map for full names with regions ---
-  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 5).getValues();
+  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 6).getValues();
   const memberMap = {};
   discordData.forEach(row => {
     const username = row[0]; // Column A = Username
@@ -653,7 +653,7 @@ function updatePlayerField(data) {
   const fieldMap = {
     region: 2,      // Column C
     steamid: 3,     // Column D
-    streamlink: 4   // Column E
+    streamlink: 5   // Column F
   };
 
   const colIndex = fieldMap[field.toLowerCase()];

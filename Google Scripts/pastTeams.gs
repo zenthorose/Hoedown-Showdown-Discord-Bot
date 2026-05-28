@@ -16,7 +16,7 @@ function pastTeams(data) {
     const membersSheet = ss.getSheetByName('Discord Member List');
     if (!membersSheet) return ContentService.createTextOutput(JSON.stringify({ error: 'Discord Member List sheet not found' })).setMimeType(ContentService.MimeType.JSON);
 
-    const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 5).getValues();
+    const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 6).getValues();
     let displayName = null;
     let region = null;
     for (let i = 0; i < membersData.length; i++) {

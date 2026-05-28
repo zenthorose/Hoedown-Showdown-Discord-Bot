@@ -18,7 +18,7 @@ function lookup({ targetId, targetName }) {
                            .setMimeType(ContentService.MimeType.JSON);
     }
 
-    const members = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+    const members = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
 
     // Try to find by ID (column B) first if provided
     let row = null;
@@ -40,7 +40,7 @@ function lookup({ targetId, targetName }) {
     const result = {
       region: row[2],
       steamCode: row[3],
-      streamLink: row[4]
+      streamLink: row[5]
     };
 
     return ContentService.createTextOutput(JSON.stringify(result))
