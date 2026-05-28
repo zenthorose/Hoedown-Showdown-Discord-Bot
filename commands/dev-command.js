@@ -1,13 +1,11 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
+const { ChannelType, PermissionsBitField } = require('discord.js');
 const config = require('../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only: append a mentioned user to the TEST sheet.')
-    .addUserOption(opt => opt.setName('target').setDescription('User to append').setRequired(true))
-    .addStringOption(opt => opt.setName('script_url').setDescription('Apps Script webapp URL (optional)')),
+    .setDescription('Developer-only: create/fetch team voice channels AAA..ZZZ and output mapping'),
 
   async execute(interaction) {
     try {
@@ -20,43 +18,66 @@ module.exports = {
       return interaction.editReply('❌ You do not have permission to use this command.');
     }
 
-    const guild = interaction.guild;
-    if (!guild) return interaction.editReply('❌ This command must be run in a server.');
-
-    const targetUser = interaction.options.getUser('target');
-    if (!targetUser) return interaction.editReply('❌ No target user provided.');
-
-    // Try to fetch guild member to get joinedAt, nickname, roles
-    let member = null;
-    try { member = await guild.members.fetch(targetUser.id); } catch (e) { /* ignore */ }
-
-    const userPayload = {
-      id: targetUser.id,
-      username: targetUser.username,
-      discriminator: targetUser.discriminator,
-      tag: targetUser.tag,
-      isBot: targetUser.bot,
-      avatarURL: (typeof targetUser.displayAvatarURL === 'function') ? targetUser.displayAvatarURL() : null,
-      createdAt: targetUser.createdAt ? targetUser.createdAt.toISOString() : null,
-      displayName: member ? member.displayName : null,
-      nick: member ? member.nickname : null,
-      joinedAt: member && member.joinedAt ? member.joinedAt.toISOString() : null,
-      roles: member ? member.roles.cache.filter(r => r.id !== guild.id).map(r => r.name) : []
-    };
-
-    const scriptUrl = interaction.options.getString('script_url') || process.env.Google_Apps_Script_URL || config.APP_SCRIPT_URL || config.APS_SCRIPT_URL || config.APPSCRIPT_URL;
-    if (!scriptUrl) return interaction.editReply('❌ No Apps Script URL provided. Pass `script_url` or set `Google_Apps_Script_URL` environment variable.');
-
     try {
-      const resp = await axios.post(scriptUrl, { command: 'append-discord-user', user: userPayload }, { headers: { 'Content-Type': 'application/json' } });
-      if (!resp.data || resp.data.error) {
-        const errorMsg = resp.data?.error || 'Unknown backend error.';
-        return interaction.editReply(`❌ Backend error: ${errorMsg}`);
+      const guild = interaction.guild;
+      if (!guild) return interaction.editReply('❌ This command must be run in a server.');
+
+      const me = guild.members.me;
+      if (!me || !me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+        return interaction.editReply('❌ Bot requires the Manage Channels permission to create channels.');
       }
-      return interaction.editReply(`✅ Appended to sheet via Apps Script.`);
-    } catch (postErr) {
-      console.error('Error posting to Apps Script:', postErr?.response?.data || postErr.message || postErr);
-      return interaction.editReply(`❌ Failed to post to Apps Script: ${postErr.message}`);
+
+      const categoryName = 'Voice Channels Teams AAA-ZZZ';
+
+      // Find or create the category
+      let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === categoryName);
+      if (!category) {
+        category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory, reason: 'Creating team voice category' });
+      }
+
+      const mapping = {};
+
+      // Create/fetch channels AAA..ZZZ (same-letter triplets)
+      for (let i = 0; i < 26; i++) {
+        const letter = String.fromCharCode(65 + i);
+        const label = letter.repeat(3); // e.g., 'AAA'
+        const channelName = `Team ${label}`;
+
+        // Try to find existing channel under the category
+        let channel = guild.channels.cache.find(ch => ch.parentId === category.id && ch.name === channelName && ch.type === ChannelType.GuildVoice);
+
+        if (!channel) {
+          // Create voice channel
+          channel = await guild.channels.create({ name: channelName, type: ChannelType.GuildVoice, parent: category.id, reason: 'Creating team voice channel' });
+        }
+
+        mapping[channelName] = channel.id;
+      }
+
+      const jsonMapping = JSON.stringify(mapping, null, 2);
+
+      // Apply @everyone permission overwrites: deny view and connect on each VC
+      for (const [teamKey, channelId] of Object.entries(mapping)) {
+        try {
+          const ch = await guild.channels.fetch(channelId);
+          if (ch && ch.type === ChannelType.GuildVoice) {
+            await ch.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
+            console.log(`🔒 Set everyone deny ViewChannel on ${teamKey} (${channelId})`);
+          }
+        } catch (permErr) {
+          console.error(`❌ Failed to set overwrites for ${teamKey} (${channelId}):`, permErr);
+        }
+      }
+
+      const reply = `✅ Created/found channels under category **${categoryName}**.\n\n` +
+        'Copy the following JSON into your `teamChannels` in config.json:\n\n' +
+        '```json\n' + jsonMapping + '\n```';
+
+      await interaction.editReply({ content: reply });
+
+    } catch (err) {
+      console.error('❌ Error creating/fetching team voice channels:', err);
+      await interaction.editReply(`❌ Error: ${err.message}`);
     }
   },
 };

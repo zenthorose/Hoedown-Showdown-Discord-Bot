@@ -14,15 +14,17 @@ function teamInfo() {
     return ContentService.createTextOutput(JSON.stringify({ success: false, reason: 'missing_sheet' })).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Build member map (columns A–F: Nickname, Username, Discord ID, Region, Steam ID, Stream Link)
-  const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 6).getValues();
+  // Build member map
+  const membersData = membersSheet.getRange(2, 1, Math.max(membersSheet.getLastRow()-1,0), 5).getValues();
   const memberMap = {};
-  membersData.forEach(([nickname, username, discordId, region, steamId, streamLink]) => {
-    const discord = discordId ? String(discordId).trim() : null;
-    const steam = steamId ? String(steamId).trim() : null;
-    const stream = streamLink ? String(streamLink).trim() : null;
-    if (nickname) memberMap[String(nickname).trim().toLowerCase()] = { discordId: discord, steamId: steam, streamLink: stream };
-    if (username) memberMap[String(username).trim().toLowerCase()] = { discordId: discord, steamId: steam, streamLink: stream };
+  membersData.forEach(([name, discordId, unused, steamId, streamLink]) => {
+    if (name) {
+      memberMap[String(name).trim().toLowerCase()] = {
+        discordId: discordId ? String(discordId).trim() : null,
+        steamId: steamId ? String(steamId).trim() : null,
+        streamLink: streamLink ? String(streamLink).trim() : null
+      };
+    }
   });
 
   const lastCol = teamsSheet.getLastColumn();

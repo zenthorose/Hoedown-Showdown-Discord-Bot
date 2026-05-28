@@ -34,15 +34,15 @@ function grabReactions(discordPlayers) {
   // Clear previous data in column A only
   sheet.getRange("A2:A").clearContent();
 
-  // Get player data from Discord Member List (columns A–F: Nickname, Username, Discord ID, Region, Steam ID, Stream Link)
-  const data = discordMemberSheet.getRange(2, 1, Math.max(discordMemberSheet.getLastRow() - 1, 0), 6).getValues();
+  // Get player data from Discord Member List (columns A–E: Username, Discord ID, Region, Steam ID, Stream Link)
+  const data = discordMemberSheet.getRange(2, 1, discordMemberSheet.getLastRow() - 1, 5).getValues();
   const playerData = [];
 
   discordPlayers.forEach(p => {
     const { id, name } = p;
-    const match = data.find(row => row[2] === id); // Discord ID is column C (index 2)
+    const match = data.find(row => row[1] === id); // Discord ID is column B (index 1)
     if (match) {
-      const [nickname, username, discordId, region] = match;
+      const [username, discordId, region] = match;
       playerData.push({ id: discordId, name: username, region });
     } else {
       safeLog(`Discord ID not found: ${id} (name: ${name})`);

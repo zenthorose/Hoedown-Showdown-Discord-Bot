@@ -18,18 +18,18 @@ function lookup({ targetId, targetName }) {
                            .setMimeType(ContentService.MimeType.JSON);
     }
 
-    const members = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+    const members = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
 
-    // Try to find by ID (column C) first if provided
+    // Try to find by ID (column B) first if provided
     let row = null;
     if (targetId) {
-      row = members.find(r => String(r[2]) == String(targetId));
+      row = members.find(r => String(r[1]) == String(targetId));
     }
 
-    // If not found by ID, try matching the username (col B) or nickname (col A)
+    // If not found by ID, try matching the username in column A (case-insensitive)
     if (!row && targetName) {
       const nameLower = String(targetName).trim().toLowerCase();
-      row = members.find(r => String(r[1] || '').trim().toLowerCase() == nameLower || String(r[0] || '').trim().toLowerCase() == nameLower);
+      row = members.find(r => String(r[0]).trim().toLowerCase() == nameLower);
     }
 
     if (!row) {
@@ -38,9 +38,9 @@ function lookup({ targetId, targetName }) {
     }
 
     const result = {
-      region: row[3],
-      steamCode: row[4],
-      streamLink: row[5]
+      region: row[2],
+      steamCode: row[3],
+      streamLink: row[4]
     };
 
     return ContentService.createTextOutput(JSON.stringify(result))

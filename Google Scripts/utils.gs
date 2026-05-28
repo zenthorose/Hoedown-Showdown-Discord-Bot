@@ -20,22 +20,167 @@ function logToSheet(message) {
   try {
     const spreadsheetId = getSpreadsheetId();
     const timestamp = new Date();
-    const text = typeof message === 'string' ? message : JSON.stringify(message);
 
-    if (spreadsheetId) {
-      try {
-        const ss = SpreadsheetApp.openById(spreadsheetId);
-        const logSheet = ss.getSheetByName('Logs');
-        if (logSheet) logSheet.appendRow([timestamp, text]);
-      } catch (e) {
-        // Fall through to console logging if sheet write fails
-        console.log(`[LOG] (sheet write failed) ${text} - ${e.message}`);
-      }
-    } else {
-      console.log(`[LOG] ${text}`);
+    if (!spreadsheetId) {
+      throw new Error("Spreadsheet ID is not set.");
     }
+
+    const sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName('Logs');
+    if (!sheet) {
+      throw new Error('Logs sheet not found.');
+    }
+
+    // Log to Apps Script execution log
+    console.log(`[v${SCRIPT_VERSION}] ${message}`);
+
+    // Log to spreadsheet
+    sheet.appendRow([timestamp, SCRIPT_VERSION, message]);
+  } catch (error) {
+    console.error(`[v${SCRIPT_VERSION}] Logging Error: ${error.message}`);
+  }
+}
+
+// Function to log errors
+function logErrorToSheet(errorMessage) {
+  logToSheet("ERROR: " + errorMessage);
+}
+
+function logSanityCheck(teams, eastPool, westPool, bothPool, fillerCount) {
+  try {
+    const totalPlayers = teams.flat().filter(p => p.region !== "Filler").length;
+    const totalFillers = teams.flat().filter(p => p.region === "Filler").length;
+    const totalTeams = teams.length;
+
+    safeLog(`Sanity Check:`);
+    safeLog(`- Teams formed: ${totalTeams}`);
+    safeLog(`- Players assigned: ${totalPlayers}`);
+    safeLog(`- Fillers used: ${totalFillers} (expected: ${fillerCount})`);
+    safeLog(`- Remaining in East pool: ${eastPool.length}`);
+    safeLog(`- Remaining in West pool: ${westPool.length}`);
+    safeLog(`- Remaining in Both pool: ${bothPool.length}`);
+  } catch (err) {
+    safeLog(`Sanity check failed: ${err.message}`);
+  }
+}
+
+function pairKey(a, b) {
+  const idA = String(a.id ?? a.name).trim();
+  const idB = String(b.id ?? b.name).trim();
+  return [idA, idB].sort().join('|'); // simple string sort is fine
+}
+
+function groupPlayersByRegion(players, safeLog) {
+  safeLog("Starting groupPlayersByRegion script");
+  return {
+    East: players.filter(p => p.region === 'East'),
+    West: players.filter(p => p.region === 'West'),
+    Both: players.filter(p => p.region === 'Both')
+  };
+}
+
+function saveNewPairings(round, safeLog) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const teamsSheet = ss.getSheetByName("Players That Reacted");
+  const membersSheet = ss.getSheetByName("Discord Member List");
+  const pairingsSheet = ss.getSheetByName("Previous Pairings");
+  const logSheet = ss.getSheetByName("Logs");
+
+  safeLog = safeLog || Logger.log;
+  safeLog(`Starting saveNewPairings for Round #${round}`);
+
+  if (!teamsSheet || !pairingsSheet || !membersSheet) {
+    safeLog("❌ Missing required sheet(s)");
+    return;
+  }
+
+  // --- Build member map: name -> Discord ID
+  const membersData = membersSheet.getRange(2, 1, membersSheet.getLastRow() - 1, 2).getValues();
+  const memberMap = {};
+  membersData.forEach(([name, discordId]) => {
+    if (name && discordId) {
+      memberMap[String(name).trim().toLowerCase()] = String(discordId).trim();
+    }
+  });
+
+  // --- Find round column
+  const headers = teamsSheet.getRange(1, 1, 1, teamsSheet.getLastColumn()).getValues()[0];
+  const roundHeader = `Round #${round}`;
+  const roundColIndex = headers.indexOf(roundHeader);
+  if (roundColIndex === -1) {
+    safeLog(`❌ Round column not found: ${roundHeader}`);
+    return;
+  }
+
+  // --- Get round data
+  const lastRow = teamsSheet.getLastRow();
+  const roundValues = teamsSheet.getRange(2, roundColIndex + 1, lastRow - 1, 1).getValues().flat();
+
+  // --- Extract teams
+  const teams = [];
+  let currentTeam = null;
+  let currentPlayers = [];
+
+  roundValues.forEach(val => {
+    if (!val) return;
+    const clean = String(val).trim();
+    if (/^Team [A-Z]+$/.test(clean)) {
+      if (currentTeam && currentPlayers.length > 1) {
+        teams.push({ team: currentTeam, players: currentPlayers });
+      }
+      currentTeam = clean.replace("Team ", "");
+      currentPlayers = [];
+    } else {
+      const playerName = clean.replace(/\s*\(.*\)$/, ""); // strip region
+      currentPlayers.push(playerName);
+    }
+  });
+
+  if (currentTeam && currentPlayers.length > 1) {
+    teams.push({ team: currentTeam, players: currentPlayers });
+  }
+
+  safeLog(`Found ${teams.length} teams for Round #${round}`);
+
+  // --- Build all pairings
+  const pairs = [];
+  for (const { team, players } of teams) {
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const p1 = players[i];
+        const p2 = players[j];
+        const id1 = memberMap[p1.toLowerCase()] || "";
+        const id2 = memberMap[p2.toLowerCase()] || "";
+        pairs.push([id1, id2]);
+      }
+    }
+  }
+
+  safeLog(`Generated ${pairs.length} new pairings`);
+
+  if (!pairs.length) {
+    safeLog("No pairings to save.");
+    return;
+  }
+
+  // --- Save to Previous Pairings sheet
+  try {
+    const startRow = pairingsSheet.getLastRow() + 1;
+
+    const rows = pairs.map(([p1, p2], i) => {
+      const row = startRow + i;
+      return [
+        p1, // Player 1 ID
+        p2, // Player 2 ID
+        `=IF(A${row}<>"", INDEX('Discord Member List'!A:A, MATCH(A${row}, 'Discord Member List'!B:B, 0)), "")`, // Player 1 Username
+        `=IF(B${row}<>"", INDEX('Discord Member List'!A:A, MATCH(B${row}, 'Discord Member List'!B:B, 0)), "")` // Player 2 Username
+      ];
+    });
+
+    pairingsSheet.getRange(startRow, 1, rows.length, 4).setValues(rows);
+    safeLog(`✅ Saved ${rows.length} pairings for Round #${round}`);
+
   } catch (e) {
-    console.log(`[LOG] ${message} - logging failed: ${e.message}`);
+    safeLog(`❌ Error saving pairings: ${e.message}`);
   }
 }
 
@@ -117,22 +262,22 @@ function infoCheck({ userId }) {
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Grab columns A–F (6 columns total, headers in row 1)
-  const members = sheet.getRange(2, 1, Math.max(lastRow - 1, 0), 6).getValues();
+  // Grab columns A–E (5 columns total, headers in row 1)
+  const members = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
 
-  // Find the row where column C (index 2) matches userId
-  const user = members.find(row => row[2] == userId);
+  // Find the row where column B (index 1) matches userId
+  const user = members.find(row => row[1] == userId);
 
   if (!user) {
     return ContentService.createTextOutput(JSON.stringify({ error: "User not found." }))
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Return region (D), steam ID (E), and stream link (F)
+  // Return region (C), steam ID (D), and stream link (E)
   const result = {
-    region: user[3],
-    steamCode: user[4],
-    streamLink: user[5]
+    region: user[2],
+    steamCode: user[3],
+    streamLink: user[4]
   };
 
   return ContentService.createTextOutput(JSON.stringify(result))
@@ -159,15 +304,13 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Build member map (non-fillers) using new layout A–F: Nickname, Username, Discord ID, Region, Steam ID, Stream Link
-  const discordData = discordSheet.getRange(2, 1, Math.max(discordSheet.getLastRow() - 1, 0), 6).getValues();
+  // Build member map (non-fillers)
+  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 5).getValues();
   const memberMap = {};
   discordData.forEach(row => {
-    const nickname = row[0];
-    const username = row[1];
-    const region = row[3];
+    const username = row[0];
+    const region = row[2];
     if (username) memberMap[username] = `${username} (${region})`;
-    if (nickname && !memberMap[nickname]) memberMap[nickname] = `${nickname} (${region})`;
   });
 
   // --- Resolve remove target ---
@@ -328,15 +471,13 @@ function swapPlayers(data) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // --- Build member map for full names with regions (A–F layout)
-  const discordData = discordSheet.getRange(2, 1, Math.max(discordSheet.getLastRow() - 1, 0), 6).getValues();
+  // --- Build member map for full names with regions ---
+  const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 5).getValues();
   const memberMap = {};
   discordData.forEach(row => {
-    const nickname = row[0]; // Column A = Nickname
-    const username = row[1]; // Column B = Username
-    const region = row[3];   // Column D = Region
+    const username = row[0]; // Column A = Username
+    const region = row[2];   // Column C = Region
     if (username) memberMap[username] = `${username} (${region})`;
-    if (nickname && !memberMap[nickname]) memberMap[nickname] = `${nickname} (${region})`;
   });
 
   // --- Find round column ---
@@ -423,6 +564,7 @@ function swapPlayers(data) {
 function memberUpdate(data) {
   const timestamp = new Date().toISOString();
 
+  // Step 1: Validate input
   if (!data.memberData || !Array.isArray(data.memberData)) {
     logErrorToSheet('Error: Invalid or missing memberData array in data.');
     throw new Error('Invalid or missing memberData array in data.');
@@ -430,91 +572,68 @@ function memberUpdate(data) {
 
   try {
     const sheet = SpreadsheetApp.openById(getSpreadsheetId()).getSheetByName("Discord Member List");
-    if (!sheet) throw new Error('Discord Member List sheet not found.');
 
-    // Desired headers for the new layout
-    const requiredHeaders = ["Nickname", "Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
+    // Step 2: Ensure correct headers
+    const requiredHeaders = ["Username", "Discord ID", "Region"];
     const existingHeaders = sheet.getRange(1, 1, 1, requiredHeaders.length).getValues()[0];
+
     if (JSON.stringify(existingHeaders) !== JSON.stringify(requiredHeaders)) {
       sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
     }
 
-    // Read existing rows
+    // Step 3: Get current data (excluding headers)
     const lastRow = sheet.getLastRow();
-    const existingData = lastRow > 1
+    const existingData = lastRow > 1 
       ? sheet.getRange(2, 1, lastRow - 1, requiredHeaders.length).getValues()
       : [];
 
+    // Step 4: Prepare new or updated rows
     const memberData = data.memberData;
     const dataToInsert = [];
 
-    memberData.forEach(rawRow => {
-      // Skip header rows if present
-      if (Array.isArray(rawRow) && rawRow.length >= 2 && String(rawRow[0]).trim() === requiredHeaders[0] && String(rawRow[1]).trim() === requiredHeaders[1]) return;
+    memberData.forEach(row => {
+      // Skip header row if sent
+      if (JSON.stringify(row.slice(0, 2)) === JSON.stringify(requiredHeaders.slice(0, 2))) return;
 
-      let row = Array.isArray(rawRow) ? rawRow.slice() : [String(rawRow)];
+      // Ensure row has at least 3 columns
+      while (row.length < 3) row.push("");
 
-      // Normalize various incoming shapes to 6 columns:
-      // - New bot format: [Nickname, Username, DiscordID]
-      // - Legacy: [Username, DiscordID, Region] or 5-col
-      // - Full 6-col: [Nickname, Username, DiscordID, Region, Steam, Stream]
-
-      // If there's a leading empty cell and data is shifted right, shift left
-      if ((row[0] === '' || row[0] === null) && (/#\d{4}$/.test(String(row[1] || '')) || /^\d{16,}$/.test(String(row[2] || '')))) {
-        row = [row[1] || '', row[2] || '', row[3] || '', row[4] || 'Both', row[5] || '', row[6] || ''];
-      }
-
-      if (row.length === 3) {
-        const maybeId = String(row[2] || '');
-        if (/^\d{16,}$/.test(maybeId)) {
-          // [Nickname, Username, DiscordID]
-          row = [row[0] || '', row[1] || '', row[2] || '', 'Both', '', ''];
-        } else {
-          // [Username, DiscordID, Region]
-          row = ['', row[0] || '', row[1] || '', row[2] || 'Both', '', ''];
-        }
-      } else if (row.length === 5) {
-        // [username, discordId, region, steam, stream] -> ['', username, discordId, region, steam, stream]
-        row = ['', row[0], row[1], row[2], row[3], row[4]];
-      } else if (row.length < 6) {
-        while (row.length < 6) row.push('');
-      }
-
-      // Ensure Discord ID field exists
-      const discordId = String(row[2] || '').trim();
-      // Find existing by Discord ID (column C / index 2)
-      const existingIndex = existingData.findIndex(r => String(r[2] || '').trim() === discordId && discordId !== '');
+      // Check if Discord ID already exists
+      const existingIndex = existingData.findIndex(existingRow => existingRow[1] === row[1]);
 
       if (existingIndex !== -1) {
-        // Preserve existing Region/Steam/Stream (columns D-F) unless incoming row provides non-empty values
-        const existingRow = existingData[existingIndex] || [];
-        row[3] = (row[3] && String(row[3]).trim() !== '') ? row[3] : (existingRow[3] || 'Both');
-        row[4] = (row[4] && String(row[4]).trim() !== '') ? row[4] : (existingRow[4] || '');
-        row[5] = (row[5] && String(row[5]).trim() !== '') ? row[5] : (existingRow[5] || '');
+        // Preserve existing region if it exists, otherwise use incoming or default to "Both"
+        const existingRegion = existingData[existingIndex][2];
+        row[2] = existingRegion && existingRegion.trim() !== "" ? existingRegion : (row[2] || "Both");
 
-        // Update the whole 6-column row, preserving linked data
+        // Update existing row
         sheet.getRange(existingIndex + 2, 1, 1, requiredHeaders.length).setValues([row]);
       } else {
-        // New row defaults
-        if (!row[3] || String(row[3]).trim() === '') row[3] = 'Both';
+        // New row: default region to "Both" if missing
+        if (!row[2] || row[2].trim() === "") row[2] = "Both";
         dataToInsert.push(row);
       }
     });
 
+    // Step 5: Insert new members at the bottom
     if (dataToInsert.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, dataToInsert.length, requiredHeaders.length).setValues(dataToInsert);
+      sheet.getRange(sheet.getLastRow() + 1, 1, dataToInsert.length, requiredHeaders.length)
+           .setValues(dataToInsert);
     }
 
-    // Sort by Username (Column B = 2)
+    // Step 6: Sort by Username (Column A)
     if (sheet.getLastRow() > 2) {
-      sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).sort({ column: 2, ascending: true });
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn())
+           .sort({ column: 1, ascending: true });
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ success: true, message: 'Member list successfully updated.' })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput("✅ Member list successfully updated.")
+                         .setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
     logErrorToSheet("Error in memberUpdate: " + error.message);
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.message })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput("Error: " + error.message)
+                         .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -532,9 +651,9 @@ function updatePlayerField(data) {
 
   // Column index mapping (0-based)
   const fieldMap = {
-    region: 3,      // Column D
-    steamid: 4,     // Column E
-    streamlink: 5   // Column F
+    region: 2,      // Column C
+    steamid: 3,     // Column D
+    streamlink: 4   // Column E
   };
 
   const colIndex = fieldMap[field.toLowerCase()];
@@ -542,7 +661,7 @@ function updatePlayerField(data) {
     throw new Error(`Invalid field: ${field}`);
   }
 
-  const rowIndex = values.findIndex(row => row[2] == userId); // Discord ID is column C (index 2)
+  const rowIndex = values.findIndex(row => row[1] == userId); // Discord ID is column B (index 1)
   if (rowIndex === -1) {
     throw new Error(`User with ID ${userId} not found.`);
   }
@@ -573,8 +692,8 @@ function register(data) {
   try {
     const sheet = SpreadsheetApp.openById(getSpreadsheetId()).getSheetByName("Discord Member List");
 
-    // Step 2: Set headers if missing (A–F)
-    const headers = ["Nickname", "Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
+    // Step 2: Set headers if missing
+    const headers = ["Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
     const headerRange = sheet.getRange(1, 1, 1, headers.length);
     const existingHeaders = headerRange.getValues()[0];
 
@@ -596,8 +715,8 @@ function register(data) {
         return;
       }
 
-      const discordId = row[2]; // Discord ID is column C / index 2
-      const existingIndex = existingData.findIndex(existingRow => existingRow[2] === discordId);
+      const discordId = row[1]; // Discord ID is column B / index 1
+      const existingIndex = existingData.findIndex(existingRow => existingRow[1] === discordId);
 
       if (existingIndex !== -1) {
         // Update existing entry
@@ -610,11 +729,11 @@ function register(data) {
       }
     });
 
-    // Step 4: Sort data by Username (Column B, index 2)
+    // Step 4: Sort data by Username (Column A, index 1)
     const updatedLastRow = sheet.getLastRow();
     if (updatedLastRow > 1) {
       sheet.getRange(2, 1, updatedLastRow - 1, headers.length)
-           .sort({ column: 2, ascending: true });
+           .sort({ column: 1, ascending: true });
       logToSheet(`[${timestamp}] ✅ Data sorted by Username.`);
     }
 
@@ -687,8 +806,8 @@ function avoidPairings(data) {
 
     // --- Prepare formulas for columns C and D ---
     const newRowIndex = avoidSheet.getLastRow() + newRows.length + 1;
-    const colCFormula = `=IF(A${newRowIndex}<>'', INDEX('Discord Member List'!B:B, MATCH(A${newRowIndex}, 'Discord Member List'!C:C, 0)), '')`;
-    const colDFormula = `=IF(B${newRowIndex}<>'', INDEX('Discord Member List'!B:B, MATCH(B${newRowIndex}, 'Discord Member List'!C:C, 0)), '')`;
+    const colCFormula = `=IF(A${newRowIndex}<>"", INDEX('Discord Member List'!A:A, MATCH(A${newRowIndex}, 'Discord Member List'!B:B, 0)), "")`;
+    const colDFormula = `=IF(B${newRowIndex}<>"", INDEX('Discord Member List'!A:A, MATCH(B${newRowIndex}, 'Discord Member List'!B:B, 0)), "")`;
 
     newRows.push([userA, userB, colCFormula, colDFormula]);
     log(`Pair added: ${userA} =/ ${userB}`);
@@ -815,49 +934,4 @@ function avoidList(data) {
 
   return ContentService.createTextOutput(JSON.stringify({ success: true, pairs }))
                        .setMimeType(ContentService.MimeType.JSON);
-}
-
-// Append a Discord user's data to the 'TEST' sheet in column A (next empty row)
-function appendDiscordUser(data) {
-  try {
-    if (!data || !data.user) {
-      return ContentService.createTextOutput(JSON.stringify({ error: 'Missing user data' })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    const spreadsheetId = getSpreadsheetId();
-    if (!spreadsheetId) {
-      return ContentService.createTextOutput(JSON.stringify({ error: 'Spreadsheet ID not set' })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    const ss = SpreadsheetApp.openById(spreadsheetId);
-    const sheet = ss.getSheetByName('TEST');
-    if (!sheet) {
-      return ContentService.createTextOutput(JSON.stringify({ error: "Sheet 'TEST' not found" })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    // Normalize user data into a single string for column A
-    const u = data.user;
-    const parts = [];
-    if (u.id) parts.push(`id:${u.id}`);
-    if (u.username) parts.push(`username:${u.username}`);
-    if (u.discriminator) parts.push(`disc:${u.discriminator}`);
-    if (u.tag) parts.push(`tag:${u.tag}`);
-    if (u.displayName) parts.push(`display:${u.displayName}`);
-    if (u.nick) parts.push(`nick:${u.nick}`);
-    if (u.isBot !== undefined) parts.push(`bot:${u.isBot}`);
-    if (u.avatarURL) parts.push(`avatar:${u.avatarURL}`);
-    if (u.createdAt) parts.push(`created:${u.createdAt}`);
-    if (u.joinedAt) parts.push(`joined:${u.joinedAt}`);
-    if (u.roles && Array.isArray(u.roles) && u.roles.length) parts.push(`roles:${u.roles.join('|')}`);
-
-    const line = parts.join(' | ');
-
-    sheet.appendRow([line]);
-
-    return ContentService.createTextOutput(JSON.stringify({ success: true, written: line })).setMimeType(ContentService.MimeType.JSON);
-
-  } catch (err) {
-    logErrorToSheet(`appendDiscordUser error: ${err.message}`);
-    return ContentService.createTextOutput(JSON.stringify({ error: err.message })).setMimeType(ContentService.MimeType.JSON);
-  }
 }
