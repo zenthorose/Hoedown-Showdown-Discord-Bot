@@ -486,11 +486,13 @@ function memberUpdate(data) {
       const existingIndex = existingData.findIndex(r => String(r[2] || '').trim() === discordId && discordId !== '');
 
       if (existingIndex !== -1) {
-        // Preserve existing region if present
-        const existingRegion = existingData[existingIndex][3];
-        row[3] = existingRegion && String(existingRegion).trim() !== '' ? existingRegion : (row[3] || 'Both');
+        // Preserve existing Region/Steam/Stream (columns D-F) unless incoming row provides non-empty values
+        const existingRow = existingData[existingIndex] || [];
+        row[3] = (row[3] && String(row[3]).trim() !== '') ? row[3] : (existingRow[3] || 'Both');
+        row[4] = (row[4] && String(row[4]).trim() !== '') ? row[4] : (existingRow[4] || '');
+        row[5] = (row[5] && String(row[5]).trim() !== '') ? row[5] : (existingRow[5] || '');
 
-        // Update the whole 6-column row
+        // Update the whole 6-column row, preserving linked data
         sheet.getRange(existingIndex + 2, 1, 1, requiredHeaders.length).setValues([row]);
       } else {
         // New row defaults

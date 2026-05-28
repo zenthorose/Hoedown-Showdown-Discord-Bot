@@ -6,7 +6,7 @@ const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('member-update')
-    .setDescription('Updates member list in Google Sheets and resets nicknames to usernames.')
+    .setDescription('Updates member list in Google Sheets.')
     .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
   async execute(interaction) {
@@ -69,59 +69,11 @@ module.exports = {
       });
 
       //
-      // ---- PART 2: Reset Nicknames ----
-      //
-      let successCount = 0;
-      let skippedCount = 0;
-
-      // Build a map of desired nicknames from the data we sent to the sheet
-      const desiredNickMap = new Map(sortedMembers.map(([desired, username, id]) => [id, desired]));
-
-      for (const member of interaction.guild.members.cache.values()) {
-        try {
-          // Skip guild owner
-          if (member.id === interaction.guild.ownerId) {
-            skippedCount++;
-            continue;
-          }
-
-          // Skip if not manageable by the bot
-          if (!member.manageable) {
-            skippedCount++;
-            continue;
-          }
-
-          // Skip elevated permissions
-          if (
-            member.permissions.has('Administrator') ||
-            member.permissions.has('ManageGuild') ||
-            member.permissions.has('ManageNicknames')
-          ) {
-            skippedCount++;
-            continue;
-          }
-
-          // Reset nickname to desired nickname (from column A) if different
-          const desiredNick = desiredNickMap.get(member.id) || member.user.username;
-          if (member.displayName !== desiredNick) {
-            await member.setNickname(desiredNick);
-            successCount++;
-          } else {
-            skippedCount++;
-          }
-        } catch (err) {
-          console.warn(`⚠️ Could not update ${member.user.tag}: ${err.message}`);
-          skippedCount++;
-        }
-      }
-
-      // ✅ Success message to invoker
-      const resultMsg =
-        `✅ Member update complete!\n- Synced with Google Sheets\n- Nicknames reset: ${successCount}\n- Skipped: ${skippedCount}`;
-      await interaction.editReply(resultMsg);
+      // Notify success to invoker
+      await interaction.editReply('✅ Member update complete! Synced with Google Sheets.');
 
       // 📝 Public log
-      await logUsage(`✅ Completed | Reset: ${successCount}, Skipped: ${skippedCount}`);
+      await logUsage('✅ Completed | Synced with Google Sheets');
 
     } catch (error) {
       console.error("❌ Error with member-update:", error);
