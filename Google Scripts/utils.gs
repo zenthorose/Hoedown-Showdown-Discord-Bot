@@ -93,10 +93,10 @@ function saveNewPairings(round, safeLog) {
     return;
   }
 
-  // --- Build member map: name -> Discord ID
-  const membersData = membersSheet.getRange(2, 1, membersSheet.getLastRow() - 1, 2).getValues();
+  // --- Build member map: name -> Discord ID (Discord ID moved to column C)
+  const membersData = membersSheet.getRange(2, 1, membersSheet.getLastRow() - 1, 3).getValues();
   const memberMap = {};
-  membersData.forEach(([name, discordId]) => {
+  membersData.forEach(([name, _colB, discordId]) => {
     if (name && discordId) {
       memberMap[String(name).trim().toLowerCase()] = String(discordId).trim();
     }
@@ -265,17 +265,17 @@ function infoCheck({ userId }) {
   // Grab columns A–F (6 columns total, headers in row 1)
   const members = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
 
-  // Find the row where column B (index 1) matches userId
-  const user = members.find(row => row[1] == userId);
+  // Find the row where column C (index 2) matches userId (Discord ID moved to column C)
+  const user = members.find(row => row[2] == userId);
 
   if (!user) {
     return ContentService.createTextOutput(JSON.stringify({ error: "User not found." }))
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Return region (C), steam ID (D), and stream link (E)
+  // Return region (now column D), steam ID (E), and stream link (F)
   const result = {
-    region: user[2],
+    region: user[3],
     steamCode: user[4],
     streamLink: user[5]
   };
@@ -309,7 +309,7 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
   const memberMap = {};
   discordData.forEach(row => {
     const username = row[0];
-    const region = row[2];
+    const region = row[3];
     if (username) memberMap[username] = `${username} (${region})`;
   });
 
@@ -476,7 +476,7 @@ function swapPlayers(data) {
   const memberMap = {};
   discordData.forEach(row => {
     const username = row[0]; // Column A = Username
-    const region = row[2];   // Column C = Region
+    const region = row[3];   // Column D = Region (moved)
     if (username) memberMap[username] = `${username} (${region})`;
   });
 
@@ -598,19 +598,19 @@ function memberUpdate(data) {
       // Ensure row has at least 3 columns
       while (row.length < 3) row.push("");
 
-      // Check if Discord ID already exists
-      const existingIndex = existingData.findIndex(existingRow => existingRow[1] === row[1]);
+      // Check if Discord ID already exists (Discord ID moved to index 2)
+      const existingIndex = existingData.findIndex(existingRow => existingRow[2] === row[2]);
 
       if (existingIndex !== -1) {
         // Preserve existing region if it exists, otherwise use incoming or default to "Both"
-        const existingRegion = existingData[existingIndex][2];
-        row[2] = existingRegion && existingRegion.trim() !== "" ? existingRegion : (row[2] || "Both");
+          const existingRegion = existingData[existingIndex][3];
+          row[3] = existingRegion && existingRegion.trim() !== "" ? existingRegion : (row[3] || "Both");
 
         // Update existing row
         sheet.getRange(existingIndex + 2, 1, 1, requiredHeaders.length).setValues([row]);
       } else {
         // New row: default region to "Both" if missing
-        if (!row[2] || row[2].trim() === "") row[2] = "Both";
+        if (!row[3] || row[3].trim() === "") row[3] = "Both";
         dataToInsert.push(row);
       }
     });
@@ -661,7 +661,7 @@ function updatePlayerField(data) {
     throw new Error(`Invalid field: ${field}`);
   }
 
-  const rowIndex = values.findIndex(row => row[1] == userId); // Discord ID is column B (index 1)
+  const rowIndex = values.findIndex(row => row[2] == userId); // Discord ID is column C (index 2)
   if (rowIndex === -1) {
     throw new Error(`User with ID ${userId} not found.`);
   }
@@ -715,8 +715,8 @@ function register(data) {
         return;
       }
 
-      const discordId = row[1]; // Discord ID is column B / index 1
-      const existingIndex = existingData.findIndex(existingRow => existingRow[1] === discordId);
+      const discordId = row[2]; // Discord ID is column C / index 2 (moved)
+      const existingIndex = existingData.findIndex(existingRow => existingRow[2] === discordId);
 
       if (existingIndex !== -1) {
         // Update existing entry

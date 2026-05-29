@@ -40,9 +40,9 @@ function grabReactions(discordPlayers) {
 
   discordPlayers.forEach(p => {
     const { id, name } = p;
-    const match = data.find(row => row[1] === id); // Discord ID is column B (index 1)
+    const match = data.find(row => row[2] === id); // Discord ID moved to column C (index 2)
     if (match) {
-      const [username, discordId, region] = match;
+      const [username, _colB, discordId, region] = match;
       playerData.push({ id: discordId, name: username, region });
     } else {
       safeLog(`Discord ID not found: ${id} (name: ${name})`);

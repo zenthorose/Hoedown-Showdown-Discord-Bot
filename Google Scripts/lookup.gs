@@ -23,7 +23,8 @@ function lookup({ targetId, targetName }) {
     // Try to find by ID (column B) first if provided
     let row = null;
     if (targetId) {
-      row = members.find(r => String(r[1]) == String(targetId));
+      // Discord ID moved to column C (index 2)
+      row = members.find(r => String(r[2]) == String(targetId));
     }
 
     // If not found by ID, try matching the username in column A (case-insensitive)
@@ -38,7 +39,7 @@ function lookup({ targetId, targetName }) {
     }
 
     const result = {
-      region: row[2],
+      region: row[3],
       steamCode: row[4],
       streamLink: row[5]
     };
