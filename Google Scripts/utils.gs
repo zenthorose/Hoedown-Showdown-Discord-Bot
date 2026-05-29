@@ -573,8 +573,8 @@ function memberUpdate(data) {
   try {
     const sheet = SpreadsheetApp.openById(getSpreadsheetId()).getSheetByName("Discord Member List");
 
-    // Step 2: Ensure correct headers
-    const requiredHeaders = ["Username", "Discord ID", "Region"];
+    // Step 2: Ensure correct headers (Nickname in A, Username in B, Discord ID in C)
+    const requiredHeaders = ["Nickname", "Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
     const existingHeaders = sheet.getRange(1, 1, 1, requiredHeaders.length).getValues()[0];
 
     if (JSON.stringify(existingHeaders) !== JSON.stringify(requiredHeaders)) {
@@ -595,7 +595,7 @@ function memberUpdate(data) {
       // Skip header row if sent
       if (JSON.stringify(row.slice(0, 2)) === JSON.stringify(requiredHeaders.slice(0, 2))) return;
 
-      // Ensure row has at least 3 columns
+      // Ensure row has at least 3 columns (Nickname, Username, Discord ID)
       while (row.length < 3) row.push("");
 
       // Check if Discord ID already exists (Discord ID moved to index 2)
@@ -693,7 +693,7 @@ function register(data) {
     const sheet = SpreadsheetApp.openById(getSpreadsheetId()).getSheetByName("Discord Member List");
 
     // Step 2: Set headers if missing
-    const headers = ["Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
+    const headers = ["Nickname", "Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
     const headerRange = sheet.getRange(1, 1, 1, headers.length);
     const existingHeaders = headerRange.getValues()[0];
 
