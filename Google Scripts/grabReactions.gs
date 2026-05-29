@@ -31,8 +31,8 @@ function grabReactions(discordPlayers) {
     return ContentService.createTextOutput(JSON.stringify({ error: "Required sheets not found." }));
   }
 
-  // Clear previous data in column A only
-  sheet.getRange("A2:A").clearContent();
+  // Clear previous data in column B only (Username moved from A to B)
+  sheet.getRange("B2:B").clearContent();
 
   // Get player data from Discord Member List (columns A–F: Username, Discord ID, Region, Steam ID, <extra>, Stream Link)
   const data = discordMemberSheet.getRange(2, 1, discordMemberSheet.getLastRow() - 1, 6).getValues();
@@ -40,9 +40,9 @@ function grabReactions(discordPlayers) {
 
   discordPlayers.forEach(p => {
     const { id, name } = p;
-    const match = data.find(row => row[2] === id); // Discord ID moved to column C (index 2)
+    const match = data.find(row => row[2] === id); // Discord ID is column C (index 2)
     if (match) {
-      const [username, _colB, discordId, region] = match;
+      const [_colA, username, discordId, region] = match; // Username is column B (index 1)
       playerData.push({ id: discordId, name: username, region });
     } else {
       safeLog(`Discord ID not found: ${id} (name: ${name})`);
@@ -50,7 +50,7 @@ function grabReactions(discordPlayers) {
   });
 
   // Post player names to column A
-  playerData.forEach((p, i) => sheet.getRange(2 + i, 1).setValue(p.name));
+  playerData.forEach((p, i) => sheet.getRange(2 + i, 2).setValue(p.name));
 
   // Generate teams
   let teams;

@@ -171,8 +171,8 @@ function saveNewPairings(round, safeLog) {
       return [
         p1, // Player 1 ID
         p2, // Player 2 ID
-        `=IF(A${row}<>"", INDEX('Discord Member List'!A:A, MATCH(A${row}, 'Discord Member List'!B:B, 0)), "")`, // Player 1 Username
-        `=IF(B${row}<>"", INDEX('Discord Member List'!A:A, MATCH(B${row}, 'Discord Member List'!B:B, 0)), "")` // Player 2 Username
+        `=IF(A${row}<>"", INDEX('Discord Member List'!B:B, MATCH(A${row}, 'Discord Member List'!C:C, 0)), "")`, // Player 1 Username
+        `=IF(B${row}<>"", INDEX('Discord Member List'!B:B, MATCH(B${row}, 'Discord Member List'!C:C, 0)), "")` // Player 2 Username
       ];
     });
 
@@ -308,7 +308,7 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
   const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 6).getValues();
   const memberMap = {};
   discordData.forEach(row => {
-    const username = row[0];
+    const username = row[1]; // Username is now column B (index 1)
     const region = row[3];
     if (username) memberMap[username] = `${username} (${region})`;
   });
@@ -475,7 +475,7 @@ function swapPlayers(data) {
   const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 6).getValues();
   const memberMap = {};
   discordData.forEach(row => {
-    const username = row[0]; // Column A = Username
+    const username = row[1]; // Column B = Username
     const region = row[3];   // Column D = Region (moved)
     if (username) memberMap[username] = `${username} (${region})`;
   });
@@ -621,10 +621,10 @@ function memberUpdate(data) {
            .setValues(dataToInsert);
     }
 
-    // Step 6: Sort by Username (Column A)
+    // Step 6: Sort by Username (Column B)
     if (sheet.getLastRow() > 2) {
       sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn())
-           .sort({ column: 1, ascending: true });
+           .sort({ column: 2, ascending: true });
     }
 
     return ContentService.createTextOutput("✅ Member list successfully updated.")
@@ -721,19 +721,19 @@ function register(data) {
       if (existingIndex !== -1) {
         // Update existing entry
         sheet.getRange(existingIndex + 2, 1, 1, row.length).setValues([row]);
-        logToSheet(`[${timestamp}] 🔄 Updated existing member: ${row[0]}`);
+        logToSheet(`[${timestamp}] 🔄 Updated existing member: ${row[1]}`);
       } else {
         // Add new entry
         sheet.appendRow(row);
-        logToSheet(`[${timestamp}] ➕ Added new member: ${row[0]}`);
+        logToSheet(`[${timestamp}] ➕ Added new member: ${row[1]}`);
       }
     });
 
-    // Step 4: Sort data by Username (Column A, index 1)
+    // Step 4: Sort data by Username (Column B, index 2)
     const updatedLastRow = sheet.getLastRow();
     if (updatedLastRow > 1) {
       sheet.getRange(2, 1, updatedLastRow - 1, headers.length)
-           .sort({ column: 1, ascending: true });
+           .sort({ column: 2, ascending: true });
       logToSheet(`[${timestamp}] ✅ Data sorted by Username.`);
     }
 
@@ -806,8 +806,8 @@ function avoidPairings(data) {
 
     // --- Prepare formulas for columns C and D ---
     const newRowIndex = avoidSheet.getLastRow() + newRows.length + 1;
-    const colCFormula = `=IF(A${newRowIndex}<>"", INDEX('Discord Member List'!A:A, MATCH(A${newRowIndex}, 'Discord Member List'!B:B, 0)), "")`;
-    const colDFormula = `=IF(B${newRowIndex}<>"", INDEX('Discord Member List'!A:A, MATCH(B${newRowIndex}, 'Discord Member List'!B:B, 0)), "")`;
+      const colCFormula = `=IF(A${newRowIndex}<>"", INDEX('Discord Member List'!B:B, MATCH(A${newRowIndex}, 'Discord Member List'!C:C, 0)), "")`;
+      const colDFormula = `=IF(B${newRowIndex}<>"", INDEX('Discord Member List'!B:B, MATCH(B${newRowIndex}, 'Discord Member List'!C:C, 0)), "")`;
 
     newRows.push([userA, userB, colCFormula, colDFormula]);
     log(`Pair added: ${userA} =/ ${userB}`);
