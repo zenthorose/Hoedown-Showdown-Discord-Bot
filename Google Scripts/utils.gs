@@ -595,16 +595,22 @@ function memberUpdate(data) {
       // Skip header row if sent
       if (JSON.stringify(row.slice(0, 2)) === JSON.stringify(requiredHeaders.slice(0, 2))) return;
 
-      // Ensure row has at least 3 columns (Nickname, Username, Discord ID)
-      while (row.length < 3) row.push("");
+      // Ensure row has the same number of columns as the sheet headers
+      while (row.length < requiredHeaders.length) row.push("");
 
       // Check if Discord ID already exists (Discord ID moved to index 2)
       const existingIndex = existingData.findIndex(existingRow => existingRow[2] === row[2]);
 
       if (existingIndex !== -1) {
-        // Preserve existing region if it exists, otherwise use incoming or default to "Both"
-          const existingRegion = existingData[existingIndex][3];
-          row[3] = existingRegion && existingRegion.trim() !== "" ? existingRegion : (row[3] || "Both");
+        // Preserve existing D-F (Region, Steam ID, Stream Link) when absent in incoming data
+        const existingRow = existingData[existingIndex];
+        // Ensure row has slots up to requiredHeaders.length (already padded earlier)
+        // Preserve Region (col D / index 3)
+        row[3] = (row[3] !== undefined && String(row[3]).trim() !== "") ? row[3] : (existingRow[3] || "Both");
+        // Preserve Steam ID (col E / index 4)
+        row[4] = (row[4] !== undefined && String(row[4]).trim() !== "") ? row[4] : (existingRow[4] || "");
+        // Preserve Stream Link (col F / index 5)
+        row[5] = (row[5] !== undefined && String(row[5]).trim() !== "") ? row[5] : (existingRow[5] || "");
 
         // Update existing row
         sheet.getRange(existingIndex + 2, 1, 1, requiredHeaders.length).setValues([row]);
@@ -719,6 +725,12 @@ function register(data) {
       const existingIndex = existingData.findIndex(existingRow => existingRow[2] === discordId);
 
       if (existingIndex !== -1) {
+        // Preserve existing D-F (Region, Steam ID, Stream Link) when absent in incoming data
+        const existingRow = existingData[existingIndex] || [];
+        row[3] = (row[3] !== undefined && String(row[3]).trim() !== "") ? row[3] : (existingRow[3] || "Both");
+        row[4] = (row[4] !== undefined && String(row[4]).trim() !== "") ? row[4] : (existingRow[4] || "");
+        row[5] = (row[5] !== undefined && String(row[5]).trim() !== "") ? row[5] : (existingRow[5] || "");
+
         // Update existing entry
         sheet.getRange(existingIndex + 2, 1, 1, row.length).setValues([row]);
         logToSheet(`[${timestamp}] 🔄 Updated existing member: ${row[1]}`);
