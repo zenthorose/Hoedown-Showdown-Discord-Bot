@@ -62,6 +62,9 @@ module.exports = {
       // Command lists
       const generalCommands = [
         { name: '/info-check', description: 'See what info you’ve submitted.' },
+        { name: '/lookup', description: "Lookup a user's Region, Steam Friend Code, and Stream Link." },
+        { name: '/past-teams', description: 'Find your teams from past events (select an event).' },
+        { name: '/team-info', description: 'Repost the approved team info for this channel (latest round).' },
         { name: '/register', description: 'Register your information for the first time.' },
         { name: '/update-info', description: 'Update your registered information.' },
         { name: '/faq', description: 'Frequently asked questions about the community, event, and the bot.' },
@@ -79,6 +82,7 @@ module.exports = {
         { name: '/replace', description: 'You must enter the Round #, the person to remove from the list and then person to add that isn’t on the list.' },
         { name: '/swap', description: 'Swap’s the postion of 2-10 people on the list.' },
         { name: '/approve-round', description: 'Publishes the final Team List to the correct round channel and @’s everyone for that round.' },
+        { name: '/temp-vc', description: 'Grant up to 3 users access to a configured voice channel temporarily.' },
         { name: '/hoedown-reset', description: 'Resets all hoedown essential channels to a fresh state.' },
         { name: '/avoid', description: 'Let’s you add up to 5 people to the avoid list.' },
         { name: '/unavoid', description: 'Let’s you remove an avoided pair from the bot.' },

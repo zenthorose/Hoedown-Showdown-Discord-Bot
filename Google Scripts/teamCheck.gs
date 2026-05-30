@@ -1,9 +1,9 @@
 /**
  * teamCheck
- * Version: 2.2.0 (ID-based, fully normalized)
+ * Version: 3.0.0 (ID-based, fully normalized)
  */
 function teamCheck(teams, previousSheet, avoidSheet, safeLog) {
-  const SCRIPT_VERSION = "teamCheck v2.2.0";
+  const SCRIPT_VERSION = "teamCheck v3.0.0";
   const LOG_ENABLED = false;
 
   function log(msg) {

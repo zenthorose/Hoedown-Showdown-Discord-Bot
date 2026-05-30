@@ -1,5 +1,5 @@
 function assignPlayersToPlannedTeams(teamPlan, regionBuckets, safeLog) {
-  const SCRIPT_VERSION = "assignPlayersToPlannedTeams v2.1.0"; // schema unified
+  const SCRIPT_VERSION = "assignPlayersToPlannedTeams v3.0.0"; // schema unified
   const LOG_ENABLED = false;
 
   function log(msg) {

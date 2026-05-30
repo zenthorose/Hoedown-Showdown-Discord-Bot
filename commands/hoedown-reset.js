@@ -10,7 +10,8 @@ const ENABLE_WIPE_ROUND_CHANNELS = true;            // Wipe each channel listed 
 const ENABLE_SET_EVERYONE_VIEW_DENY_ROUNDS = true;  // Set @everyone ViewChannel = false for each round channel
 const ENABLE_WIPE_TEAM_CHANNELS = true;             // Wipe each channel listed in config.teamChannels
 const ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS = true;   // Set @everyone ViewChannel = false for each team channel
-const ENABLE_LOGGING = true;                        // Post an audit message to LOG_CHANNEL_ID
+const ENABLE_REMOVE_MEMBER_OVERWRITES = true;       // Remove individual/member permission overwrites on round/team channels
+const ENABLE_LOGGING = false;                        // Post an audit message to LOG_CHANNEL_ID
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -149,6 +150,27 @@ module.exports = {
                   console.log(`ℹ️ Skipped wiping Round ${roundKey} channel (toggle disabled).`);
                   await logUsage(`(skip wipe round ${roundKey}: toggle disabled)`);
                 }
+                // Remove individual/member permission overwrites (e.g., specific users)
+                if (ENABLE_REMOVE_MEMBER_OVERWRITES) {
+                  try {
+                    if (roundChannel && roundChannel.permissionOverwrites && roundChannel.permissionOverwrites.cache) {
+                      const memberOverwrites = roundChannel.permissionOverwrites.cache.filter(ov => ov.type === 1 || String(ov.type).toLowerCase() === 'member' || String(ov.type).toLowerCase() === 'user');
+                      for (const [owId, ow] of memberOverwrites) {
+                        try {
+                          await roundChannel.permissionOverwrites.delete(owId);
+                          console.log(`🧹 Removed member overwrite ${owId} from Round ${roundKey}`);
+                          await logUsage(`(removed member overwrite ${owId} from round ${roundKey})`);
+                        } catch (delErr) {
+                          console.warn(`Failed to remove member overwrite ${owId} from Round ${roundKey}:`, delErr);
+                          await logUsage(`(failed remove member overwrite ${owId} from round ${roundKey}: ${delErr.message})`);
+                        }
+                      }
+                    }
+                  } catch (remErr) {
+                    console.error(`Error removing member overwrites in Round ${roundKey}:`, remErr);
+                    await logUsage(`(remove overwrite error round ${roundKey}: ${remErr.message})`);
+                  }
+                }
 
                 if (ENABLE_SET_EVERYONE_VIEW_DENY_ROUNDS) {
                   try {
@@ -202,6 +224,28 @@ module.exports = {
                 } else {
                   console.log(`ℹ️ Skipped wiping ${teamKey} channel (toggle disabled).`);
                   await logUsage(`(skip wipe team ${teamKey}: toggle disabled)`);
+                }
+
+                // Remove individual/member permission overwrites (e.g., specific users)
+                if (ENABLE_REMOVE_MEMBER_OVERWRITES) {
+                  try {
+                    if (teamChannel && teamChannel.permissionOverwrites && teamChannel.permissionOverwrites.cache) {
+                      const memberOverwrites = teamChannel.permissionOverwrites.cache.filter(ov => ov.type === 1 || String(ov.type).toLowerCase() === 'member' || String(ov.type).toLowerCase() === 'user');
+                      for (const [owId, ow] of memberOverwrites) {
+                        try {
+                          await teamChannel.permissionOverwrites.delete(owId);
+                          console.log(`🧹 Removed member overwrite ${owId} from ${teamKey}`);
+                          await logUsage(`(removed member overwrite ${owId} from team ${teamKey})`);
+                        } catch (delErr) {
+                          console.warn(`Failed to remove member overwrite ${owId} from ${teamKey}:`, delErr);
+                          await logUsage(`(failed remove member overwrite ${owId} from team ${teamKey}: ${delErr.message})`);
+                        }
+                      }
+                    }
+                  } catch (remErr) {
+                    console.error(`Error removing member overwrites in ${teamKey}:`, remErr);
+                    await logUsage(`(remove overwrite error team ${teamKey}: ${remErr.message})`);
+                  }
                 }
 
                 if (ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS) {

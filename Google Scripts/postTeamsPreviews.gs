@@ -2,14 +2,14 @@
  * Posts a message via the Render-hosted bot endpoint.
  */
 function postToDiscord(channelId, message, safeLog) {
-  const SCRIPT_VERSION = "postToDiscord v1.2.1";
+  const SCRIPT_VERSION = "postToDiscord v3.0.0";
   const LOG_ENABLED = false; // set to false to disable logs
 
   function log(msg) {
     if (LOG_ENABLED && typeof safeLog === "function") safeLog(`[${SCRIPT_VERSION}] ${msg}`);
   }
 
-  log("Starting postToDiscord v1.2.1");
+  log("Starting postToDiscord v3.0.0");
 
   const props = PropertiesService.getScriptProperties();
   const renderUrl = props.getProperty('DISCORD_BOT_API_URL');
@@ -133,7 +133,7 @@ function postTeamsPreview(teams, teamLetters, round, safeLog) {
  * - posts combined message to Discord
  */
 function repostTeamsPreview(round, safeLog) {
-  const SCRIPT_VERSION = "repostTeamsPreview v2.3.0";
+  const SCRIPT_VERSION = "repostTeamsPreview v3.0.0";
   const LOG_ENABLED = false;
   function log(msg) { if (LOG_ENABLED && typeof safeLog === "function") safeLog(`[${SCRIPT_VERSION}] ${msg}`); }
 
@@ -439,7 +439,7 @@ function getPairingReport(round, safeLog) {
  * Name-only in Discord, but logs + JSON include Steam/Stream links.
  */
 function postRoundFinal({ round }) {
-  const SCRIPT_VERSION = "postRoundFinal v1.4.4";
+  const SCRIPT_VERSION = "postRoundFinal v3.0.0";
   const LOG_ENABLED = false;
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -474,13 +474,14 @@ function postRoundFinal({ round }) {
   }
 
   // --- Build Discord member map ---
-  // Expecting: Name | DiscordID | (unused) | SteamID | StreamLink
-  const membersData = membersSheet.getRange(2, 1, membersSheet.getLastRow() - 1, 5).getValues();
+  // Expecting: Name | DiscordID | (unused) | SteamID | (extra) | StreamLink
+  const membersData = membersSheet.getRange(2, 1, membersSheet.getLastRow() - 1, 6).getValues();
   const memberMap = {};
-  membersData.forEach(([name, discordId, unused, steamId, streamLink]) => {
+  membersData.forEach(([name, _colB, discordId, region, steamId, streamLink]) => {
     if (name) {
       memberMap[String(name).trim().toLowerCase()] = {
         discordId: discordId ? String(discordId).trim() : null,
+        region: region ? String(region).trim() : null,
         steamId: steamId ? String(steamId).trim() : null,
         streamLink: streamLink ? String(streamLink).trim() : null
       };
@@ -599,6 +600,19 @@ function postRoundFinal({ round }) {
     }
 
     log(`✅ postRoundFinal posted ${messages.length} message(s) to ${roundChannelKey} (${channelId}) successfully`);
+
+    // Mark only the first row of the last column green if it matches this round header
+    try {
+      const lastCol = teamsSheet.getLastColumn();
+      const cell = teamsSheet.getRange(1, lastCol);
+      if (String(cell.getValue()) === roundHeader) {
+        cell.setBackground('#00ff00');
+        cell.setFontColor('#000000');
+        cell.setHorizontalAlignment('center');
+      }
+    } catch (e) {
+      log(`Failed to mark last-column header approved: ${e.message}`);
+    }
 
     return ContentService.createTextOutput(JSON.stringify({
       success: true,

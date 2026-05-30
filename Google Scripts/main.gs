@@ -1,5 +1,5 @@
 const DEBUG = true;
-const SCRIPT_VERSION = 512;
+const SCRIPT_VERSION = 542;
 
 function logDebug(message) {
   if (DEBUG) logToSheet(message);
@@ -68,9 +68,22 @@ function doPost(e) {
         logDebug(`[${timestamp}] Handling approve-round`);
         return postRoundFinal(data);
 
+      case "past-teams":
+        logDebug(`[${timestamp}] Handling past-teams`);
+        return pastTeams(data);
+
+      case "team-info":
+        logDebug(`[${timestamp}] Handling team-info`);
+        return teamInfo(data);
+
       case "info-check":
         logDebug(`[${timestamp}] Handling info-check`);
         return infoCheck(data);
+
+      case "lookup":
+        logDebug(`[${timestamp}] Handling lookup`);
+        // For lookup we expect `targetId` in the POST body; reuse infoCheck logic
+        return infoCheck({ userId: data.targetId });
 
       case "register":
         logDebug(`[${timestamp}] Handling register`);

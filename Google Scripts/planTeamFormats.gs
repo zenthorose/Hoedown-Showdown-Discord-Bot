@@ -1,5 +1,5 @@
 function planTeamFormats({ east, west, both }, safeLog) {
-  const SCRIPT_VERSION = "planTeamFormats v1.2.1";
+  const SCRIPT_VERSION = "planTeamFormats v3.0.0";
   const LOG_ENABLED = false; // <-- toggle logging on/off
 
   // Wrapper around safeLog that respects toggle
