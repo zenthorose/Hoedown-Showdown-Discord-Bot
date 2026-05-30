@@ -1,10 +1,10 @@
 /**
  * postTeams
- * Version: 1.3.4 (Robust label handling)
+ * Version: 3.0.0 (Robust label handling)
  * Posts generated teams to the spreadsheet and sends Discord preview.
  */
 function postTeams(sheet, teams, safeLog) {
-  const SCRIPT_VERSION = "postTeams v1.3.4";
+  const SCRIPT_VERSION = "postTeams v3.0.0";
   const LOG_ENABLED = false;
 
   function log(msg) {

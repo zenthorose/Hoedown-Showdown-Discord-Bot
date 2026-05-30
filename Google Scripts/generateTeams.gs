@@ -1,5 +1,5 @@
 function generateTeams(players, safeLog) {
-  const SCRIPT_VERSION = "generateTeams v2.0.0";
+  const SCRIPT_VERSION = "generateTeams v3.0.0";
   const LOG_ENABLED = false; // <-- set to false to disable logs
 
   // Wrapper around safeLog that respects toggle

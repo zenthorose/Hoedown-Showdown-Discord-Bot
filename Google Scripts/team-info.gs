@@ -5,7 +5,7 @@
  * Returns: { success:true, round:number, teams: { A:[{name,discordId,steamId,streamLink}], ... } }
  */
 function teamInfo() {
-  const SCRIPT_VERSION = "teamInfo v1";
+  const SCRIPT_VERSION = "teamInfo v3.0.0";
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const teamsSheet = ss.getSheetByName("Players That Reacted");
   const membersSheet = ss.getSheetByName("Discord Member List");

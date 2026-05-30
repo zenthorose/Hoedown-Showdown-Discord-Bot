@@ -2,14 +2,14 @@
  * Posts a message via the Render-hosted bot endpoint.
  */
 function postToDiscord(channelId, message, safeLog) {
-  const SCRIPT_VERSION = "postToDiscord v1.2.1";
+  const SCRIPT_VERSION = "postToDiscord v3.0.0";
   const LOG_ENABLED = false; // set to false to disable logs
 
   function log(msg) {
     if (LOG_ENABLED && typeof safeLog === "function") safeLog(`[${SCRIPT_VERSION}] ${msg}`);
   }
 
-  log("Starting postToDiscord v1.2.1");
+  log("Starting postToDiscord v3.0.0");
 
   const props = PropertiesService.getScriptProperties();
   const renderUrl = props.getProperty('DISCORD_BOT_API_URL');
@@ -133,7 +133,7 @@ function postTeamsPreview(teams, teamLetters, round, safeLog) {
  * - posts combined message to Discord
  */
 function repostTeamsPreview(round, safeLog) {
-  const SCRIPT_VERSION = "repostTeamsPreview v2.3.0";
+  const SCRIPT_VERSION = "repostTeamsPreview v3.0.0";
   const LOG_ENABLED = false;
   function log(msg) { if (LOG_ENABLED && typeof safeLog === "function") safeLog(`[${SCRIPT_VERSION}] ${msg}`); }
 
@@ -439,7 +439,7 @@ function getPairingReport(round, safeLog) {
  * Name-only in Discord, but logs + JSON include Steam/Stream links.
  */
 function postRoundFinal({ round }) {
-  const SCRIPT_VERSION = "postRoundFinal v1.4.4";
+  const SCRIPT_VERSION = "postRoundFinal v3.0.0";
   const LOG_ENABLED = false;
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();

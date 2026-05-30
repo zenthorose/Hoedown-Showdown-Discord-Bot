@@ -1,5 +1,6 @@
 /**
  * pastTeams
+ * Version: 3.0.0
  * Expects: { eventSheetName: string, userId: string }
  * Returns: { success: true, results: [{ round:number, team:string, members:[string] }, ...] }
  */

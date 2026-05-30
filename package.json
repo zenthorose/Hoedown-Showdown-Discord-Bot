@@ -1,6 +1,6 @@
 {
   "name": "hunt-showdown-hoedown-do-si-do-bot",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "This is a bot designed for the Hunt Showdown Hoedown Do-si-do.",
   "main": "main.js",
   "scripts": {

@@ -4,7 +4,7 @@
  * Processes Discord players (id + name), generates teams, logs all steps safely.
  */
 function grabReactions(discordPlayers) {
-  const SCRIPT_VERSION = "grabReactions v2.1.1";
+  const SCRIPT_VERSION = "grabReactions v3.0.0";
   const LOG_ENABLED = false; // set to false to disable logs
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();

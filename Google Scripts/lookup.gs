@@ -1,4 +1,8 @@
-// Wrapper for /lookup POST requests — validates and reuses infoCheck()
+/**
+ * lookup
+ * Version: 3.0.0 (ID-based, updated for new column layout)
+ * Wrapper for /lookup POST requests — validates and reuses infoCheck()
+ */
 function lookup({ targetId, targetName }) {
   if (!targetId && !targetName) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'Missing targetId or targetName' }))

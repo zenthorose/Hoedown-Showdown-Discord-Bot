@@ -1,9 +1,9 @@
 /**
  * teamFixer
- * Version: 2.8.2 (Avoids always prioritized, undefined-safe logging)
+ * Version: 3.0.0 (Avoids always prioritized, undefined-safe logging)
  */
 function teamFixer(teams, previousSheet, avoidSheet, safeLog, startingAudit = null, LOG_ENABLED = false) {
-  const SCRIPT_VERSION = "teamFixer v2.8.2";
+  const SCRIPT_VERSION = "teamFixer v3.0.0";
   function log(msg) {
     if (LOG_ENABLED && typeof safeLog === "function") safeLog(`[${SCRIPT_VERSION}] ${msg}`);
   }
