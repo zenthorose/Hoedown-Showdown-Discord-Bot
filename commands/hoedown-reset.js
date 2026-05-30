@@ -11,7 +11,7 @@ const ENABLE_SET_EVERYONE_VIEW_DENY_ROUNDS = true;  // Set @everyone ViewChannel
 const ENABLE_WIPE_TEAM_CHANNELS = true;             // Wipe each channel listed in config.teamChannels
 const ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS = true;   // Set @everyone ViewChannel = false for each team channel
 const ENABLE_REMOVE_MEMBER_OVERWRITES = true;       // Remove individual/member permission overwrites on round/team channels
-const ENABLE_LOGGING = true;                        // Post an audit message to LOG_CHANNEL_ID
+const ENABLE_LOGGING = false;                        // Post an audit message to LOG_CHANNEL_ID
 
 module.exports = {
   data: new SlashCommandBuilder()
