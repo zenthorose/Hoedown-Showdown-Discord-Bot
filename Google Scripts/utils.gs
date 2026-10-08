@@ -669,7 +669,7 @@ function updatePlayerField(data) {
 
   // Column index mapping (0-based) for other updatable fields
   const fieldMap = {
-    region: 2,      // Column C
+    region: 3,      // Column D
     steamid: 4,     // Column E
     streamlink: 5   // Column F
   };
