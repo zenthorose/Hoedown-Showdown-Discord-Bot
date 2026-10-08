@@ -116,7 +116,8 @@ module.exports = {
     }
 
     if (subcommand === 'steamfriendcode') {
-      infoType = 'steamfriendcode';
+      // Normalize to the field name expected by the Apps Script
+      infoType = 'steamid';
       newValue = interaction.options.getString('friendcode');
 
       // Only digits allowed, no length restriction
@@ -140,9 +141,10 @@ module.exports = {
     }
 
     try {
+      // Include the member's current display name so the sheet can sync Nickname (Column A)
       const updateData = {
         command: 'update',
-        updateData: [[member.user.id, infoType, newValue]]
+        updateData: [[member.user.id, infoType, newValue, member.displayName]]
       };
 
       await axios.post(triggerUrl, updateData);
