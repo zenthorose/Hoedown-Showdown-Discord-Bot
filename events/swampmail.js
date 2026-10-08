@@ -105,8 +105,8 @@ async function updateBotStatus(client) {
   try {
     const supporttickets = config.supporttickets;
     const statusText = supporttickets
-      ? '✅ Hoedown Finished Support Open'
-      : '❌ Hoedown Finished Support Closed';
+      ? '✅ Hoedown On 11/14/26 Support Open'
+      : '❌ Hoedown On 11/14/26 Support Closed';
 
     await client.user.setPresence({
       activities: [{ name: statusText, type: 0 }],
