@@ -652,10 +652,22 @@ function updatePlayerField(data) {
     throw new Error('Sheet "Discord Member List" not found.');
   }
 
-  const [userId, field, newValue] = data.updateData[0];
+  const [userId, field, newValue, nickname] = data.updateData[0];
   const values = sheet.getDataRange().getValues();
 
-  // Column index mapping (0-based)
+  // Find the row for this user first (Discord ID is column C / index 2)
+  const rowIndex = values.findIndex(row => row[2] == userId);
+  if (rowIndex === -1) {
+    throw new Error(`User with ID ${userId} not found.`);
+  }
+
+  // If a nickname was provided, update Column A (index 0)
+  if (nickname !== undefined && String(nickname).trim() !== "") {
+    sheet.getRange(rowIndex + 1, 1).setValue(nickname);
+    logToSheet(`[${timestamp}] Updated Nickname for user ${userId} to "${nickname}"`);
+  }
+
+  // Column index mapping (0-based) for other updatable fields
   const fieldMap = {
     region: 2,      // Column C
     steamid: 4,     // Column E
@@ -665,11 +677,6 @@ function updatePlayerField(data) {
   const colIndex = fieldMap[field.toLowerCase()];
   if (colIndex === undefined) {
     throw new Error(`Invalid field: ${field}`);
-  }
-
-  const rowIndex = values.findIndex(row => row[2] == userId); // Discord ID is column C (index 2)
-  if (rowIndex === -1) {
-    throw new Error(`User with ID ${userId} not found.`);
   }
 
   sheet.getRange(rowIndex + 1, colIndex + 1).setValue(newValue); // Adjust for 1-based index
