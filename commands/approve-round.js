@@ -3,6 +3,10 @@ const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 
+function escapeDiscordMarkdown(value) {
+  return String(value).replace(/([\\_*~`|>])/g, '\\$1');
+}
+
 // Toggle controls for permission-changing and cleanup behavior.
 // Set to `true` to allow the operation, `false` to skip it.
 const ENABLE_ROUND_CHANNEL_PERMS = false; // Step 2: update round channel permission overwrites
@@ -189,9 +193,10 @@ module.exports = {
 
               for (const player of players) {
                 const name = player?.name || "Unknown";
+                const displayName = escapeDiscordMarkdown(name);
                 const steamId = player?.steamId || "N/A";
                 const streamLink = player?.streamLink || "N/A";
-                teamOutput += `- ${name} | Steam: ${steamId} | Stream: ${streamLink}\n`;
+                teamOutput += `- ${displayName} | Steam: ${steamId} | Stream: ${streamLink}\n`;
               }
 
               const teamKey = `Team ${teamName}`;

@@ -2,6 +2,10 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
 
+function escapeDiscordMarkdown(value) {
+  return String(value).replace(/([\\_*~`|>])/g, '\\$1');
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('team-info')
@@ -47,9 +51,10 @@ module.exports = {
 
       let teamOutput = `📋 **Team ${teamName} — Round #${round}**\n\n`;
       for (const p of players) {
+        const displayName = escapeDiscordMarkdown(p.name);
         const steam = p.steamId || 'N/A';
         const stream = p.streamLink || 'N/A';
-        teamOutput += `- ${p.name} | Steam: ${steam} | Stream: ${stream}\n`;
+        teamOutput += `- ${displayName} | Steam: ${steam} | Stream: ${stream}\n`;
       }
 
       // Post to channel as visible message

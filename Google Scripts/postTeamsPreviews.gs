@@ -38,6 +38,10 @@ function postToDiscord(channelId, message, safeLog) {
   }
 }
 
+function escapeDiscordMarkdown(value) {
+  return String(value).replace(/([\\_*~`|>])/g, '\\$1');
+}
+
 /**
  * Posts team preview to the configured check channel.
  * Includes name + region and proper formatting.
@@ -66,7 +70,7 @@ function postTeamsPreview(teams, teamLetters, round, safeLog) {
   teams.forEach((team, i) => {
     message += `__**Team ${teamLetters[i]}:**__\n`;
     team.forEach(player => {
-      message += `${player.name} (${player.region})\n`;
+      message += `${escapeDiscordMarkdown(player.name)} (${player.region})\n`;
     });
     message += `\n`;
   });
@@ -85,13 +89,13 @@ function postTeamsPreview(teams, teamLetters, round, safeLog) {
     if (avoidCount > 0) {
       message += `\n__**Avoid Pairings Found (${avoidCount})**__\n`;
       report.avoidConflicts.forEach(p => {
-        message += `🔴 ${p.a} × ${p.b}\n`;
+        message += `🔴 ${escapeDiscordMarkdown(p.a)} × ${escapeDiscordMarkdown(p.b)}\n`;
       });
     }
     if (prevCount > 0) {
       message += `\n__**Previous Pairings Found (${prevCount})**__\n`;
       report.previousConflicts.forEach(p => {
-        message += `⚠️ ${p.a} × ${p.b}\n`;
+        message += `⚠️ ${escapeDiscordMarkdown(p.a)} × ${escapeDiscordMarkdown(p.b)}\n`;
       });
     }
   }
@@ -181,7 +185,7 @@ function repostTeamsPreview(round, safeLog) {
       if (idx > 0) message += `\n`;
       message += `__**${val}**__\n`;
     } else {
-      message += `${val}\n`;
+      message += `${escapeDiscordMarkdown(val)}\n`;
     }
   });
 
@@ -538,7 +542,7 @@ function postRoundFinal({ round }) {
       if (member.discordId) {
         discordMessage += `<@${member.discordId}>\n`;
       } else {
-        discordMessage += `${cleanVal}\n`;
+        discordMessage += `${escapeDiscordMarkdown(cleanVal)}\n`;
         log(`⚠️ No Discord ID found for player: "${cleanVal}"`);
       }
 
