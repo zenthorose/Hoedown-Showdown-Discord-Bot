@@ -31,26 +31,35 @@ function grabReactions(discordPlayers) {
     return ContentService.createTextOutput(JSON.stringify({ error: "Required sheets not found." }));
   }
 
-  // Clear previous data in column B only (Username moved from A to B)
-  sheet.getRange("B2:B").clearContent();
+  // Clear the previous reacted-player list.
+  sheet.getRange("A2:A").clearContent();
 
-  // Get player data from Discord Member List (columns A–F: Username, Discord ID, Region, Steam ID, <extra>, Stream Link)
-  const data = discordMemberSheet.getRange(2, 1, discordMemberSheet.getLastRow() - 1, 6).getValues();
+  // Discord Member List columns: Nickname, Username, Discord ID, Region, Steam ID, Stream Link.
+  const memberLastRow = discordMemberSheet.getLastRow();
+  const data = memberLastRow > 1
+    ? discordMemberSheet.getRange(2, 1, memberLastRow - 1, 6).getValues()
+    : [];
   const playerData = [];
 
   discordPlayers.forEach(p => {
     const { id, name } = p;
-    const match = data.find(row => row[2] === id); // Discord ID is column C (index 2)
+    const match = data.find(row => String(row[2]).trim() === String(id).trim());
     if (match) {
-      const [_colA, username, discordId, region] = match; // Username is column B (index 1)
-      playerData.push({ id: discordId, name: username, region });
+      const [nickname, username, discordId, region] = match;
+      playerData.push({
+        id: discordId,
+        name: String(nickname || username || name).trim(),
+        region
+      });
     } else {
       safeLog(`Discord ID not found: ${id} (name: ${name})`);
     }
   });
 
-  // Post player names to column A
-  playerData.forEach((p, i) => sheet.getRange(2 + i, 2).setValue(p.name));
+  playerData.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  if (playerData.length > 0) {
+    sheet.getRange(2, 1, playerData.length, 1).setValues(playerData.map(p => [p.name]));
+  }
 
   // Generate teams
   let teams;

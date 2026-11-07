@@ -84,6 +84,21 @@ function postTeams(sheet, teams, safeLog) {
     return null;
   };
 
+  const getFirstTeamLabelInColumn = (col) => {
+    try {
+      const lastRowCol = getLastRowInColumn(col);
+      if (lastRowCol < 2) return null;
+      const values = sheet.getRange(2, col, lastRowCol - 1, 1).getValues();
+      for (const [value] of values) {
+        const match = String(value || '').trim().match(/^Team ([A-Z]+)$/);
+        if (match) return match[1];
+      }
+    } catch (e) {
+      // ignore and return null
+    }
+    return null;
+  };
+
   if (lastColumn > 1) {
     try {
       const lastRow = getLastRowInColumn(lastColumn);
@@ -131,6 +146,9 @@ function postTeams(sheet, teams, safeLog) {
       // getBackground may return colors in different cases; normalize to lowercase
       const prevBg = (sheet.getRange(1, lastColumn).getBackground() || '').toString().toLowerCase();
       const isRedo = prevBg === '#ff0000' || prevBg === 'red';
+      const currentRoundFirstTeamLabel = isRedo
+        ? getFirstTeamLabelInColumn(lastColumn)
+        : null;
 
       if (isRedo) {
         columnToPost = lastColumn;
@@ -157,8 +175,10 @@ function postTeams(sheet, teams, safeLog) {
       try {
         const MAX = 26 * 3;
         if (isRedo) {
-          // When redoing, base labels on the previous round (column before the red one)
-          if (prevTeamLabel) {
+          // Keep the first team label already assigned to this red round.
+          if (currentRoundFirstTeamLabel) {
+            nextTeamIndex = labelToIndex(currentRoundFirstTeamLabel);
+          } else if (prevTeamLabel) {
             nextTeamIndex = labelToIndex(prevTeamLabel) + 1;
             if (nextTeamIndex >= MAX) nextTeamIndex = 0;
           } else if (lastTeamLabel) {
