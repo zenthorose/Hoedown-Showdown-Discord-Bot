@@ -13,6 +13,18 @@ function postTeams(sheet, teams, safeLog) {
 
   log("Starting postTeams");
 
+  // Move legacy round data out of column B, which is reserved for the latest round.
+  if (sheet.getLastColumn() === 2) {
+    const latestRoundHeader = String(sheet.getRange(1, 2).getValue() || '');
+    if (/^Round #\d+$/.test(latestRoundHeader)) {
+      const rowCount = Math.max(sheet.getLastRow(), 1);
+      sheet.getRange(1, 2, rowCount, 1).copyTo(
+        sheet.getRange(1, 3, rowCount, 1),
+        { contentsOnly: false }
+      );
+    }
+  }
+
   // Helper to generate team letters using repeated same-letter scheme:
   // 1-letter: A..Z (26)
   // 2-letter: AA..ZZ (26)
@@ -200,7 +212,7 @@ function postTeams(sheet, teams, safeLog) {
         nextTeamIndex = 0;
       }
     } else {
-      columnToPost = lastColumn + 1;
+      columnToPost = Math.max(lastColumn + 1, 3);
       round = 1;
     }
   } catch (e) {
