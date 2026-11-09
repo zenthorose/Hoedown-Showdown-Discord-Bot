@@ -130,8 +130,11 @@ function saveNewPairings(round, safeLog) {
       currentTeam = clean.replace("Team ", "");
       currentPlayers = [];
     } else {
-      const playerName = clean.replace(/\s*\(.*\)$/, ""); // strip region
-      currentPlayers.push(playerName);
+      const playerMatch = clean.match(/^(.*?)\s*\((.*?)\)$/);
+      currentPlayers.push({
+        name: playerMatch ? playerMatch[1].trim() : clean,
+        isFiller: Boolean(playerMatch && playerMatch[2].trim().toLowerCase() === "filler")
+      });
     }
   });
 
@@ -148,8 +151,9 @@ function saveNewPairings(round, safeLog) {
       for (let j = i + 1; j < players.length; j++) {
         const p1 = players[i];
         const p2 = players[j];
-        const id1 = memberMap[p1.toLowerCase()] || "";
-        const id2 = memberMap[p2.toLowerCase()] || "";
+        if (p1.isFiller || p2.isFiller) continue;
+        const id1 = memberMap[p1.name.toLowerCase()] || "";
+        const id2 = memberMap[p2.name.toLowerCase()] || "";
         pairs.push([id1, id2]);
       }
     }
