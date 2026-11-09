@@ -721,17 +721,24 @@ function register(data) {
 
     // Step 3: Insert or update data
     const registerData = data.registerData;
+    for (let i = 0; i < registerData.length; i++) {
+      const row = registerData[i];
+      if (!Array.isArray(row) || row.length !== headers.length) {
+        const actualColumns = Array.isArray(row) ? row.length : "non-array";
+        const msg = `Invalid registration row ${i + 1}: expected ${headers.length} columns, received ${actualColumns}.`;
+        logErrorToSheet(`[${timestamp}] ❌ ${msg}`);
+        return ContentService.createTextOutput(
+          JSON.stringify({ success: false, message: msg })
+        ).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     const lastRow = sheet.getLastRow();
     const existingData = lastRow > 1
       ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
       : [];
 
     registerData.forEach((row) => {
-      if (row.length !== headers.length) {
-        logErrorToSheet(`[${timestamp}] ❌ Invalid row data: ${JSON.stringify(row)}`);
-        return;
-      }
-
       const discordId = row[2]; // Discord ID is column C / index 2 (moved)
       const existingIndex = existingData.findIndex(existingRow => existingRow[2] === discordId);
 

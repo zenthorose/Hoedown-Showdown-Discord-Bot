@@ -85,6 +85,7 @@ module.exports = {
       const registerData = {
         command: 'register',
         registerData: [[
+          member.displayName || member.user.username, // Nickname
           member.user.username,  // Username
           member.user.id,        // Discord ID
           region,
@@ -96,8 +97,8 @@ module.exports = {
       const response = await axios.post(process.env.Google_Apps_Script_URL, registerData);
 
       // --- Check GAS response ---
-      if (!response.data || response.data.error) {
-        const errorMsg = response.data?.error || "Unknown error from backend.";
+      if (!response.data?.success || response.data.error) {
+        const errorMsg = response.data?.message || response.data?.error || "Unknown error from backend.";
         await interaction.editReply(`❌ Registration failed: ${errorMsg}`);
         await logUsage(`❌ Backend error: ${errorMsg}`);
         return;
