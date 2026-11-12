@@ -65,6 +65,7 @@ module.exports = {
         { name: '/lookup', description: "Lookup a user's Region, Steam Friend Code, and Stream Link." },
         { name: '/past-teams', description: 'Find your teams from past events (select an event).' },
         { name: '/team-info', description: 'Repost the approved team info for this channel (latest round).' },
+        { name: '/countdown', description: 'See the time remaining until November 14 at 8:00 AM EST.' },
         { name: '/register', description: 'Register your information for the first time.' },
         { name: '/update-info', description: 'Update your registered information.' },
         { name: '/faq', description: 'Frequently asked questions about the community, event, and the bot.' },
