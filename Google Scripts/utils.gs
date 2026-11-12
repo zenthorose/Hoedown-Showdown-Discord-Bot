@@ -15,6 +15,60 @@ function getSpreadsheetId() {
   return scriptProperties.getProperty('SPREADSHEET_ID');
 }
 
+function spreadsheetAccessTest(spreadsheetId, attempts) {
+  const startedAt = Date.now();
+  const results = [];
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const attemptStartedAt = Date.now();
+
+    try {
+      const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+      const sheet = spreadsheet.getSheetByName("Discord Member List");
+      if (!sheet) throw new Error('Sheet "Discord Member List" not found.');
+
+      const lastRow = sheet.getLastRow();
+      sheet.getRange(1, 1).getValues();
+
+      const result = {
+        attempt,
+        success: true,
+        elapsedMs: Date.now() - attemptStartedAt,
+        lastRow
+      };
+      results.push(result);
+      console.log(`[v${SCRIPT_VERSION}] spreadsheet-test attempt ${attempt}/${attempts} succeeded in ${result.elapsedMs}ms`);
+    } catch (error) {
+      const message = String(error && error.message ? error.message : error).slice(0, 180);
+      const result = {
+        attempt,
+        success: false,
+        elapsedMs: Date.now() - attemptStartedAt,
+        error: message
+      };
+      results.push(result);
+      console.error(`[v${SCRIPT_VERSION}] spreadsheet-test attempt ${attempt}/${attempts} failed in ${result.elapsedMs}ms: ${message}`);
+    }
+
+    if (attempt < attempts) Utilities.sleep(500);
+  }
+
+  const successes = results.filter(result => result.success).length;
+  const failures = attempts - successes;
+  const response = {
+    status: failures === 0 ? "ok" : successes === 0 ? "failed" : "partial",
+    version: SCRIPT_VERSION,
+    attempts,
+    successes,
+    failures,
+    elapsedMs: Date.now() - startedAt,
+    results
+  };
+
+  return ContentService.createTextOutput(JSON.stringify(response))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // Function to log messages to both console and "Logs" sheet
 function logToSheet(message) {
   try {

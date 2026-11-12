@@ -16,20 +16,37 @@ function createErrorResponse(msg) {
 function doPost(e) {
   const timestamp = new Date().toISOString();
   try {
-    logVersion(`[${timestamp}] doPost called`);
+    console.log(`[v${SCRIPT_VERSION}] [${timestamp}] doPost called`);
 
     if (!e.postData || !e.postData.contents) throw new Error("No POST data received");
 
     const data = JSON.parse(e.postData.contents);
-    logDebug(`[${timestamp}] Parsed data: ${JSON.stringify(data)}`);
-
     const command = data.command;
-    logVersion(`[${timestamp}] Received command: ${command}`);
 
     if (command === "ping") {
+      console.log(`[v${SCRIPT_VERSION}] [${timestamp}] Handling ping without spreadsheet access`);
       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "pong", version: SCRIPT_VERSION }))
         .setMimeType(ContentService.MimeType.JSON);
     }
+
+    if (command === "spreadsheet-test") {
+      const attempts = Number(data.attempts);
+      if (!Number.isInteger(attempts) || attempts < 1 || attempts > 10) {
+        return createErrorResponse("Attempts must be an integer from 1 to 10.");
+      }
+
+      const spreadsheetId = getSpreadsheetId();
+      if (!spreadsheetId) {
+        return createErrorResponse("Spreadsheet ID is not set.");
+      }
+
+      console.log(`[v${SCRIPT_VERSION}] [${timestamp}] Starting read-only spreadsheet test: ${attempts} attempts`);
+      return spreadsheetAccessTest(spreadsheetId, attempts);
+    }
+
+    logVersion(`[${timestamp}] doPost called`);
+    logDebug(`[${timestamp}] Parsed data: ${JSON.stringify(data)}`);
+    logVersion(`[${timestamp}] Received command: ${command}`);
 
     const spreadsheetId = getSpreadsheetId();
     if (!spreadsheetId) {
@@ -114,12 +131,14 @@ function doPost(e) {
     }
 
   } catch (error) {
+    console.error(`[v${SCRIPT_VERSION}] [${timestamp}] Error in doPost:`, error.stack || error);
     logErrorToSheet(`[${timestamp}] [v${SCRIPT_VERSION}] Error in doPost: ${error.message}`);
     return createErrorResponse(error.message);
   }
 }
 
 function doGet(e) {
+  console.log(`[v${SCRIPT_VERSION}] doGet called`);
   return ContentService.createTextOutput(JSON.stringify({ status: "dev endpoint working", version: SCRIPT_VERSION }))
                        .setMimeType(ContentService.MimeType.JSON);
 }
