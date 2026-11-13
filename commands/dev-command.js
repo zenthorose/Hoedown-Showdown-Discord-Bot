@@ -1,11 +1,70 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { ChannelType, PermissionsBitField } = require('discord.js');
+const axios = require('axios');
 const config = require('../config.json');
+
+async function runSpreadsheetAccessTest(interaction) {
+  const triggerUrl = process.env.Google_Apps_Script_URL;
+  if (!triggerUrl) {
+    return interaction.editReply('❌ Google Apps Script URL is not defined.');
+  }
+
+  const attempts = 10;
+
+  try {
+    const response = await axios.post(
+      triggerUrl,
+      { command: 'spreadsheet-test', attempts },
+      { timeout: 90000 }
+    );
+    const result = response.data;
+
+    if (!result || !Array.isArray(result.results)) {
+      throw new Error('Unexpected response; expected spreadsheet-test results.');
+    }
+
+    const details = result.results.map(attempt => {
+      if (attempt.success) {
+        return `#${attempt.attempt} PASS — ${attempt.elapsedMs} ms, rows: ${attempt.lastRow}`;
+      }
+
+      const error = String(attempt.error || 'Unknown spreadsheet error').replace(/\s+/g, ' ').slice(0, 100);
+      return `#${attempt.attempt} FAIL — ${attempt.elapsedMs} ms: ${error}`;
+    });
+
+    const summary =
+      `Spreadsheet access test (${result.version ? `GAS v${result.version}, ` : ''}` +
+      `${result.successes}/${result.attempts} passed, ${result.elapsedMs} ms total):`;
+
+    await interaction.editReply(`${summary}\n${details.join('\n')}`);
+  } catch (error) {
+    console.error('❌ /dev-command spreadsheet test failed:', {
+      message: error.message,
+      code: error.code,
+      status: error.response ? error.response.status : undefined
+    });
+
+    const message = error.message === 'Unexpected response; expected spreadsheet-test results.'
+      ? 'The endpoint returned an unexpected response. Check the Apps Script deployment and URL.'
+      : 'The spreadsheet test request failed. Check the bot and Apps Script execution logs.';
+    await interaction.editReply(`❌ ${message}`);
+  }
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only: create/fetch team voice channels AAA..ZZZ and output mapping'),
+    .setDescription('Developer-only diagnostic and setup tools.')
+    .addStringOption(option =>
+      option
+        .setName('action')
+        .setDescription('Choose a task (defaults to voice-channel setup).')
+        .addChoices(
+          { name: 'Test spreadsheet access', value: 'spreadsheet-test' },
+          { name: 'Create/fetch team voice channels', value: 'voice-channels' }
+        )
+        .setRequired(false)
+    ),
 
   async execute(interaction) {
     try {
@@ -19,6 +78,11 @@ module.exports = {
     }
 
     try {
+      const action = interaction.options.getString('action');
+      if (action === 'spreadsheet-test') {
+        return await runSpreadsheetAccessTest(interaction);
+      }
+
       const guild = interaction.guild;
       if (!guild) return interaction.editReply('❌ This command must be run in a server.');
 
