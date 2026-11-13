@@ -15,7 +15,7 @@ function getSpreadsheetId() {
   return scriptProperties.getProperty('SPREADSHEET_ID');
 }
 
-function spreadsheetAccessTest(spreadsheetId, attempts) {
+function spreadsheetAccessTest(spreadsheetId, attempts, requestId) {
   const startedAt = Date.now();
   const results = [];
 
@@ -37,7 +37,16 @@ function spreadsheetAccessTest(spreadsheetId, attempts) {
         lastRow
       };
       results.push(result);
-      console.log(`[v${SCRIPT_VERSION}] spreadsheet-test attempt ${attempt}/${attempts} succeeded in ${result.elapsedMs}ms`);
+      console.log({
+        event: "spreadsheet-test-attempt",
+        requestId,
+        version: SCRIPT_VERSION,
+        attempt,
+        attempts,
+        success: true,
+        elapsedMs: result.elapsedMs,
+        lastRow
+      });
     } catch (error) {
       const message = String(error && error.message ? error.message : error).slice(0, 180);
       const result = {
@@ -47,7 +56,16 @@ function spreadsheetAccessTest(spreadsheetId, attempts) {
         error: message
       };
       results.push(result);
-      console.error(`[v${SCRIPT_VERSION}] spreadsheet-test attempt ${attempt}/${attempts} failed in ${result.elapsedMs}ms: ${message}`);
+      console.error({
+        event: "spreadsheet-test-attempt",
+        requestId,
+        version: SCRIPT_VERSION,
+        attempt,
+        attempts,
+        success: false,
+        elapsedMs: result.elapsedMs,
+        error: message
+      });
     }
 
     if (attempt < attempts) Utilities.sleep(500);
@@ -58,12 +76,23 @@ function spreadsheetAccessTest(spreadsheetId, attempts) {
   const response = {
     status: failures === 0 ? "ok" : successes === 0 ? "failed" : "partial",
     version: SCRIPT_VERSION,
+    requestId,
     attempts,
     successes,
     failures,
     elapsedMs: Date.now() - startedAt,
     results
   };
+
+  console.log({
+    event: "spreadsheet-test-complete",
+    requestId,
+    version: SCRIPT_VERSION,
+    attempts,
+    successes,
+    failures,
+    elapsedMs: response.elapsedMs
+  });
 
   return ContentService.createTextOutput(JSON.stringify(response))
     .setMimeType(ContentService.MimeType.JSON);

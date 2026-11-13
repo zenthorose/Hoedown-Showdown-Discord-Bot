@@ -1,5 +1,5 @@
 const DEBUG = true;
-const SCRIPT_VERSION = 551;
+const SCRIPT_VERSION = 553;
 
 function logDebug(message) {
   if (DEBUG) logToSheet(message);
@@ -35,13 +35,22 @@ function doPost(e) {
         return createErrorResponse("Attempts must be an integer from 1 to 10.");
       }
 
+      const requestId = typeof data.requestId === "string"
+        ? data.requestId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64)
+        : "missing";
       const spreadsheetId = getSpreadsheetId();
       if (!spreadsheetId) {
         return createErrorResponse("Spreadsheet ID is not set.");
       }
 
-      console.log(`[v${SCRIPT_VERSION}] [${timestamp}] Starting read-only spreadsheet test: ${attempts} attempts`);
-      return spreadsheetAccessTest(spreadsheetId, attempts);
+      console.log({
+        event: "spreadsheet-test-start",
+        requestId,
+        version: SCRIPT_VERSION,
+        attempts,
+        timestamp
+      });
+      return spreadsheetAccessTest(spreadsheetId, attempts, requestId);
     }
 
     logVersion(`[${timestamp}] doPost called`);

@@ -9,18 +9,67 @@ async function runSpreadsheetAccessTest(interaction) {
     return interaction.editReply('❌ Google Apps Script URL is not defined.');
   }
 
+  const requestId = interaction.id;
   const attempts = 10;
+  const startedAt = Date.now();
+  let phase = 'POST to Apps Script';
 
   try {
-    const response = await axios.post(
+    console.info('🔎 /dev-command spreadsheet test started:', { requestId, attempts });
+
+    const postResponse = await axios.post(
       triggerUrl,
-      { command: 'spreadsheet-test', attempts },
-      { timeout: 90000 }
+      { command: 'spreadsheet-test', attempts, requestId },
+      {
+        timeout: 30000,
+        maxRedirects: 0,
+        validateStatus: status => status >= 200 && status < 400
+      }
     );
+    let response = postResponse;
+
+    console.info('🔎 Spreadsheet test POST response:', {
+      requestId,
+      status: postResponse.status,
+      elapsedMs: Date.now() - startedAt,
+      redirectHost: postResponse.headers.location
+        ? new URL(postResponse.headers.location, triggerUrl).hostname
+        : undefined
+    });
+
+    if (postResponse.status >= 300 && postResponse.status < 400) {
+      const location = postResponse.headers.location;
+      if (!location) throw new Error('Apps Script redirect did not include a Location header.');
+
+      const redirectUrl = new URL(location, triggerUrl);
+      if (redirectUrl.protocol !== 'https:' || redirectUrl.hostname !== 'script.googleusercontent.com') {
+        throw new Error(`Unexpected Apps Script redirect host: ${redirectUrl.hostname}`);
+      }
+
+      phase = 'fetch redirected Apps Script response';
+      const redirectStartedAt = Date.now();
+      response = await axios.get(redirectUrl.toString(), {
+        timeout: 30000,
+        maxRedirects: 0
+      });
+
+      console.info('🔎 Spreadsheet test redirect response:', {
+        requestId,
+        status: response.status,
+        host: redirectUrl.hostname,
+        elapsedMs: Date.now() - redirectStartedAt
+      });
+    }
+
+    phase = 'validate Apps Script response';
     const result = response.data;
 
     if (!result || !Array.isArray(result.results)) {
-      throw new Error('Unexpected response; expected spreadsheet-test results.');
+      const keys = result && typeof result === 'object' ? Object.keys(result) : [];
+      throw new Error(`Unexpected response shape; received keys: ${keys.join(', ') || typeof result}.`);
+    }
+    if (result.requestId !== requestId) {
+      throw new Error('Response request ID did not match this test.');
     }
 
     const details = result.results.map(attempt => {
@@ -36,18 +85,21 @@ async function runSpreadsheetAccessTest(interaction) {
       `Spreadsheet access test (${result.version ? `GAS v${result.version}, ` : ''}` +
       `${result.successes}/${result.attempts} passed, ${result.elapsedMs} ms total):`;
 
-    await interaction.editReply(`${summary}\n${details.join('\n')}`);
+    await interaction.editReply(`Request ID: ${requestId}\n${summary}\n${details.join('\n')}`);
   } catch (error) {
     console.error('❌ /dev-command spreadsheet test failed:', {
+      requestId,
+      phase,
+      elapsedMs: Date.now() - startedAt,
       message: error.message,
       code: error.code,
-      status: error.response ? error.response.status : undefined
+      status: error.response ? error.response.status : undefined,
+      responseKeys: error.response && error.response.data && typeof error.response.data === 'object'
+        ? Object.keys(error.response.data)
+        : undefined
     });
 
-    const message = error.message === 'Unexpected response; expected spreadsheet-test results.'
-      ? 'The endpoint returned an unexpected response. Check the Apps Script deployment and URL.'
-      : 'The spreadsheet test request failed. Check the bot and Apps Script execution logs.';
-    await interaction.editReply(`❌ ${message}`);
+    await interaction.editReply(`❌ Spreadsheet test failed during ${phase}. Request ID: ${requestId}. Check the bot and Apps Script logs.`);
   }
 }
 
