@@ -5,7 +5,7 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only: create/fetch team voice channels AAA..ZZZ and output mapping'),
+    .setDescription('Developer-only: hide existing team voice channels from @everyone'),
 
   async execute(interaction) {
     try {
@@ -24,59 +24,37 @@ module.exports = {
 
       const me = guild.members.me;
       if (!me || !me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-        return interaction.editReply('❌ Bot requires the Manage Channels permission to create channels.');
+        return interaction.editReply('❌ Bot requires the Manage Channels permission to update channel permissions.');
       }
 
-      const categoryName = 'Voice Channels Teams AAA-ZZZ';
+      const teamChannels = guild.channels.cache.filter(channel =>
+        channel.type === ChannelType.GuildVoice && /^Team [A-Z]{1,3}$/.test(channel.name)
+      );
 
-      // Find or create the category
-      let category = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name === categoryName);
-      if (!category) {
-        category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory, reason: 'Creating team voice category' });
+      if (teamChannels.size === 0) {
+        return interaction.editReply('❌ No existing team voice channels found with names like "Team A" through "Team ZZZ".');
       }
 
-      const mapping = {};
-
-      // Create/fetch channels AAA..ZZZ (same-letter triplets)
-      for (let i = 0; i < 26; i++) {
-        const letter = String.fromCharCode(65 + i);
-        const label = letter.repeat(3); // e.g., 'AAA'
-        const channelName = `Team ${label}`;
-
-        // Try to find existing channel under the category
-        let channel = guild.channels.cache.find(ch => ch.parentId === category.id && ch.name === channelName && ch.type === ChannelType.GuildVoice);
-
-        if (!channel) {
-          // Create voice channel
-          channel = await guild.channels.create({ name: channelName, type: ChannelType.GuildVoice, parent: category.id, reason: 'Creating team voice channel' });
-        }
-
-        mapping[channelName] = channel.id;
-      }
-
-      const jsonMapping = JSON.stringify(mapping, null, 2);
-
-      // Apply @everyone permission overwrites: deny view and connect on each VC
-      for (const [teamKey, channelId] of Object.entries(mapping)) {
+      let updatedCount = 0;
+      let failedCount = 0;
+      for (const channel of teamChannels.values()) {
         try {
-          const ch = await guild.channels.fetch(channelId);
-          if (ch && ch.type === ChannelType.GuildVoice) {
-            await ch.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
-            console.log(`🔒 Set everyone deny ViewChannel on ${teamKey} (${channelId})`);
-          }
+          await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false });
+          updatedCount++;
+          console.log(`🔒 Set everyone deny ViewChannel on ${channel.name} (${channel.id})`);
         } catch (permErr) {
-          console.error(`❌ Failed to set overwrites for ${teamKey} (${channelId}):`, permErr);
+          failedCount++;
+          console.error(`❌ Failed to set ViewChannel deny on ${channel.name} (${channel.id}):`, permErr);
         }
       }
 
-      const reply = `✅ Created/found channels under category **${categoryName}**.\n\n` +
-        'Copy the following JSON into your `teamChannels` in config.json:\n\n' +
-        '```json\n' + jsonMapping + '\n```';
-
+      const status = failedCount === 0 ? '✅' : updatedCount === 0 ? '❌' : '⚠️';
+      const reply = `${status} Set @everyone's View Channel permission to deny on ${updatedCount} of ${teamChannels.size} matching team voice channels.` +
+        (failedCount > 0 ? `\n${failedCount} channel(s) failed; see bot logs for details.` : '');
       await interaction.editReply({ content: reply });
 
     } catch (err) {
-      console.error('❌ Error creating/fetching team voice channels:', err);
+      console.error('❌ Error updating team voice channel permissions:', err);
       await interaction.editReply(`❌ Error: ${err.message}`);
     }
   },
