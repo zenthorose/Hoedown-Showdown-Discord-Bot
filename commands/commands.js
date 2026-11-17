@@ -76,6 +76,7 @@ module.exports = {
         { name: '/ping', description: 'Keeps the bot alive.' },
         { name: '/count', description: 'Can be used to get a count of total members with a single role, multiple roles or without a roll or rolls.' },
         { name: '/member-update', description: 'Syncs members and names with Google Sheets.' },
+        { name: '/unoptin', description: 'Remove a player from all opt-in time slots.' },
         { name: '/message-purge', description: 'Deletes bot messages from the current channel.' },
         { name: '/time-slots', description: 'Posts timeslot messages for opt-in into the opt-in channel.' },
         { name: '/grab-reactions', description: 'Start’s the team creation process. Will post the review list into the team-check channel.' },
