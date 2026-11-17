@@ -6,28 +6,28 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('avoid')
-    .setDescription('Mark selected players to avoid each other in teams.')
+    .setDescription('Have the first player avoid the selected players in teams.')
     .setDefaultMemberPermissions(0) // Requires Manage Messages
     .addUserOption(option =>
       option.setName('player1')
-        .setDescription('The person Avoiding')
+        .setDescription('The person requesting the avoid')
         .setRequired(true))
     .addUserOption(option =>
       option.setName('player2')
-        .setDescription('Who’s being avoided')
+        .setDescription('Who they want to avoid')
         .setRequired(true))
     .addUserOption(option =>
       option.setName('player3')
-        .setDescription('Who’s being avoided'))
+        .setDescription('Another person they want to avoid'))
     .addUserOption(option =>
       option.setName('player4')
-        .setDescription('Who’s being avoided'))
+        .setDescription('Another person they want to avoid'))
     .addUserOption(option =>
       option.setName('player5')
-        .setDescription('Who’s being avoided'))
+        .setDescription('Another person they want to avoid'))
     .addUserOption(option =>
       option.setName('player6')
-        .setDescription('Who’s being avoided')),
+        .setDescription('Another person they want to avoid')),
 
   async execute(interaction) {
     let replyMessage;

@@ -833,53 +833,68 @@ function avoidPairings(data) {
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // --- Fetch existing pairs ---
-  const lastRow = Math.max(avoidSheet.getLastRow(), 1);
-  const existingPairs = avoidSheet.getRange(1, 1, lastRow, 2).getValues()
-    .map(row => [row[0]?.toString(), row[1]?.toString()]);
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (error) {
+    log(`Could not acquire lock for avoid list update: ${error.message}`);
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: "Avoid list is busy. Please try again."
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 
-  let addedCount = 0;
-  let skippedCount = 0;
-  const newRows = [];
-
-  const firstUser = users[0];
-
-  for (let i = 1; i < users.length; i++) {
-    const userA = firstUser.id.toString();
-    const userB = users[i].id.toString();
-
-    // --- Check if pair exists in either order ---
-    const exists = existingPairs.some(([a, b]) =>
-      (a === userA && b === userB) || (a === userB && b === userA)
+  try {
+    // Track ordered pairs so reverse-direction avoids remain independent.
+    const lastRow = Math.max(avoidSheet.getLastRow(), 1);
+    const existingPairs = avoidSheet.getRange(1, 1, lastRow, 2).getValues()
+      .map(row => [String(row[0] ?? ""), String(row[1] ?? "")]);
+    const existingPairKeys = new Set(
+      existingPairs
+        .filter(([a, b]) => a && b)
+        .map(([a, b]) => JSON.stringify([a, b]))
     );
 
-    if (exists) {
-      log(`Pair skipped (already exists): ${userA} =/ ${userB}`);
-      skippedCount++;
-      continue;
-    }
+    let addedCount = 0;
+    let skippedCount = 0;
+    const newRows = [];
+    const firstUser = users[0];
 
-    // --- Prepare formulas for columns C and D ---
-    const newRowIndex = avoidSheet.getLastRow() + newRows.length + 1;
+    for (let i = 1; i < users.length; i++) {
+      const userA = firstUser.id.toString();
+      const userB = users[i].id.toString();
+      const pairKey = JSON.stringify([userA, userB]);
+
+      if (existingPairKeys.has(pairKey)) {
+        log(`Pair skipped (already exists in this direction): ${userA} =/ ${userB}`);
+        skippedCount++;
+        continue;
+      }
+
+      const newRowIndex = avoidSheet.getLastRow() + newRows.length + 1;
       const colCFormula = `=IF(A${newRowIndex}<>"", INDEX('Discord Member List'!B:B, MATCH(A${newRowIndex}, 'Discord Member List'!C:C, 0)), "")`;
       const colDFormula = `=IF(B${newRowIndex}<>"", INDEX('Discord Member List'!B:B, MATCH(B${newRowIndex}, 'Discord Member List'!C:C, 0)), "")`;
 
-    newRows.push([userA, userB, colCFormula, colDFormula]);
-    log(`Pair added: ${userA} =/ ${userB}`);
-    addedCount++;
+      newRows.push([userA, userB, colCFormula, colDFormula]);
+      existingPairKeys.add(pairKey);
+      log(`Pair added: ${userA} =/ ${userB}`);
+      addedCount++;
+    }
+
+    if (newRows.length > 0) {
+      avoidSheet.getRange(avoidSheet.getLastRow() + 1, 1, newRows.length, 4).setValues(newRows);
+    }
+
+    log(`Avoid Pairings update complete. Added: ${addedCount}, Skipped: ${skippedCount}`);
+
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      addedPairs: addedCount,
+      skippedPairs: skippedCount
+    })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
   }
-
-  if (newRows.length > 0) {
-    avoidSheet.getRange(avoidSheet.getLastRow() + 1, 1, newRows.length, 4).setValues(newRows);
-  }
-
-  log(`Avoid Pairings update complete. Added: ${addedCount}, Skipped: ${skippedCount}`);
-
-  return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    addedPairs: addedCount,
-    skippedPairs: skippedCount
-  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 function unavoidPairings(data) {
@@ -919,9 +934,9 @@ function unavoidPairings(data) {
   let skippedCount = 0;
   const rowsToDelete = [];
 
-  // --- Find matching pairs (both directions) ---
+  // Remove only the selected direction; the reverse entry represents a separate request.
   existingPairs.forEach(pair => {
-    if ((pair.a === userA && pair.b === userB) || (pair.a === userB && pair.b === userA)) {
+    if (pair.a === userA && pair.b === userB) {
       rowsToDelete.push(pair.rowNum);
     }
   });
@@ -932,11 +947,11 @@ function unavoidPairings(data) {
     rowsToDelete.forEach(rowNum => {
       avoidSheet.deleteRow(rowNum);
       removedCount++;
-      log(`Pair removed: ${userA} <-> ${userB} (Row ${rowNum})`);
+      log(`Pair removed: ${userA} =/ ${userB} (Row ${rowNum})`);
     });
   } else {
     skippedCount++;
-    log(`No matching pair found for: ${userA} <-> ${userB}`);
+    log(`No matching pair found for: ${userA} =/ ${userB}`);
   }
 
   log(`Unavoid Pairings complete. Removed: ${removedCount}, Skipped: ${skippedCount}`);

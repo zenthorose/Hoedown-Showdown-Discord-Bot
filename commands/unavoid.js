@@ -6,15 +6,15 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('unavoid')
-    .setDescription('Remove avoidance between two players.')
+    .setDescription('Remove the first player’s avoid of the second player.')
     .setDefaultMemberPermissions(0) // Requires Manage Messages
     .addUserOption(option =>
       option.setName('player1')
-        .setDescription('The person removing the avoid')
+        .setDescription('The person whose avoid request is being removed')
         .setRequired(true))
     .addUserOption(option =>
       option.setName('player2')
-        .setDescription('Who’s being unavoided')
+        .setDescription('The person they currently avoid')
         .setRequired(true)),
 
   async execute(interaction) {
