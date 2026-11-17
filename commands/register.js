@@ -5,7 +5,7 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('register')
-    .setDescription('Register yourself with region, gender, Steam ID, and stream link.')
+    .setDescription('Register yourself with region, Steam ID, stream link, and gender.')
     .addStringOption(option =>
       option.setName('region')
         .setDescription('Select your region')
@@ -16,18 +16,18 @@ module.exports = {
           { name: 'Both', value: 'Both' }
         ))
     .addStringOption(option =>
-      option.setName('gender')
-        .setDescription('Enter your gender (free text)')
-        .setRequired(true)
-        .setMaxLength(100))
-    .addStringOption(option =>
       option.setName('steamfriendcode')
         .setDescription('Enter your Steam Friend Code (numbers only)')
         .setRequired(true))
     .addStringOption(option =>
       option.setName('streamlink')
         .setDescription(`Enter the full link for your stream or N/A if this doesn't apply to you`)
-        .setRequired(true)),
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('gender')
+        .setDescription('Enter your gender (free text)')
+        .setRequired(true)
+        .setMaxLength(100)),
 
   async execute(interaction) {
     try {
