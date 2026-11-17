@@ -308,14 +308,25 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
                          .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Build member map (non-fillers)
+  // Build member map from Discord IDs/usernames to reaction-list names
   const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 6).getValues();
-  const memberMap = {};
+  const memberMap = new Map();
   discordData.forEach(row => {
-    const username = row[1]; // Username is now column B (index 1)
-    const region = row[3];
-    if (username) memberMap[username] = `${username} (${region})`;
+    const [nickname, username, discordId, region] = row;
+    const displayName = String(nickname || "").trim() || String(username || "").trim();
+    if (!displayName) return;
+
+    const fullName = `${displayName} (${region})`;
+    if (discordId) memberMap.set(`id:${String(discordId).trim()}`, fullName);
+    if (username) memberMap.set(`username:${String(username).trim()}`, fullName);
   });
+
+  function getPlayerFullName(player) {
+    const discordId = String(player?.id || "").trim();
+    const username = String(player?.username || "").trim();
+    return (discordId && memberMap.get(`id:${discordId}`)) ||
+      (username && memberMap.get(`username:${username}`));
+  }
 
   // --- Resolve remove target ---
   let removeFull;
@@ -331,7 +342,8 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
     }
     removeFull = `Filler #${num}`;
   } else {
-    if (!memberMap[removePlayer.username]) {
+    removeFull = getPlayerFullName(removePlayer);
+    if (!removeFull) {
       log(`Remove player not found: ${removePlayer.username}`);
       return ContentService.createTextOutput(JSON.stringify({
         success: false,
@@ -340,7 +352,6 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
         missing: { removeMissing: true, addMissing: false }
       })).setMimeType(ContentService.MimeType.JSON);
     }
-    removeFull = memberMap[removePlayer.username];
   }
 
   // --- Resolve add target ---
@@ -357,7 +368,8 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
     }
     addFull = `Filler #${num}`;
   } else {
-    if (!memberMap[addPlayer.username]) {
+    addFull = getPlayerFullName(addPlayer);
+    if (!addFull) {
       log(`Add player not found: ${addPlayer.username}`);
       return ContentService.createTextOutput(JSON.stringify({
         success: false,
@@ -366,7 +378,6 @@ function replacePlayers({ round, removePlayer, addPlayer }) {
         missing: { removeMissing: false, addMissing: true }
       })).setMimeType(ContentService.MimeType.JSON);
     }
-    addFull = memberMap[addPlayer.username];
   }
 
   log(`Resolved names: remove="${removeFull}", add="${addFull}"`);
@@ -475,14 +486,25 @@ function swapPlayers(data) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // --- Build member map for full names with regions ---
+  // --- Build member map from Discord IDs/usernames to reaction-list names ---
   const discordData = discordSheet.getRange(2, 1, discordSheet.getLastRow() - 1, 6).getValues();
-  const memberMap = {};
+  const memberMap = new Map();
   discordData.forEach(row => {
-    const username = row[1]; // Column B = Username
-    const region = row[3];   // Column D = Region (moved)
-    if (username) memberMap[username] = `${username} (${region})`;
+    const [nickname, username, discordId, region] = row;
+    const displayName = String(nickname || "").trim() || String(username || "").trim();
+    if (!displayName) return;
+
+    const fullName = `${displayName} (${region})`;
+    if (discordId) memberMap.set(`id:${String(discordId).trim()}`, fullName);
+    if (username) memberMap.set(`username:${String(username).trim()}`, fullName);
   });
+
+  function getPlayerFullName(player) {
+    const discordId = String(player?.id || "").trim();
+    const username = String(player?.username || "").trim();
+    return (discordId && memberMap.get(`id:${discordId}`)) ||
+      (username && memberMap.get(`username:${username}`));
+  }
 
   // --- Find round column ---
   const headers = reactedSheet.getRange(1, 1, 1, reactedSheet.getLastColumn()).getValues()[0];
@@ -507,8 +529,8 @@ function swapPlayers(data) {
   const results = [];
 
   swaps.forEach((swap, i) => {
-    const p1Full = memberMap[swap.player1?.username];
-    const p2Full = memberMap[swap.player2?.username];
+    const p1Full = getPlayerFullName(swap.player1);
+    const p2Full = getPlayerFullName(swap.player2);
     const pair = [swap.player1?.username, swap.player2?.username];
 
     if (!p1Full || !p2Full) {

@@ -1,5 +1,5 @@
 const DEBUG = true;
-const SCRIPT_VERSION = 554;
+const SCRIPT_VERSION = 555;
 
 function logDebug(message) {
   if (DEBUG) logToSheet(message);
