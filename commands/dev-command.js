@@ -1,11 +1,15 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const { ChannelType, PermissionsBitField } = require('discord.js');
+const { PermissionsBitField } = require('discord.js');
 const config = require('../config.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only: hide existing team voice channels from @everyone'),
+    .setDescription('Developer-only: remove a member’s reactions from all opt-in time slots.')
+    .addUserOption(option =>
+      option.setName('player')
+        .setDescription('The person to remove from all opt-in time slots')
+        .setRequired(true)),
 
   async execute(interaction) {
     try {
@@ -18,44 +22,104 @@ module.exports = {
       return interaction.editReply('❌ You do not have permission to use this command.');
     }
 
+    const guild = interaction.guild;
+    if (!guild) {
+      return interaction.editReply('❌ This command must be run in a server.');
+    }
+
+    const target = interaction.options.getUser('player', true);
+    if (!config.OptInChannelID) {
+      return interaction.editReply('❌ OptInChannelID is not configured.');
+    }
+
     try {
-      const guild = interaction.guild;
-      if (!guild) return interaction.editReply('❌ This command must be run in a server.');
+      const optInChannel = await interaction.client.channels.fetch(config.OptInChannelID);
+      if (!optInChannel || !optInChannel.isTextBased()) {
+        return interaction.editReply('❌ The configured Opt-In channel is unavailable or is not a text channel.');
+      }
+      if (optInChannel.guildId !== guild.id) {
+        return interaction.editReply('❌ The configured Opt-In channel is not in this server.');
+      }
 
       const me = guild.members.me;
-      if (!me || !me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-        return interaction.editReply('❌ Bot requires the Manage Channels permission to update channel permissions.');
+      const requiredPermissions = [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.ManageMessages
+      ];
+      const channelPermissions = me && optInChannel.permissionsFor(me);
+      if (!channelPermissions || !channelPermissions.has(requiredPermissions)) {
+        return interaction.editReply('❌ Bot needs View Channel, Read Message History, and Manage Messages in the Opt-In channel.');
       }
 
-      const teamChannels = guild.channels.cache.filter(channel =>
-        channel.type === ChannelType.GuildVoice && /^Team [A-Z]{1,3}$/.test(channel.name)
-      );
+      await interaction.editReply(`🔎 Scanning opt-in time slots for ${target.tag}…`);
 
-      if (teamChannels.size === 0) {
-        return interaction.editReply('❌ No existing team voice channels found with names like "Team A" through "Team ZZZ".');
+      const slotMessages = [];
+      let before;
+      while (true) {
+        const batch = await optInChannel.messages.fetch({
+          limit: 100,
+          ...(before ? { before } : {})
+        });
+        if (batch.size === 0) break;
+
+        for (const message of batch.values()) {
+          const isTimeSlot = message.author.id === interaction.client.user.id &&
+            message.embeds.some(embed => /^Round \d+!$/.test(embed.title || ''));
+          if (isTimeSlot) slotMessages.push(message);
+        }
+
+        const oldestMessage = batch.last();
+        if (!oldestMessage || oldestMessage.id === before || batch.size < 100) break;
+        before = oldestMessage.id;
       }
 
-      let updatedCount = 0;
+      let removedCount = 0;
       let failedCount = 0;
-      for (const channel of teamChannels.values()) {
-        try {
-          await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false });
-          updatedCount++;
-          console.log(`🔒 Set everyone deny ViewChannel on ${channel.name} (${channel.id})`);
-        } catch (permErr) {
-          failedCount++;
-          console.error(`❌ Failed to set ViewChannel deny on ${channel.name} (${channel.id}):`, permErr);
+
+      for (const message of slotMessages) {
+        for (const reaction of message.reactions.cache.values()) {
+          try {
+            let after;
+            let targetReacted = false;
+            while (true) {
+              const users = await reaction.users.fetch({
+                limit: 100,
+                ...(after ? { after } : {})
+              });
+              if (users.has(target.id)) {
+                targetReacted = true;
+                break;
+              }
+              if (users.size < 100) break;
+
+              const lastUser = users.last();
+              if (!lastUser || lastUser.id === after) break;
+              after = lastUser.id;
+            }
+
+            if (targetReacted) {
+              await reaction.users.remove(target.id);
+              removedCount++;
+            }
+          } catch (reactionError) {
+            failedCount++;
+            console.error(
+              `❌ Failed to remove ${target.id}'s reaction from message ${message.id}:`,
+              reactionError
+            );
+          }
         }
       }
 
-      const status = failedCount === 0 ? '✅' : updatedCount === 0 ? '❌' : '⚠️';
-      const reply = `${status} Set @everyone's View Channel permission to deny on ${updatedCount} of ${teamChannels.size} matching team voice channels.` +
-        (failedCount > 0 ? `\n${failedCount} channel(s) failed; see bot logs for details.` : '');
-      await interaction.editReply({ content: reply });
+      const status = failedCount === 0 ? '✅' : removedCount > 0 ? '⚠️' : '❌';
+      const result = `${status} Removed ${removedCount} reaction(s) for ${target.tag} across ${slotMessages.length} opt-in time-slot message(s).` +
+        (failedCount > 0 ? `\n${failedCount} reaction(s) could not be checked or removed; see bot logs for details.` : '');
+      await interaction.editReply(result);
 
     } catch (err) {
-      console.error('❌ Error updating team voice channel permissions:', err);
-      await interaction.editReply(`❌ Error: ${err.message}`);
+      console.error('❌ Error removing opt-in reactions:', err);
+      await interaction.editReply(`❌ Failed to remove reactions: ${err.message}`);
     }
   },
 };
