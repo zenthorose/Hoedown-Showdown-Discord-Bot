@@ -5,7 +5,7 @@ const config = require('../config.json');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('register')
-    .setDescription('Register yourself with region, Steam ID, and stream link.')
+    .setDescription('Register yourself with region, gender, Steam ID, and stream link.')
     .addStringOption(option =>
       option.setName('region')
         .setDescription('Select your region')
@@ -15,6 +15,11 @@ module.exports = {
           { name: 'West', value: 'West' },
           { name: 'Both', value: 'Both' }
         ))
+    .addStringOption(option =>
+      option.setName('gender')
+        .setDescription('Enter your gender (free text)')
+        .setRequired(true)
+        .setMaxLength(100))
     .addStringOption(option =>
       option.setName('steamfriendcode')
         .setDescription('Enter your Steam Friend Code (numbers only)')
@@ -32,6 +37,7 @@ module.exports = {
     }
 
     const region = interaction.options.getString('region');
+    const gender = interaction.options.getString('gender');
     const steamId = interaction.options.getString('steamfriendcode');
     const streamLink = interaction.options.getString('streamlink');
     const member = interaction.member;
@@ -90,7 +96,8 @@ module.exports = {
           member.user.id,        // Discord ID
           region,
           steamId,
-          streamLink
+          streamLink,
+          gender
         ]]
       };
 

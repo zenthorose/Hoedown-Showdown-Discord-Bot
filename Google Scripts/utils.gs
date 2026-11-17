@@ -697,7 +697,8 @@ function updatePlayerField(data) {
   const fieldMap = {
     region: 3,      // Column D
     steamid: 4,     // Column E
-    streamlink: 5   // Column F
+    streamlink: 5,  // Column F
+    gender: 6       // Column G
   };
 
   const colIndex = fieldMap[field.toLowerCase()];
@@ -732,7 +733,7 @@ function register(data) {
     const sheet = SpreadsheetApp.openById(getSpreadsheetId()).getSheetByName("Discord Member List");
 
     // Step 2: Set headers if missing
-    const headers = ["Nickname", "Username", "Discord ID", "Region", "Steam ID", "Stream Link"];
+    const headers = ["Nickname", "Username", "Discord ID", "Region", "Steam ID", "Stream Link", "Gender"];
     const headerRange = sheet.getRange(1, 1, 1, headers.length);
     const existingHeaders = headerRange.getValues()[0];
 
@@ -745,14 +746,15 @@ function register(data) {
     const registerData = data.registerData;
     for (let i = 0; i < registerData.length; i++) {
       const row = registerData[i];
-      if (!Array.isArray(row) || row.length !== headers.length) {
+      if (!Array.isArray(row) || row.length < headers.length - 1 || row.length > headers.length) {
         const actualColumns = Array.isArray(row) ? row.length : "non-array";
-        const msg = `Invalid registration row ${i + 1}: expected ${headers.length} columns, received ${actualColumns}.`;
+        const msg = `Invalid registration row ${i + 1}: expected ${headers.length - 1} or ${headers.length} columns, received ${actualColumns}.`;
         logErrorToSheet(`[${timestamp}] ❌ ${msg}`);
         return ContentService.createTextOutput(
           JSON.stringify({ success: false, message: msg })
         ).setMimeType(ContentService.MimeType.JSON);
       }
+      while (row.length < headers.length) row.push("");
     }
 
     const lastRow = sheet.getLastRow();
@@ -765,11 +767,12 @@ function register(data) {
       const existingIndex = existingData.findIndex(existingRow => existingRow[2] === discordId);
 
       if (existingIndex !== -1) {
-        // Preserve existing D-F (Region, Steam ID, Stream Link) when absent in incoming data
+        // Preserve existing profile fields when absent in incoming data
         const existingRow = existingData[existingIndex] || [];
         row[3] = (row[3] !== undefined && String(row[3]).trim() !== "") ? row[3] : (existingRow[3] || "Both");
         row[4] = (row[4] !== undefined && String(row[4]).trim() !== "") ? row[4] : (existingRow[4] || "");
         row[5] = (row[5] !== undefined && String(row[5]).trim() !== "") ? row[5] : (existingRow[5] || "");
+        row[6] = (row[6] !== undefined && String(row[6]).trim() !== "") ? row[6] : (existingRow[6] || "");
 
         // Update existing entry
         sheet.getRange(existingIndex + 2, 1, 1, row.length).setValues([row]);

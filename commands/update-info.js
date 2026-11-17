@@ -7,6 +7,19 @@ module.exports = {
     .setName('update-info')
     .setDescription('Update one piece of your registration info.')
 
+    // --- GENDER SUBCOMMAND ---
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('gender')
+        .setDescription('Update your gender')
+        .addStringOption(option =>
+          option.setName('gender')
+            .setDescription('Enter your gender (free text)')
+            .setRequired(true)
+            .setMaxLength(100)
+        )
+    )
+
     // --- REGION SUBCOMMAND ---
     .addSubcommand(subcommand =>
       subcommand
@@ -94,6 +107,11 @@ module.exports = {
     } catch {}
 
     let infoType, newValue;
+
+    if (subcommand === 'gender') {
+      infoType = 'gender';
+      newValue = interaction.options.getString('gender');
+    }
 
     if (subcommand === 'region') {
       infoType = 'region';

@@ -38,11 +38,11 @@ module.exports = {
       },
       {
         q: 'How do I register?',
-        a: 'Use /register and provide your region, Steam ID, and stream link.'
+        a: 'Use /register and provide your region, gender, Steam ID, and stream link.'
       },
       {
         q: 'How do I update my info?',
-        a: 'Use /update-info to change any information you’ve previously submitted.'
+        a: 'Use /update-info to change any information you’ve previously submitted, including `/update-info gender`.'
       },
       {
         q: 'How do I check my submitted info?',
