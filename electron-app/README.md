@@ -1,0 +1,70 @@
+# Hoedown Showdown Desktop App
+
+This folder contains the new Electron app foundation. It is intentionally separate from the existing Discord bot: the bot files, dependencies, and deployment are not changed.
+
+## Components
+
+- `desktop/`: Electron client. It talks to the authentication API over HTTPS and stores only an encrypted session token locally.
+- `account-manager/`: separate Electron admin application. Its Render admin API key and optional R2 publishing credentials are encrypted with Electron `safeStorage`.
+- `auth-service/`: Node.js API intended for a Render Web Service, with MongoDB as its database.
+
+The client currently provides sign-in, required first-time password changes, session checks, and sign-out. Bot functionality is deliberately not included yet.
+
+## Render authentication service
+
+Create a Render Web Service from this repository and set its **Root Directory** to `electron-app/auth-service`.
+
+- Build command: `npm ci`
+- Start command: `npm start`
+- Required environment variables: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_API_KEY`
+- Optional update variables: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, `R2_READ_SECRET_ACCESS_KEY`, `APP_UPDATE_CHANNEL`
+
+Generate separate random secrets for `JWT_SECRET` and `ADMIN_API_KEY`; keep both in Render's environment settings, not in source control or the Electron client. The service uses Render HTTPS. Create initial users through the account manager; there is no public registration endpoint.
+
+To enable app updates, set `APP_UPDATE_CHANNEL` to `beta` or `stable` on the corresponding Render service. Configure `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and a bucket-scoped **read-only** R2 token there. The admin manager uses a separate bucket-scoped **read/write** token only to publish installers. Keep the two tokens separate.
+
+Install dependencies and run the service tests from `auth-service/`:
+
+```powershell
+npm ci
+npm test
+```
+
+## Desktop app
+
+From `electron-app/`, install dependencies and run the client:
+
+```powershell
+npm ci
+npm start
+```
+
+Set `desktop/auth-config.json`'s `apiBaseUrl` to the Render HTTPS service URL before distributing a build. The account manager's release builder writes its saved Render URL and selected channel into this file. Local HTTP is allowed only for unpackaged development on `localhost` or `127.0.0.1`.
+
+Run the combined tests with `npm test` from this folder after installing the authentication-service dependencies.
+
+## Account manager and releases
+
+Install dependencies and open the separate account manager:
+
+```powershell
+npm --prefix account-manager ci
+npm run account-manager
+```
+
+Save the Render service URL and `ADMIN_API_KEY` from Render's environment settings. The manager can create accounts with one-time temporary passwords, enable/disable accounts, revoke sessions, reset passwords, inspect device activity, and search/export the admin audit log.
+
+The **Releases** panel builds the desktop app's portable executable and installer, builds the account manager, fetches the latest beta/stable versions from R2, suggests version increments, and publishes the app installer to private Cloudflare R2 storage after confirmation. Select the local source checkout, then choose the beta or stable channel. Building writes the saved Render URL and selected update channel into the desktop's packaged auth config. The R2 write token is used only by the local account manager process and should be restricted to the update bucket. Render needs a separate read-only R2 token to serve signed downloads. Configure the relevant R2 and update-channel values in Render; never put them in the desktop app.
+
+For a one-click Windows build of all three artifacts, run `build-all.bat`. App builds stop if a deployed Render HTTPS URL is not configured. Builds and publishing are intentionally manual actions; nothing deploys or cuts users over automatically.
+
+## Account and session rules
+
+- Accounts are admin-provisioned; there is no self-registration.
+- New and reset accounts must change their temporary password before using the app.
+- A user has one active session. A new login, password reset, disable, or revoke operation invalidates prior sessions.
+- The service records device identifiers, device name/platform, observed IP, and sign-in/launch activity. Device history stays until removed from MongoDB.
+- Admin actions are logged under the shared `admin` actor; audit events expire after 90 days.
+- The account manager is a trusted admin tool and must not be distributed to regular users.
+
+Review and configure the service before inviting users. This is a new foundation, not a migration of existing Discord bot accounts or data.

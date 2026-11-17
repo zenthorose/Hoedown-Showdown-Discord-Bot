@@ -1,0 +1,39 @@
+{
+  "name": "hoedown-showdown-account-manager",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "build:win": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^45.3.4",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.zenthorose.hoedownshowdown.accountmanager",
+    "productName": "Hoedown Showdown Account Manager",
+    "directories": {
+      "output": "../dist/account-manager"
+    },
+    "files": [
+      "index.html",
+      "main.cjs",
+      "preload.cjs",
+      "renderer.js",
+      "styles.css",
+      "release-manager.cjs",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    }
+  }
+}

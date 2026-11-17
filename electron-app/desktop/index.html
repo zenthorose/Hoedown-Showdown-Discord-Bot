@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hoedown Showdown</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <p class="eyebrow">HOEDOWN SHOWDOWN</p>
+        <h1>Welcome</h1>
+      </header>
+      <section id="connection" class="notice" role="status" hidden></section>
+      <form id="login-form">
+        <label>Username<input id="username" name="username" autocomplete="username" maxlength="64" required></label>
+        <label>Password<input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <form id="password-form" hidden>
+        <p id="password-copy">Choose a new password to continue.</p>
+        <label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+        <label>Confirm password<input id="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+        <button type="submit">Change password</button>
+      </form>
+      <section id="signed-in" hidden>
+        <p>Signed in as <strong id="account-name"></strong></p>
+        <p class="muted">The app foundation is ready. Product features will be added separately.</p>
+        <button id="open-password-form" class="secondary" type="button">Change password</button>
+        <form id="self-password-form" hidden>
+          <label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label>
+          <label>New password<input id="self-new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+          <label>Confirm new password<input id="self-confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+          <button type="submit">Update password</button>
+        </form>
+        <button id="sign-out" class="secondary" type="button">Sign out</button>
+      </section>
+      <section id="update-box" class="notice" hidden>
+        <span id="update-message"></span>
+        <button id="install-update" type="button" hidden>Install and restart</button>
+      </section>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <footer>Internet connection required</footer>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

@@ -1,0 +1,48 @@
+{
+  "name": "hoedown-showdown-desktop",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "npm --prefix auth-service test && npm --prefix account-manager test",
+    "build:win": "node scripts/validate-build-config.cjs && electron-builder --win nsis",
+    "build:portable": "node scripts/validate-build-config.cjs && electron-builder --win portable",
+    "account-manager": "npm --prefix account-manager start"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "electron": "^45.3.4",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.zenthorose.hoedownshowdown",
+    "productName": "Hoedown Showdown",
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json",
+      "!desktop/test/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

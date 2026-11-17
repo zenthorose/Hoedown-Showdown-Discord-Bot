@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hoedown Showdown Account Manager</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">HOEDOWN SHOWDOWN</p>
+        <h1>Account Manager</h1>
+      </div>
+      <nav>
+        <button class="tab active" data-tab="accounts">Accounts</button>
+        <button class="tab" data-tab="releases">Releases</button>
+      </nav>
+    </header>
+    <main>
+      <section class="card">
+        <h2>Render connection</h2>
+        <form id="settings-form" class="settings-grid">
+          <label>Service HTTPS URL<input id="service-url" type="url" placeholder="https://your-service.onrender.com" required></label>
+          <label>Admin API key<input id="admin-key" type="password" placeholder="Leave blank to keep saved key" autocomplete="new-password"></label>
+          <div class="actions">
+            <button type="submit">Save connection</button>
+            <button id="test-connection" class="secondary" type="button">Test saved connection</button>
+          </div>
+        </form>
+        <p id="connection-status" class="status" role="status"></p>
+      </section>
+
+      <section id="accounts" class="tab-page">
+        <div class="columns">
+          <section class="card">
+            <h2>Create account</h2>
+            <form id="create-form" class="inline-form">
+              <label>Username<input id="new-username" maxlength="64" required></label>
+              <button type="submit">Create account</button>
+            </form>
+            <div id="temporary-password" class="secret-box" hidden>
+              <strong>Temporary password — share securely</strong>
+              <code id="temporary-password-value"></code>
+              <button id="copy-password" type="button" class="secondary">Copy password</button>
+            </div>
+          </section>
+          <section class="card">
+            <h2>Admin activity</h2>
+            <form id="audit-form" class="inline-form">
+              <label>Search username or action<input id="audit-search" maxlength="64"></label>
+              <label>From<input id="audit-from" type="date"></label>
+              <label>To<input id="audit-to" type="date"></label>
+              <button type="submit">Search</button>
+              <button id="export-audit" class="secondary" type="button">Export CSV</button>
+            </form>
+            <div class="table-wrap">
+              <table><thead><tr><th>Time</th><th>Action</th><th>Username</th><th>Actor</th></tr></thead><tbody id="audit-rows"></tbody></table>
+            </div>
+            <p id="audit-truncated" class="muted"></p>
+          </section>
+        </div>
+        <section class="card">
+          <div class="section-heading">
+            <h2>Accounts</h2>
+            <button id="refresh-users" class="secondary" type="button">Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table><thead><tr><th>Username</th><th>Status</th><th>Created</th><th>Last sign-in</th><th>Version</th><th>Actions</th></tr></thead><tbody id="account-rows"></tbody></table>
+          </div>
+          <p id="account-status" class="status" role="status"></p>
+        </section>
+        <section id="devices-card" class="card" hidden>
+          <div class="section-heading"><h2 id="devices-title">Devices</h2><button id="close-devices" class="secondary" type="button">Close</button></div>
+          <div class="table-wrap">
+            <table><thead><tr><th>Device</th><th>Platform</th><th>Last seen</th><th>IP address</th><th>Activity</th></tr></thead><tbody id="device-rows"></tbody></table>
+          </div>
+        </section>
+      </section>
+
+      <section id="releases" class="tab-page" hidden>
+        <section class="card">
+          <h2>Local source checkout</h2>
+          <div class="actions">
+            <button id="choose-source" class="secondary" type="button">Choose app source folder</button>
+            <span id="source-directory" class="muted"></span>
+          </div>
+        </section>
+        <section class="card">
+          <h2>Release channel and versions</h2>
+          <div class="release-grid">
+            <label>Channel<select id="release-channel"><option value="beta">Beta</option><option value="stable">Stable</option></select></label>
+            <label>Desktop app version<input id="desktop-version"></label>
+            <label>Account manager version<input id="manager-version"></label>
+            <label class="check"><input id="update-desktop" type="checkbox" checked> Update desktop version</label>
+            <label class="check"><input id="update-manager" type="checkbox" checked> Update account manager version</label>
+          </div>
+          <div class="actions">
+            <button id="suggest-versions" class="secondary" type="button">Suggest next versions</button>
+            <button id="fetch-versions" class="secondary" type="button">Fetch latest published versions</button>
+            <button id="save-versions" type="button">Save selected versions</button>
+            <button id="apply-channel" class="secondary" type="button">Apply channel to app</button>
+          </div>
+          <p id="release-status" class="status" role="status"></p>
+        </section>
+        <section class="card">
+          <h2>Private update storage (Cloudflare R2)</h2>
+          <p class="muted">The write key stays encrypted on this admin computer. Render should use a separate read-only key.</p>
+          <form id="r2-form" class="release-grid">
+            <label>Account ID<input id="r2-account" maxlength="32"></label>
+            <label>Bucket name<input id="r2-bucket"></label>
+            <label>Write access key ID<input id="r2-access-key" type="password" placeholder="Leave blank to keep saved key"></label>
+            <label>Write secret access key<input id="r2-secret-key" type="password" placeholder="Leave blank to keep saved key"></label>
+            <button type="submit">Save R2 settings</button>
+          </form>
+        </section>
+        <section class="card">
+          <h2>Build and publish</h2>
+          <p class="muted">Builds run on this Windows computer. Publishing is a separate action and requires confirmation.</p>
+          <div class="actions wrap">
+            <button data-task="desktop-portable">Build desktop portable EXE</button>
+            <button data-task="desktop-installer">Build desktop installer</button>
+            <button data-task="account-manager" class="secondary">Build account manager</button>
+            <button data-task="publish" class="danger">Publish desktop update</button>
+          </div>
+          <pre id="build-output" aria-live="polite"></pre>
+        </section>
+      </section>
+      <p id="global-status" class="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

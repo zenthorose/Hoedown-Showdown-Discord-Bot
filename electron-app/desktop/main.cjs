@@ -1,0 +1,365 @@
+const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
+const { NsisUpdater } = require('electron-updater');
+
+let mainWindow;
+let sessionToken = null;
+let username = '';
+let authConfig = {};
+let deviceInfo;
+let statusTimer;
+let updateProvider;
+let updateDownloaded = false;
+
+function serviceUrl() {
+  if (typeof authConfig.apiBaseUrl !== 'string' || !authConfig.apiBaseUrl.trim()) {
+    throw new Error('The sign-in service URL is not configured in desktop/auth-config.json.');
+  }
+  let url;
+  try {
+    url = new URL(authConfig.apiBaseUrl);
+  } catch {
+    throw new Error('The sign-in service URL is invalid.');
+  }
+  const local = !app.isPackaged && ['localhost', '127.0.0.1'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) {
+    throw new Error('The sign-in service must use HTTPS.');
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error('The sign-in service URL must not include credentials or query parameters.');
+  }
+  return url.origin;
+}
+
+function tokenFile() {
+  return path.join(app.getPath('userData'), 'session.json');
+}
+
+async function loadDeviceInfo() {
+  const file = path.join(app.getPath('userData'), 'device.json');
+  try {
+    const saved = JSON.parse(await fs.readFile(file, 'utf8'));
+    if (typeof saved.deviceId === 'string') {
+      return { deviceId: saved.deviceId, launchId: crypto.randomUUID() };
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
+  const value = { deviceId: crypto.randomUUID(), launchId: crypto.randomUUID() };
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify({ deviceId: value.deviceId }), 'utf8');
+  return value;
+}
+
+async function saveToken(token) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure session storage is unavailable on this computer.');
+  }
+  const encryptedToken = safeStorage.encryptString(token).toString('base64');
+  await fs.mkdir(path.dirname(tokenFile()), { recursive: true });
+  await fs.writeFile(tokenFile(), JSON.stringify({ encryptedToken }), 'utf8');
+}
+
+async function clearToken() {
+  try {
+    await fs.unlink(tokenFile());
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  sessionToken = null;
+  username = '';
+}
+
+async function readToken() {
+  let saved;
+  try {
+    saved = JSON.parse(await fs.readFile(tokenFile(), 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw new Error(`Could not read the saved sign-in session: ${error.message}`);
+  }
+  if (!safeStorage.isEncryptionAvailable() || typeof saved.encryptedToken !== 'string') {
+    throw new Error('Secure session storage is unavailable or the saved session is invalid.');
+  }
+  try {
+    return safeStorage.decryptString(Buffer.from(saved.encryptedToken, 'base64'));
+  } catch (error) {
+    await clearToken();
+    throw new Error(`Could not decrypt the saved sign-in session: ${error.message}`);
+  }
+}
+
+async function requestApi(route, { method = 'GET', token, body, headers = {} } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const requestHeaders = { Accept: 'application/json', ...headers };
+    if (token) requestHeaders.Authorization = `Bearer ${token}`;
+    if (body !== undefined) requestHeaders['Content-Type'] = 'application/json';
+    const response = await fetch(new URL(route, `${serviceUrl()}/`), {
+      method,
+      headers: requestHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal
+    });
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error('The sign-in service returned an invalid response.');
+    }
+    return { response, data };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function sendStatus(state) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('auth:status', state);
+}
+
+function sendUpdateStatus(message, ready = false) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:update-status', { message, ready });
+  }
+}
+
+function configureUpdater() {
+  if (!app.isPackaged) return;
+  if (!['beta', 'stable'].includes(authConfig.updateChannel)) {
+    throw new Error('Set updateChannel to beta or stable in desktop/auth-config.json.');
+  }
+  const feedUrl = new URL(`/api/app-updates/${authConfig.updateChannel}/`, `${serviceUrl()}/`).href;
+  updateProvider = new NsisUpdater({ provider: 'generic', url: feedUrl });
+  updateProvider.autoDownload = false;
+  updateProvider.autoInstallOnAppQuit = false;
+  updateProvider.on('download-progress', (progress) => {
+    sendUpdateStatus(`Downloading update: ${Math.round(progress.percent)}%`);
+  });
+  updateProvider.on('update-downloaded', () => {
+    updateDownloaded = true;
+    sendUpdateStatus('Update downloaded and ready to install.', true);
+  });
+  updateProvider.on('error', (error) => {
+    console.error('Desktop update error:', error);
+    sendUpdateStatus('Could not complete the update check or download.');
+  });
+}
+
+async function checkForUpdate() {
+  if (!updateProvider || !sessionToken) return;
+  try {
+    updateProvider.requestHeaders = { Authorization: `Bearer ${sessionToken}` };
+    const result = await updateProvider.checkForUpdates();
+    updateProvider.requestHeaders = null;
+    if (result && result.isUpdateAvailable) {
+      sendUpdateStatus('A new version is available. Downloading…');
+      await updateProvider.downloadUpdate();
+    } else {
+      sendUpdateStatus('You are using the latest version.');
+    }
+  } catch (error) {
+    if (updateProvider) updateProvider.requestHeaders = null;
+    console.error('Desktop update check failed:', error);
+    sendUpdateStatus('Could not check for updates. Try again later.');
+  }
+}
+
+async function checkSession() {
+  if (!sessionToken) return { signedIn: false };
+  const { response, data } = await requestApi('/api/auth/session', {
+    token: sessionToken,
+    headers: {
+      'X-App-Device-Id': deviceInfo.deviceId,
+      'X-App-Launch-Id': deviceInfo.launchId,
+      'X-App-Device-Name': os.hostname(),
+      'X-App-Platform': process.platform,
+      'X-App-Version': app.getVersion()
+    }
+  });
+  if (!response.ok) {
+    if (response.status === 401) {
+      await clearToken();
+      return { signedIn: false, error: data.error || 'Your session expired. Sign in again.' };
+    }
+    throw new Error(data.error || `The sign-in service returned HTTP ${response.status}.`);
+  }
+  username = data.username;
+  return { signedIn: true, username };
+}
+
+app.whenReady().then(async () => {
+  authConfig = JSON.parse(await fs.readFile(path.join(__dirname, 'auth-config.json'), 'utf8'));
+  deviceInfo = await loadDeviceInfo();
+  configureUpdater();
+
+  ipcMain.handle('auth:get-status', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted status request.');
+    if (!sessionToken) sessionToken = await readToken();
+    try {
+      const state = await checkSession();
+      if (state.signedIn) {
+        const { response, data } = await requestApi('/api/auth/session', {
+          token: sessionToken,
+          headers: {
+            'X-App-Device-Id': deviceInfo.deviceId,
+            'X-App-Launch-Id': deviceInfo.launchId,
+            'X-App-Device-Name': os.hostname(),
+            'X-App-Platform': process.platform,
+            'X-App-Version': app.getVersion(),
+            'X-App-Launch': 'true'
+          }
+        });
+        if (!response.ok) throw new Error(data.error || 'Session check failed.');
+        void checkForUpdate();
+        return { signedIn: true, username: data.username };
+      }
+      return state;
+    } catch (error) {
+      return { signedIn: false, error: error.message || 'Could not reach the sign-in service.' };
+    }
+  });
+
+  ipcMain.handle('auth:login', async (event, credentials) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted sign-in request.');
+    if (!credentials || typeof credentials.username !== 'string' ||
+        typeof credentials.password !== 'string' || credentials.username.length > 64 ||
+        credentials.password.length > 128) {
+      return { ok: false, error: 'Enter a valid username and password.' };
+    }
+    try {
+      const { response, data } = await requestApi('/api/auth/login', {
+        method: 'POST',
+        body: {
+          username: credentials.username,
+          password: credentials.password,
+          appVersion: app.getVersion(),
+          deviceId: deviceInfo.deviceId,
+          launchId: deviceInfo.launchId,
+          deviceName: os.hostname(),
+          platform: process.platform
+        }
+      });
+      if (!response.ok) return { ok: false, error: data.error || 'Sign-in failed. Try again.' };
+      if (data.passwordChangeRequired === true) {
+        if (typeof data.resetToken !== 'string') throw new Error('The service returned an invalid password-change request.');
+        return { ok: true, passwordChangeRequired: true, resetToken: data.resetToken };
+      }
+      if (typeof data.token !== 'string' || typeof data.username !== 'string') {
+        throw new Error('The service returned an invalid session.');
+      }
+      await saveToken(data.token);
+      sessionToken = data.token;
+      username = data.username;
+      void checkForUpdate();
+      return { ok: true, signedIn: true, username };
+    } catch (error) {
+      return { ok: false, error: error.name === 'AbortError'
+        ? 'Sign-in timed out. Check your connection and retry.'
+        : error.message || 'Could not reach the sign-in service.' };
+    }
+  });
+
+  ipcMain.handle('auth:change-password', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted password-change request.');
+    if (!input || typeof input.token !== 'string' || typeof input.password !== 'string') {
+      return { ok: false, error: 'Enter a valid new password.' };
+    }
+    try {
+      const { response, data } = await requestApi('/api/auth/change-password', {
+        method: 'POST',
+        token: input.token,
+        body: { password: input.password }
+      });
+      return response.ok && data.passwordChanged === true
+        ? { ok: true }
+        : { ok: false, error: data.error || 'Could not change the password.' };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the sign-in service.' };
+    }
+  });
+
+  ipcMain.handle('auth:update-password', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted password update request.');
+    if (!input || typeof input.currentPassword !== 'string' || typeof input.password !== 'string') {
+      return { ok: false, error: 'Enter your current password and a valid new password.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi('/api/auth/change-password', {
+        method: 'POST',
+        token: sessionToken,
+        body: { currentPassword: input.currentPassword, password: input.password }
+      });
+      if (!response.ok) return { ok: false, error: data.error || 'Could not update password.' };
+      if (data.passwordChanged !== true || data.sessionsRevoked !== true || typeof data.token !== 'string') {
+        throw new Error('The service did not return a valid updated session.');
+      }
+      await saveToken(data.token);
+      sessionToken = data.token;
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not update password.' };
+    }
+  });
+
+  ipcMain.handle('auth:logout', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted sign-out request.');
+    let warning = '';
+    try {
+      if (sessionToken) {
+        const { response, data } = await requestApi('/api/auth/logout', { method: 'POST', token: sessionToken });
+        if (!response.ok && response.status !== 401) throw new Error(data.error || 'Server sign-out failed.');
+      }
+    } catch {
+      warning = 'Signed out on this computer, but the service could not confirm session revocation.';
+    }
+    await clearToken();
+    return { warning };
+  });
+
+  ipcMain.handle('app:install-update', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted update install request.');
+    if (!updateProvider || !updateDownloaded) throw new Error('There is no downloaded update ready to install.');
+    updateProvider.quitAndInstall(false, true);
+    return { ok: true };
+  });
+
+  mainWindow = new BrowserWindow({
+    width: 560,
+    height: 680,
+    minWidth: 460,
+    minHeight: 580,
+    autoHideMenuBar: true,
+    backgroundColor: '#101413',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  const indexUrl = require('node:url').pathToFileURL(path.join(__dirname, 'index.html')).href;
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, target) => {
+    if (target !== indexUrl) event.preventDefault();
+  });
+  await mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  statusTimer = setInterval(async () => {
+    try {
+      const state = await checkSession();
+      sendStatus(state);
+    } catch (error) {
+      sendStatus({ signedIn: false, error: error.message });
+    }
+  }, 5 * 60 * 1000);
+}).catch((error) => {
+  console.error('Desktop app startup failed:', error);
+  app.quit();
+});
+
+app.on('before-quit', () => clearInterval(statusTimer));
