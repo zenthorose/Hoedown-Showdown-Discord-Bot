@@ -18,7 +18,7 @@ The desktop app and Discord bot use the same Render Web Service and base URL. Th
 - Build command: `npm run render:build`
 - Start command: `npm start`
 - Keep the existing bot environment variables, including `BOT_TOKEN` and `CLIENT_ID`.
-- Add required authentication variables: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_API_KEY`.
+- Add required authentication variables: `MONGO_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_API_KEY`.
 - Optional update variables: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, `R2_READ_SECRET_ACCESS_KEY`, `APP_UPDATE_CHANNEL`
 
 Generate separate random secrets for `JWT_SECRET` and `ADMIN_API_KEY`; keep both in Render's environment settings, not in source control or the Electron client. The service uses Render HTTPS. Create initial users through the account manager; there is no public registration endpoint.

@@ -5,9 +5,9 @@ const bcrypt = require('bcryptjs');
 const { generatePassword } = require('./password.cjs');
 
 async function main() {
-  const { MONGODB_URI, MONGODB_DB } = process.env;
-  if (!MONGODB_URI || !MONGODB_DB) throw new Error('Set MONGODB_URI and MONGODB_DB.');
-  const client = new MongoClient(MONGODB_URI);
+  const { MONGO_URI, MONGODB_DB } = process.env;
+  if (!MONGO_URI || !MONGODB_DB) throw new Error('Set MONGO_URI and MONGODB_DB.');
+  const client = new MongoClient(MONGO_URI);
   const rl = readline.createInterface({ input: stdin, output: stdout });
   try {
     const username = (process.argv[2] || await rl.question('Username: ')).trim().toLowerCase();

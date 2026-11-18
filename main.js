@@ -341,7 +341,7 @@ app.post('/sendmessage', async (req, res) => {
 });
 
 async function startWebService() {
-  const authEnvironment = ['MONGODB_URI', 'MONGODB_DB', 'JWT_SECRET', 'ADMIN_API_KEY'];
+  const authEnvironment = ['MONGO_URI', 'MONGODB_DB', 'JWT_SECRET', 'ADMIN_API_KEY'];
   const authConfigured = authEnvironment.some((name) => Boolean(process.env[name]));
   if (authConfigured) {
     const { createRuntime } = require('./electron-app/auth-service/server.cjs');
@@ -349,7 +349,7 @@ async function startWebService() {
     app.use(authRuntime.app);
     console.log('🔐 Authentication API mounted on the bot service.');
   } else {
-    console.warn('⚠️ Authentication API is disabled. Configure MONGODB_URI, MONGODB_DB, JWT_SECRET, and ADMIN_API_KEY to enable it.');
+    console.warn('⚠️ Authentication API is disabled. Configure MONGO_URI, MONGODB_DB, JWT_SECRET, and ADMIN_API_KEY to enable it.');
   }
 
   app.listen(port, async () => {
