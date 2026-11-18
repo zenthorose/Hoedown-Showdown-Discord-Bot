@@ -3,9 +3,14 @@ const moment = require('moment-timezone');
 require('dotenv').config();
 
 const uri = process.env.MONGO_URI;
+const ticketsDatabase = process.env.MONGODB_TICKETS;
 
 // --- Connect once when the bot starts ---
-mongoose.connect(uri).then(() => console.log('✅ MongoDB connected (TicketManager)'))
+if (!uri || !ticketsDatabase) {
+  throw new Error('Set MONGO_URI and MONGODB_TICKETS before starting the ticket manager.');
+}
+
+mongoose.connect(uri, { dbName: ticketsDatabase }).then(() => console.log(`✅ MongoDB connected (TicketManager: ${ticketsDatabase})`))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // --- Helper Functions ---

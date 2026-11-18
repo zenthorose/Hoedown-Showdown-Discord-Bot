@@ -5,7 +5,7 @@ For production, deploy this API as part of the existing Discord bot Render Web S
 Required Render environment variables:
 
 - `MONGO_URI`: private MongoDB connection string (same variable used by the existing bot scripts).
-- `MONGODB_DB`: database name.
+- `MONGODB_ADMIN`: database name for app accounts, devices, and audit records.
 - `JWT_SECRET`: unique random secret, at least 32 characters.
 - `ADMIN_API_KEY`: separate unique random secret, at least 32 characters.
 - `PORT`: supplied by Render.
@@ -18,7 +18,7 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 
 Never commit or distribute these secrets. Restrict MongoDB network access to the Render service where possible. Render provides HTTPS for the service URL.
 
-The API has no public registration. Create users through the separate account manager or, for initial recovery, run `npm run create-user -- some.username` after setting `MONGO_URI` and `MONGODB_DB` locally. The command displays a random temporary password once; the user must change it at first sign-in.
+The API has no public registration. Create users through the separate account manager or, for initial recovery, run `npm run create-user -- some.username` after setting `MONGO_URI` and `MONGODB_ADMIN` locally. The command displays a random temporary password once; the user must change it at first sign-in.
 
 Run `npm ci` and `npm test` here. Admin and login endpoints are rate-limited; audit records expire after 90 days. The admin key is shared, so records identify the actor as `admin`. A single active session per user is enforced through a versioned signed token.
 

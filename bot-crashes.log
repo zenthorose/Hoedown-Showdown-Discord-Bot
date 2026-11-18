@@ -1,0 +1,11 @@
+[2026-11-18T21:44:11.260Z] uncaughtException: Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1912:16)
+    at listenInCluster (node:net:1969:12)
+    at Server.listen (node:net:2074:7)
+    at Function.listen (C:\Users\Owner\Desktop\Streaming\GitHub\Hoedown-Showdown-Discord-Bot\node_modules\express\lib\application.js:635:24)
+    at startWebService (C:\Users\Owner\Desktop\Streaming\GitHub\Hoedown-Showdown-Discord-Bot\main.js:355:7)
+    at Object.<anonymous> (C:\Users\Owner\Desktop\Streaming\GitHub\Hoedown-Showdown-Discord-Bot\main.js:372:1)
+    at Module._compile (node:internal/modules/cjs/loader:1546:14)
+    at Object..js (node:internal/modules/cjs/loader:1698:10)
+    at Module.load (node:internal/modules/cjs/loader:1303:32)
+    at Function._load (node:internal/modules/cjs/loader:1117:12)

@@ -5,15 +5,15 @@ const bcrypt = require('bcryptjs');
 const { generatePassword } = require('./password.cjs');
 
 async function main() {
-  const { MONGO_URI, MONGODB_DB } = process.env;
-  if (!MONGO_URI || !MONGODB_DB) throw new Error('Set MONGO_URI and MONGODB_DB.');
+  const { MONGO_URI, MONGODB_ADMIN } = process.env;
+  if (!MONGO_URI || !MONGODB_ADMIN) throw new Error('Set MONGO_URI and MONGODB_ADMIN.');
   const client = new MongoClient(MONGO_URI);
   const rl = readline.createInterface({ input: stdin, output: stdout });
   try {
     const username = (process.argv[2] || await rl.question('Username: ')).trim().toLowerCase();
     if (!/^[a-zA-Z0-9._-]{1,64}$/.test(username)) throw new Error('Username is invalid.');
     await client.connect();
-    const users = client.db(MONGODB_DB).collection('users');
+    const users = client.db(MONGODB_ADMIN).collection('users');
     const password = generatePassword();
     await users.insertOne({
       username,

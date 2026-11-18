@@ -2,13 +2,16 @@
 const mongoose = require('mongoose');
 require('dotenv').config();
 const uri = process.env.MONGO_URI;
+const ticketsDatabase = process.env.MONGODB_TICKETS;
 
 // Connect only once globally
 let isConnected = false;
 
 async function connectDB() {
   if (isConnected) return;
-  await mongoose.connect(uri);
+  if (!uri) throw new Error('Set MONGO_URI before connecting to MongoDB.');
+  if (!ticketsDatabase) throw new Error('Set MONGODB_TICKETS to the ticket database name.');
+  await mongoose.connect(uri, { dbName: ticketsDatabase });
   isConnected = true;
   console.log("✅ MongoDB connected (db.js)");
 }

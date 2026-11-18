@@ -18,12 +18,14 @@ The desktop app and Discord bot use the same Render Web Service and base URL. Th
 - Build command: `npm run render:build`
 - Start command: `npm start`
 - Keep the existing bot environment variables, including `BOT_TOKEN` and `CLIENT_ID`.
-- Add required authentication variables: `MONGO_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_API_KEY`.
+- Add these database/authentication variables: `MONGO_URI`, `MONGODB_TICKETS`, `MONGODB_ADMIN`, `MONGODB_HOEDOWNINFO`, `JWT_SECRET`, `ADMIN_API_KEY`.
 - Optional update variables: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, `R2_READ_SECRET_ACCESS_KEY`, `APP_UPDATE_CHANNEL`
 
 Generate separate random secrets for `JWT_SECRET` and `ADMIN_API_KEY`; keep both in Render's environment settings, not in source control or the Electron client. The service uses Render HTTPS. Create initial users through the account manager; there is no public registration endpoint.
 
 When all authentication variables are configured, the bot service mounts the auth routes and serves `/healthz`, `/api/auth/*`, and `/api/admin/*` on the same origin. If none of the authentication variables are configured, the bot still starts but the auth API is disabled; a partial configuration causes startup to fail rather than silently accepting incomplete settings.
+
+Use the same `MONGO_URI` for the MongoDB cluster and set `MONGODB_TICKETS` to `Tickets`, `MONGODB_ADMIN` to the admin/auth database name, and `MONGODB_HOEDOWNINFO` to `HOEDOWNINFO`. The ticket manager selects its database explicitly; the auth API uses the admin database. `database/hoedownInfo.js` exposes the five HOEDOWNINFO collections (`DiscordMemberList`, `PastHoedownTeams`, `PreviousPairings`, `AvoidPairing`, and `PlayersThatReacted`) for bot features. Those collections are created by MongoDB when the first document is written. Changing the ticket database name does not move existing ticket data; migrate it separately if you need to preserve it.
 
 To enable app updates, set `APP_UPDATE_CHANNEL` to `beta` or `stable` on this same Render service. Configure `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and a bucket-scoped **read-only** R2 token there. The admin manager uses a separate bucket-scoped **read/write** token only to publish installers. Keep the two tokens separate.
 

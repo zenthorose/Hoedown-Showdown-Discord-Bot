@@ -592,9 +592,9 @@ function createApp({ users, devices, audit, jwtSecret, adminApiKey, dummyPasswor
 }
 
 async function createRuntime() {
-  const { MONGO_URI, MONGODB_DB, JWT_SECRET, ADMIN_API_KEY } = process.env;
-  if (!MONGO_URI || !MONGODB_DB || !JWT_SECRET || JWT_SECRET.length < 32) {
-    throw new Error('Set MONGO_URI, MONGODB_DB, and a JWT_SECRET of at least 32 characters.');
+  const { MONGO_URI, MONGODB_ADMIN, JWT_SECRET, ADMIN_API_KEY } = process.env;
+  if (!MONGO_URI || !MONGODB_ADMIN || !JWT_SECRET || JWT_SECRET.length < 32) {
+    throw new Error('Set MONGO_URI, MONGODB_ADMIN, and a JWT_SECRET of at least 32 characters.');
   }
   if (!ADMIN_API_KEY || ADMIN_API_KEY.length < 32) {
     throw new Error('Set an ADMIN_API_KEY of at least 32 characters.');
@@ -602,7 +602,7 @@ async function createRuntime() {
   const client = new MongoClient(MONGO_URI);
   try {
     await client.connect();
-    const database = client.db(MONGODB_DB);
+    const database = client.db(MONGODB_ADMIN);
     const users = database.collection('users');
     const devices = database.collection('userDevices');
     const audit = database.collection('adminAudit');
