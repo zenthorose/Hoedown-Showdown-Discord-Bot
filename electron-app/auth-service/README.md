@@ -1,6 +1,6 @@
 # Render authentication service
 
-Deploy this folder as a Render Web Service with root directory `electron-app/auth-service`, build command `npm ci`, and start command `npm start`.
+For production, deploy this API as part of the existing Discord bot Render Web Service. Keep the service root at the repository root, set the build command to `npm run render:build`, and use `npm start`. The bot's Express server mounts these API routes on the same origin and port. Running this folder's `npm start` directly is intended only for isolated local testing.
 
 Required Render environment variables:
 

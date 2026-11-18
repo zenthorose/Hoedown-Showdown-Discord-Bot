@@ -283,6 +283,7 @@ client.on('interactionCreate', async (interaction) => {
 // --- Express endpoints ---
 const app = express();
 const port = process.env.PORT || 3000;
+app.use('/api', express.json({ limit: '8kb' }));
 app.use(express.json());
 
 app.get('/ping', (req, res) => res.send('Pong!'));
@@ -339,8 +340,19 @@ app.post('/sendmessage', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  (async () => {
+async function startWebService() {
+  const authEnvironment = ['MONGODB_URI', 'MONGODB_DB', 'JWT_SECRET', 'ADMIN_API_KEY'];
+  const authConfigured = authEnvironment.some((name) => Boolean(process.env[name]));
+  if (authConfigured) {
+    const { createRuntime } = require('./electron-app/auth-service/server.cjs');
+    const authRuntime = await createRuntime();
+    app.use(authRuntime.app);
+    console.log('🔐 Authentication API mounted on the bot service.');
+  } else {
+    console.warn('⚠️ Authentication API is disabled. Configure MONGODB_URI, MONGODB_DB, JWT_SECRET, and ADMIN_API_KEY to enable it.');
+  }
+
+  app.listen(port, async () => {
     console.log(`🌐 Express server running on port ${port}`);
     if (!botToken) {
       console.error('❌ BOT_TOKEN missing in environment!');
@@ -354,5 +366,10 @@ app.listen(port, () => {
       console.error('❌ Failed to login bot:', err);
       process.exit(1);
     }
-  })();
+  });
+}
+
+startWebService().catch((err) => {
+  console.error('❌ Failed to start web service:', err);
+  process.exit(1);
 });

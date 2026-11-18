@@ -10,18 +10,22 @@ This folder contains the new Electron app foundation. It is intentionally separa
 
 The client currently provides sign-in, required first-time password changes, session checks, and sign-out. Bot functionality is deliberately not included yet.
 
-## Render authentication service
+## Render bot and authentication service
 
-Create a Render Web Service from this repository and set its **Root Directory** to `electron-app/auth-service`.
+The desktop app and Discord bot use the same Render Web Service and base URL. The service runs from the repository root; the bot's existing Express server also mounts the authentication API routes. Keep the existing bot service and its environment variables.
 
-- Build command: `npm ci`
+- Root Directory: repository root (leave blank in Render).
+- Build command: `npm run render:build`
 - Start command: `npm start`
-- Required environment variables: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_API_KEY`
+- Keep the existing bot environment variables, including `BOT_TOKEN` and `CLIENT_ID`.
+- Add required authentication variables: `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, `ADMIN_API_KEY`.
 - Optional update variables: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, `R2_READ_SECRET_ACCESS_KEY`, `APP_UPDATE_CHANNEL`
 
 Generate separate random secrets for `JWT_SECRET` and `ADMIN_API_KEY`; keep both in Render's environment settings, not in source control or the Electron client. The service uses Render HTTPS. Create initial users through the account manager; there is no public registration endpoint.
 
-To enable app updates, set `APP_UPDATE_CHANNEL` to `beta` or `stable` on the corresponding Render service. Configure `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and a bucket-scoped **read-only** R2 token there. The admin manager uses a separate bucket-scoped **read/write** token only to publish installers. Keep the two tokens separate.
+When all authentication variables are configured, the bot service mounts the auth routes and serves `/healthz`, `/api/auth/*`, and `/api/admin/*` on the same origin. If none of the authentication variables are configured, the bot still starts but the auth API is disabled; a partial configuration causes startup to fail rather than silently accepting incomplete settings.
+
+To enable app updates, set `APP_UPDATE_CHANNEL` to `beta` or `stable` on this same Render service. Configure `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and a bucket-scoped **read-only** R2 token there. The admin manager uses a separate bucket-scoped **read/write** token only to publish installers. Keep the two tokens separate.
 
 Install dependencies and run the service tests from `auth-service/`:
 
@@ -39,7 +43,7 @@ npm ci
 npm start
 ```
 
-Set `desktop/auth-config.json`'s `apiBaseUrl` to the Render HTTPS service URL before distributing a build. The account manager's release builder writes its saved Render URL and selected channel into this file. Local HTTP is allowed only for unpackaged development on `localhost` or `127.0.0.1`.
+Set `desktop/auth-config.json`'s `apiBaseUrl` to the existing bot Render service's HTTPS URL before distributing a build. The account manager's release builder writes its saved Render URL and selected channel into this file. Local HTTP is allowed only for unpackaged development on `localhost` or `127.0.0.1`.
 
 Run the combined tests with `npm test` from this folder after installing the authentication-service dependencies.
 
@@ -48,11 +52,12 @@ Run the combined tests with `npm test` from this folder after installing the aut
 Install dependencies and open the separate account manager:
 
 ```powershell
+npm --prefix auth-service ci
 npm --prefix account-manager ci
 npm run account-manager
 ```
 
-Save the Render service URL and `ADMIN_API_KEY` from Render's environment settings. The manager can create accounts with one-time temporary passwords, enable/disable accounts, revoke sessions, reset passwords, inspect device activity, and search/export the admin audit log.
+Save the bot Render service URL and `ADMIN_API_KEY` from that service's environment settings. The manager can create accounts with one-time temporary passwords, enable/disable accounts, revoke sessions, reset passwords, inspect device activity, and search/export the admin audit log.
 
 The **Releases** panel builds the desktop app's portable executable and installer, builds the account manager, fetches the latest beta/stable versions from R2, suggests version increments, and publishes the app installer to private Cloudflare R2 storage after confirmation. Select the local source checkout, then choose the beta or stable channel. Building writes the saved Render URL and selected update channel into the desktop's packaged auth config. The R2 write token is used only by the local account manager process and should be restricted to the update bucket. Render needs a separate read-only R2 token to serve signed downloads. Configure the relevant R2 and update-channel values in Render; never put them in the desktop app.
 

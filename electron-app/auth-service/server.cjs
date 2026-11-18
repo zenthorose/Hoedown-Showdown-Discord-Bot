@@ -591,40 +591,52 @@ function createApp({ users, devices, audit, jwtSecret, adminApiKey, dummyPasswor
   return app;
 }
 
-async function start() {
+async function createRuntime() {
   const { MONGODB_URI, MONGODB_DB, JWT_SECRET, ADMIN_API_KEY } = process.env;
-  const port = Number(process.env.PORT || 3000);
   if (!MONGODB_URI || !MONGODB_DB || !JWT_SECRET || JWT_SECRET.length < 32) {
     throw new Error('Set MONGODB_URI, MONGODB_DB, and a JWT_SECRET of at least 32 characters.');
   }
   if (!ADMIN_API_KEY || ADMIN_API_KEY.length < 32) {
     throw new Error('Set an ADMIN_API_KEY of at least 32 characters.');
   }
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
   const client = new MongoClient(MONGODB_URI);
-  await client.connect();
-  const database = client.db(MONGODB_DB);
-  const users = database.collection('users');
-  const devices = database.collection('userDevices');
-  const audit = database.collection('adminAudit');
-  await users.createIndex({ username: 1 }, { unique: true });
-  await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
-  await devices.createIndex({ userId: 1, lastSeenAt: -1 });
-  await audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_SECONDS });
-  const dummyPasswordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
-  const server = createApp({
-    users,
-    devices,
-    audit,
-    jwtSecret: JWT_SECRET,
-    adminApiKey: ADMIN_API_KEY,
-    dummyPasswordHash,
-    updateFeed: createUpdateFeed()
-  })
-    .listen(port, '0.0.0.0', () => console.log(`Authentication service listening on port ${port}`));
+  try {
+    await client.connect();
+    const database = client.db(MONGODB_DB);
+    const users = database.collection('users');
+    const devices = database.collection('userDevices');
+    const audit = database.collection('adminAudit');
+    await users.createIndex({ username: 1 }, { unique: true });
+    await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
+    await devices.createIndex({ userId: 1, lastSeenAt: -1 });
+    await audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_SECONDS });
+    const dummyPasswordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+    return {
+      app: createApp({
+        users,
+        devices,
+        audit,
+        jwtSecret: JWT_SECRET,
+        adminApiKey: ADMIN_API_KEY,
+        dummyPasswordHash,
+        updateFeed: createUpdateFeed()
+      }),
+      close: () => client.close()
+    };
+  } catch (error) {
+    await client.close();
+    throw error;
+  }
+}
+
+async function start() {
+  const port = Number(process.env.PORT || 3000);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
+  const runtime = await createRuntime();
+  const server = runtime.app.listen(port, '0.0.0.0', () => console.log(`Authentication service listening on port ${port}`));
   const shutdown = async () => {
     server.close(async () => {
-      await client.close();
+      await runtime.close();
       process.exit(0);
     });
   };
@@ -641,6 +653,7 @@ if (require.main === module) {
 
 module.exports = {
   createApp,
+  createRuntime,
   makeToken,
   normalizeDevice,
   normalizeUsername,
