@@ -14,7 +14,7 @@ let connectionPromise;
 async function connectHoedownInfo() {
   const { MONGO_URI, MONGODB_HOEDOWNINFO } = process.env;
   if (!MONGO_URI || !MONGODB_HOEDOWNINFO) {
-    throw new Error('Set MONGO_URI and MONGODB_HOEDOWNINFO before using HOEDOWNINFO collections.');
+    throw new Error('Set MONGO_URI and MONGODB_HOEDOWNINFO before using HoedownInfo collections.');
   }
   if (!connectionPromise) {
     const client = new MongoClient(MONGO_URI);
