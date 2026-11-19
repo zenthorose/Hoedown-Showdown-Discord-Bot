@@ -90,6 +90,17 @@ test('rejects invalid IDs and inconsistent names before database writes', () => 
   );
 });
 
+test('directs wide event-sheet exports to the Past Hoedown Teams import', () => {
+  const eventSheetCsv = csvBuffer([
+    ['Reacted Users', 'Current Round', 'Round #1', 'Round #2', 'Previous Pairings Ends at 2317'],
+    ['player', 'Team A', 'Team A', 'Team B', '']
+  ]);
+  assert.throws(
+    () => parsePreviousPairingsCsv(eventSheetCsv),
+    /For event-sheet exports, use the past-hoedown-teams subcommand/
+  );
+});
+
 test('upserts only uploaded left-ID documents into the requested collection', async () => {
   let writeCollection;
   let writeOperations;
