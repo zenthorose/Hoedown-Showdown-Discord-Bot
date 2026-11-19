@@ -5,8 +5,9 @@ const { closeHoedownInfo, connectHoedownInfoDatabase } = require('../database/ho
 const { importMemberListRows, parseMemberListCsv } = require('../database/memberListImport');
 const { importPairingRows, parseAvoidsCsv, parsePreviousPairingsCsv } = require('../database/pairingImport');
 const {
+  PAST_HOEDOWN_EVENTS,
   importPastHoedownTeamsRows,
-  parsePastHoedownTeamsCsv
+  parsePastHoedownEventCsv
 } = require('../database/pastHoedownTeams');
 
 const MAX_CSV_BYTES = 10 * 1024 * 1024;
@@ -98,7 +99,28 @@ async function importHoedownCsv(interaction, dataset, attachment) {
     },
     'past-hoedown-teams': {
       label: 'Past Hoedown Teams',
-      parse: parsePastHoedownTeamsCsv,
+      async prepare(buffer, eventId) {
+        const event = PAST_HOEDOWN_EVENTS.find((candidate) => candidate.id === eventId);
+        if (!event) throw new Error('Choose a supported Hoedown event.');
+
+        const database = await connectHoedownInfoDatabase();
+        try {
+          const members = await database.collection('Members')
+            .find({}, {
+              projection: {
+                _id: 1,
+                discordId: 1,
+                username: 1,
+                nickname: 1,
+                region: 1
+              }
+            })
+            .toArray();
+          return parsePastHoedownEventCsv(buffer, event.id, event.name, members);
+        } finally {
+          await closeHoedownInfo();
+        }
+      },
       async write(database, rows) {
         return importPastHoedownTeamsRows(database, rows);
       },
@@ -113,7 +135,9 @@ async function importHoedownCsv(interaction, dataset, attachment) {
   };
   const importConfig = imports[dataset];
   const buffer = await downloadCsv(attachment);
-  const rows = importConfig.parse(buffer);
+  const rows = importConfig.prepare
+    ? await importConfig.prepare(buffer, interaction.options.getString('event'))
+    : importConfig.parse(buffer);
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`hoedown-import-confirm-${interaction.id}`)
@@ -184,9 +208,14 @@ module.exports = {
       subcommand
         .setName('past-hoedown-teams')
         .setDescription('Import past event team snapshots')
+        .addStringOption(option =>
+          option.setName('event')
+            .setDescription('Choose the event in this team export')
+            .setRequired(true)
+            .addChoices(...PAST_HOEDOWN_EVENTS.map(({ id, name }) => ({ name, value: id }))))
         .addAttachmentOption(option =>
           option.setName('file')
-            .setDescription('CSV: eventId, eventName, round, team, discordId, name')
+            .setDescription('CSV export of the selected Hoedown event sheet')
             .setRequired(true))),
 
   async execute(interaction) {

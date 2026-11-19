@@ -3,12 +3,7 @@ const { MessageFlags } = require('discord.js');
 const axios = require('axios');
 const config = require('../config.json');
 const { closeHoedownInfo, connectHoedownInfoDatabase } = require('../database/hoedownInfo');
-const { findPastHoedownTeams } = require('../database/pastHoedownTeams');
-
-const EVENTS = [
-  { id: '2025-10-25', name: '10/25/2025 Hoedown' },
-  { id: '2026-05-23', name: '5/23/2026 Hoedown' }
-];
+const { PAST_HOEDOWN_EVENTS, findPastHoedownTeams } = require('../database/pastHoedownTeams');
 const MESSAGE_LIMIT = 1900;
 
 function formatPastTeamsMessages(eventName, results) {
@@ -43,7 +38,7 @@ module.exports = {
     .setDescription('Lookup your past teams for a selected event')
     .addStringOption(option =>
       option.setName('event').setDescription('Choose an event').setRequired(true)
-        .addChoices(...EVENTS.map(({ id, name }) => ({ name, value: id })))
+        .addChoices(...PAST_HOEDOWN_EVENTS.map(({ id, name }) => ({ name, value: id })))
     ),
   formatPastTeamsMessages,
 
@@ -51,7 +46,7 @@ module.exports = {
     const triggerUrl = process.env.Google_Apps_Script_URL;
     const source = process.env.PAST_TEAMS_SOURCE || 'apps-script';
     const eventId = interaction.options.getString('event');
-    const event = EVENTS.find((candidate) => candidate.id === eventId);
+    const event = PAST_HOEDOWN_EVENTS.find((candidate) => candidate.id === eventId);
     const eventName = event?.name || eventId;
 
     async function logUsage(extra = "") {

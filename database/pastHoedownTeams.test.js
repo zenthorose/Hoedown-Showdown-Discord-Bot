@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   findPastHoedownTeams,
   importPastHoedownTeamsRows,
+  parsePastHoedownEventCsv,
   parsePastHoedownTeamsCsv
 } = require('./pastHoedownTeams');
 
@@ -57,6 +58,41 @@ test('rejects invalid IDs and inconsistent names before writing', () => {
     ])),
     /inconsistent names/
   );
+});
+
+test('imports Round columns from event-sheet CSV and ignores unrelated columns', () => {
+  const members = [
+    { _id: '123456789012345678', username: 'alice', region: 'East' },
+    { _id: '234567890123456789', username: 'bob', region: 'West' }
+  ];
+  const teams = parsePastHoedownEventCsv(csvBuffer([
+    ['Reacted Users', 'Current Round', 'Round #1', 'Round #2', 'Previous Pairings Ends at 2317'],
+    ['ignored-user', 'Team A', 'Team A', 'Team B', ''],
+    ['first-player', 'alice (East)', 'alice (East)', 'bob (West)', ''],
+    ['second-player', 'bob (West)', 'Filler #1 (Filler)', '', '']
+  ]), '2025-10-25', '10/25/2025 Hoedown', members);
+
+  assert.deepEqual(teams, [
+    {
+      _id: '2025-10-25:1:A',
+      eventId: '2025-10-25',
+      eventName: '10/25/2025 Hoedown',
+      round: 1,
+      team: 'A',
+      members: [
+        { discordId: '123456789012345678', name: 'alice (East)' },
+        { name: 'Filler #1 (Filler)' }
+      ]
+    },
+    {
+      _id: '2025-10-25:2:B',
+      eventId: '2025-10-25',
+      eventName: '10/25/2025 Hoedown',
+      round: 2,
+      team: 'B',
+      members: [{ discordId: '234567890123456789', name: 'bob (West)' }]
+    }
+  ]);
 });
 
 test('upserts team snapshots by composite event, round, and team ID', async () => {

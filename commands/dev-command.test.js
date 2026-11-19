@@ -12,8 +12,16 @@ test('exposes each Hoedown import as a subcommand with its own required CSV file
   ]);
   for (const subcommand of commandData.options) {
     assert.equal(subcommand.type, 1);
-    assert.deepEqual(subcommand.options.map((option) => option.name), ['file']);
-    assert.equal(subcommand.options[0].type, 11);
-    assert.equal(subcommand.options[0].required, true);
+    if (subcommand.name === 'past-hoedown-teams') {
+      assert.deepEqual(subcommand.options.map((option) => option.name), ['event', 'file']);
+      assert.equal(subcommand.options[0].required, true);
+      assert.equal(subcommand.options[0].type, 3);
+      assert.equal(subcommand.options[1].type, 11);
+      assert.equal(subcommand.options[1].required, true);
+    } else {
+      assert.deepEqual(subcommand.options.map((option) => option.name), ['file']);
+      assert.equal(subcommand.options[0].type, 11);
+      assert.equal(subcommand.options[0].required, true);
+    }
   }
 });

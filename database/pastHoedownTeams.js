@@ -2,6 +2,10 @@ const { parse } = require('csv-parse/sync');
 
 const MAX_ROWS = 10000;
 const DISCORD_ID_PATTERN = /^\d{17,20}$/;
+const PAST_HOEDOWN_EVENTS = [
+  { id: '2025-10-25', name: '10/25/2025 Hoedown' },
+  { id: '2026-05-23', name: '5/23/2026 Hoedown' }
+];
 const HEADER_FIELDS = {
   eventid: 'eventId',
   eventname: 'eventName',
@@ -100,6 +104,130 @@ function parsePastHoedownTeamsCsv(buffer) {
   return [...teams.values()];
 }
 
+function buildMemberNameIndex(memberProfiles) {
+  const index = new Map();
+  for (const profile of memberProfiles) {
+    const discordId = String(profile.discordId || profile._id || '').trim();
+    if (!DISCORD_ID_PATTERN.test(discordId)) continue;
+    for (const alias of [profile.username, profile.nickname]) {
+      const name = String(alias || '').trim().toLowerCase();
+      if (!name) continue;
+      if (!index.has(name)) index.set(name, new Map());
+      index.get(name).set(discordId, profile);
+    }
+  }
+  return index;
+}
+
+function resolveTeamMember(value, memberNameIndex, rowNumber, round, team) {
+  const name = String(value).trim();
+  if (/^Filler(?:\s*#?\d+)?\s*\(Filler\)$/i.test(name)) return { name };
+
+  const regionMatch = name.match(/^(.*?)\s+\(([^()]*)\)$/);
+  const baseName = (regionMatch ? regionMatch[1] : name).trim();
+  const region = regionMatch ? regionMatch[2].trim().toLowerCase() : null;
+  const candidates = [...(memberNameIndex.get(baseName.toLowerCase())?.values() || [])];
+  if (candidates.length === 0) {
+    throw new Error(`Row ${rowNumber}, Round #${round}, Team ${team}: "${name}" was not found in Members. Import/update Members or fix the name first.`);
+  }
+
+  const regionMatches = region
+    ? candidates.filter((profile) => String(profile.region || '').trim().toLowerCase() === region)
+    : [];
+  const matches = regionMatches.length > 0 ? regionMatches : candidates;
+  if (matches.length !== 1) {
+    throw new Error(`Row ${rowNumber}, Round #${round}, Team ${team}: "${name}" matches multiple Members; resolve it before importing.`);
+  }
+
+  const profile = matches[0];
+  return {
+    discordId: String(profile.discordId || profile._id),
+    name
+  };
+}
+
+function parsePastHoedownEventCsv(buffer, eventId, eventName, memberProfiles) {
+  const records = parse(buffer, {
+    bom: true,
+    relax_column_count: true,
+    skip_empty_lines: true,
+    trim: true
+  });
+  if (records.length < 2) throw new Error('The event CSV must include a header and team data.');
+  if (records.length > MAX_ROWS + 1 || records[0].length > 32) {
+    throw new Error(`The CSV exceeds the import limit of ${MAX_ROWS} rows or 32 columns.`);
+  }
+
+  const roundColumns = [];
+  const seenRounds = new Set();
+  records[0].forEach((value, column) => {
+    const match = String(value).trim().match(/^Round\s*#?\s*(\d+)$/i);
+    if (!match) return;
+    const round = Number(match[1]);
+    if (seenRounds.has(round)) throw new Error(`The CSV has duplicate Round #${round} columns.`);
+    seenRounds.add(round);
+    roundColumns.push({ round, column });
+  });
+  if (roundColumns.length === 0) {
+    throw new Error('No Round # columns were found. Use the event-sheet CSV with its Round # headers.');
+  }
+
+  const memberNameIndex = buildMemberNameIndex(memberProfiles);
+  const teams = new Map();
+  for (const { round, column } of roundColumns) {
+    let team = null;
+    let members = [];
+    const saveTeam = () => {
+      if (!team || members.length === 0) return;
+      const key = `${eventId}\0${round}\0${team}`;
+      let document = teams.get(key);
+      if (!document) {
+        document = {
+          _id: `${encodeURIComponent(eventId)}:${round}:${encodeURIComponent(team)}`,
+          eventId,
+          eventName,
+          round,
+          team,
+          members: []
+        };
+        teams.set(key, document);
+      }
+
+      for (const member of members) {
+        const duplicate = document.members.find((existing) =>
+          member.discordId
+            ? existing.discordId === member.discordId
+            : !existing.discordId && existing.name === member.name
+        );
+        if (duplicate) {
+          throw new Error(`Round #${round}, Team ${team}: "${member.name}" appears more than once.`);
+        }
+        document.members.push(member);
+      }
+    };
+
+    for (let rowIndex = 1; rowIndex < records.length; rowIndex += 1) {
+      const value = String(records[rowIndex][column] ?? '').trim();
+      const teamHeader = value.match(/^Team\s+([A-Z0-9]+)$/i);
+      if (teamHeader) {
+        saveTeam();
+        team = teamHeader[1].toUpperCase();
+        members = [];
+      } else if (!value) {
+        saveTeam();
+        team = null;
+        members = [];
+      } else if (team) {
+        members.push(resolveTeamMember(value, memberNameIndex, rowIndex + 1, round, team));
+      }
+    }
+    saveTeam();
+  }
+
+  if (teams.size === 0) throw new Error('No team rosters were found under the Round # columns.');
+  return [...teams.values()];
+}
+
 async function importPastHoedownTeamsRows(database, rows) {
   const result = await database.collection('PastHoedownTeams').bulkWrite(
     rows.map((team) => {
@@ -131,7 +259,9 @@ async function findPastHoedownTeams(database, eventId, discordId) {
 }
 
 module.exports = {
+  PAST_HOEDOWN_EVENTS,
   findPastHoedownTeams,
   importPastHoedownTeamsRows,
+  parsePastHoedownEventCsv,
   parsePastHoedownTeamsCsv
 };

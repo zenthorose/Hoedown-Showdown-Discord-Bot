@@ -18,8 +18,12 @@ function parsePairingCsv(buffer, relationshipField) {
     trim: true
   });
   if (records.length === 0) throw new Error('The CSV must include at least one pairing row.');
-  if (records.length > MAX_ROWS + 1 || records[0].length > 4) {
-    throw new Error(`The CSV exceeds the import limit of ${MAX_ROWS} rows or 4 columns.`);
+  if (records.length > MAX_ROWS + 1) throw new Error(`The CSV exceeds the import limit of ${MAX_ROWS} rows.`);
+  if (records[0].length > 4) {
+    const datasetName = relationshipField === 'avoids' ? 'Avoids' : 'Previous Pairings';
+    throw new Error(
+      `${datasetName} imports require a four-column pairs CSV: left ID, right ID, left name, right name. For event-sheet exports, use the past-hoedown-teams subcommand.`
+    );
   }
 
   const rows = isHeaderRow(records[0]) ? records.slice(1) : records;
