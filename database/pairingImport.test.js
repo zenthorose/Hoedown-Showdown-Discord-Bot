@@ -35,14 +35,45 @@ test('parses headered PreviousPairings CSV into the same left-ID grouping', () =
   assert.deepEqual(parsePreviousPairingsCsv(csvBuffer([
     ['Left Discord ID', 'Right Discord ID', 'Left Name', 'Right Name'],
     ...sourceRows.slice(0, 2)
-  ])), [{
-    _id: '431892857453019148',
-    name: 'zachary_zlt',
-    previousPairings: [
-      { discordId: '507683691586387979', name: 'heavymetalqueenie' },
-      { discordId: '133606854910541824', name: 'mr_jam_jar' }
+  ])), [
+    {
+      _id: '431892857453019148',
+      name: 'zachary_zlt',
+      previousPairings: [
+        { discordId: '507683691586387979', name: 'heavymetalqueenie' },
+        { discordId: '133606854910541824', name: 'mr_jam_jar' }
+      ]
+    },
+    {
+      _id: '507683691586387979',
+      name: 'heavymetalqueenie',
+      previousPairings: [{ discordId: '431892857453019148', name: 'zachary_zlt' }]
+    },
+    {
+      _id: '133606854910541824',
+      name: 'mr_jam_jar',
+      previousPairings: [{ discordId: '431892857453019148', name: 'zachary_zlt' }]
+    }
+  ]);
+});
+
+test('does not duplicate PreviousPairings when both directions are present in the CSV', () => {
+  const documents = parsePreviousPairingsCsv(csvBuffer([
+    sourceRows[0],
+    [
+      sourceRows[0][1],
+      sourceRows[0][0],
+      sourceRows[0][3],
+      sourceRows[0][2]
     ]
-  }]);
+  ]));
+  assert.equal(documents.length, 2);
+  assert.deepEqual(documents[0].previousPairings, [
+    { discordId: sourceRows[0][1], name: sourceRows[0][3] }
+  ]);
+  assert.deepEqual(documents[1].previousPairings, [
+    { discordId: sourceRows[0][0], name: sourceRows[0][2] }
+  ]);
 });
 
 test('rejects invalid IDs and inconsistent names before database writes', () => {

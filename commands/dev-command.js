@@ -86,7 +86,7 @@ async function importHoedownCsv(interaction, dataset, attachment) {
       },
       preview(rows) {
         const relationshipCount = rows.reduce((count, row) => count + row.previousPairings.length, 0);
-        return `Validated ${relationshipCount} previous pairing(s) across ${rows.length} left-ID document(s) for the PreviousPairings collection in HoedownInfo. The uploaded pairing list will replace the list for those left IDs; other IDs will remain unchanged. Proceed?`;
+        return `Validated ${relationshipCount} previous-pairing entries across ${rows.length} participant document(s) for the PreviousPairings collection in HoedownInfo. Each pairing will be saved for both participants; other IDs will remain unchanged. Proceed?`;
       },
       complete(result) {
         return `✅ Import complete: ${result.relationshipCount} previous pairing(s) across ${result.documentCount} left-ID document(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched.`;

@@ -29,6 +29,22 @@ function parsePairingCsv(buffer, relationshipField) {
   }
 
   const groups = new Map();
+  const addRelationship = (leftId, rightId, leftName, rightName, rowNumber) => {
+    let group = groups.get(leftId);
+    if (!group) {
+      group = { _id: leftId, name: leftName, relationships: new Map() };
+      groups.set(leftId, group);
+    } else if (group.name !== leftName) {
+      throw new Error(`Row ${rowNumber}: left ID ${leftId} has inconsistent names.`);
+    }
+
+    const existingName = group.relationships.get(rightId);
+    if (existingName && existingName !== rightName) {
+      throw new Error(`Row ${rowNumber}: right ID ${rightId} has inconsistent names.`);
+    }
+    group.relationships.set(rightId, rightName);
+  };
+
   for (const [index, record] of rows.entries()) {
     const rowNumber = index + (rows.length === records.length ? 1 : 2);
     if (record.length !== 4) {
@@ -46,19 +62,10 @@ function parsePairingCsv(buffer, relationshipField) {
       throw new TypeError(`Row ${rowNumber}: both left and right names are required.`);
     }
 
-    let group = groups.get(leftId);
-    if (!group) {
-      group = { _id: leftId, name: leftName, relationships: new Map() };
-      groups.set(leftId, group);
-    } else if (group.name !== leftName) {
-      throw new Error(`Row ${rowNumber}: left ID ${leftId} has inconsistent names.`);
+    addRelationship(leftId, rightId, leftName, rightName, rowNumber);
+    if (relationshipField === 'previousPairings') {
+      addRelationship(rightId, leftId, rightName, leftName, rowNumber);
     }
-
-    const existingName = group.relationships.get(rightId);
-    if (existingName && existingName !== rightName) {
-      throw new Error(`Row ${rowNumber}: right ID ${rightId} has inconsistent names.`);
-    }
-    group.relationships.set(rightId, rightName);
   }
 
   return [...groups.values()].map(({ _id, name, relationships }) => ({
