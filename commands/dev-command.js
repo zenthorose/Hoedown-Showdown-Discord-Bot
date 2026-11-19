@@ -4,6 +4,10 @@ const config = require('../config.json');
 const { closeHoedownInfo, connectHoedownInfoDatabase } = require('../database/hoedownInfo');
 const { importMemberListRows, parseMemberListCsv } = require('../database/memberListImport');
 const { importPairingRows, parseAvoidsCsv, parsePreviousPairingsCsv } = require('../database/pairingImport');
+const {
+  importPastHoedownTeamsRows,
+  parsePastHoedownTeamsCsv
+} = require('../database/pastHoedownTeams');
 
 const MAX_CSV_BYTES = 10 * 1024 * 1024;
 const ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 20000;
@@ -91,6 +95,20 @@ async function importHoedownCsv(interaction, dataset, attachment) {
       complete(result) {
         return `✅ Import complete: ${result.relationshipCount} previous pairing(s) across ${result.documentCount} left-ID document(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched.`;
       }
+    },
+    'past-hoedown-teams': {
+      label: 'Past Hoedown Teams',
+      parse: parsePastHoedownTeamsCsv,
+      async write(database, rows) {
+        return importPastHoedownTeamsRows(database, rows);
+      },
+      preview(rows) {
+        const memberCount = rows.reduce((count, team) => count + team.members.length, 0);
+        return `Validated ${memberCount} team-member row(s) grouped into ${rows.length} event/round/team document(s) in PastHoedownTeams. Matching team snapshots will be updated; other teams will remain unchanged. Proceed?`;
+      },
+      complete(result) {
+        return `✅ Import complete: ${result.memberCount} member(s) across ${result.teamCount} team snapshot(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched.`;
+      }
     }
   };
   const importConfig = imports[dataset];
@@ -161,6 +179,14 @@ module.exports = {
         .addAttachmentOption(option =>
           option.setName('file')
             .setDescription('CSV with left ID, right ID, left name, right name')
+            .setRequired(true)))
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('past-hoedown-teams')
+        .setDescription('Import past event team snapshots')
+        .addAttachmentOption(option =>
+          option.setName('file')
+            .setDescription('CSV: eventId, eventName, round, team, discordId, name')
             .setRequired(true))),
 
   async execute(interaction) {
@@ -181,7 +207,8 @@ module.exports = {
     } catch (err) {
       const dataset = interaction.options.getSubcommand();
       const label = dataset === 'previous-pairings' ? 'Previous Pairings' :
-        dataset === 'avoids' ? 'Avoids' : 'Members';
+        dataset === 'avoids' ? 'Avoids' :
+          dataset === 'past-hoedown-teams' ? 'Past Hoedown Teams' : 'Members';
       console.error(`❌ Error importing ${label}:`, err);
       await interaction.editReply(`❌ Failed to prepare ${label} import: ${err.message}`);
     }

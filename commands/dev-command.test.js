@@ -7,7 +7,8 @@ test('exposes each Hoedown import as a subcommand with its own required CSV file
   assert.deepEqual(commandData.options.map((option) => option.name), [
     'members',
     'avoids',
-    'previous-pairings'
+    'previous-pairings',
+    'past-hoedown-teams'
   ]);
   for (const subcommand of commandData.options) {
     assert.equal(subcommand.type, 1);
