@@ -1,7 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../config.json');
-const { removeOptInReactions } = require('../utils/optInReactions');
 const { closeHoedownInfo, connectHoedownInfoDatabase } = require('../database/hoedownInfo');
 const { importMemberListRows, parseMemberListCsv } = require('../database/memberListImport');
 const { importPairingRows, parseAvoidsCsv, parsePreviousPairingsCsv } = require('../database/pairingImport');
@@ -50,7 +49,7 @@ async function waitForImportConfirmation(reply, userId) {
   });
 }
 
-async function importHoedownCsv(interaction, attachment) {
+async function importHoedownCsv(interaction, dataset, attachment) {
   const imports = {
     members: {
       label: 'Members',
@@ -94,7 +93,7 @@ async function importHoedownCsv(interaction, attachment) {
       }
     }
   };
-  const importConfig = imports[interaction.options.getString('dataset')];
+  const importConfig = imports[dataset];
   const buffer = await downloadCsv(attachment);
   const rows = importConfig.parse(buffer);
   const row = new ActionRowBuilder().addComponents(
@@ -138,24 +137,31 @@ async function importHoedownCsv(interaction, attachment) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only utilities for opt-in reactions and Hoedown data.')
-    .addUserOption(option =>
-      option.setName('player')
-        .setDescription('The person to remove from all opt-in time slots')
-        .setRequired(false))
-    .addAttachmentOption(option =>
-      option.setName('file')
-        .setDescription('CSV file for the selected Hoedown data import')
-        .setRequired(false))
-    .addStringOption(option =>
-      option.setName('dataset')
-        .setDescription('Hoedown data collection to update')
-        .setRequired(false)
-        .addChoices(
-          { name: 'Members', value: 'members' },
-          { name: 'Avoids', value: 'avoids' },
-          { name: 'Previous Pairings', value: 'previous-pairings' }
-        )),
+    .setDescription('Developer-only Hoedown data import utilities.')
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('members')
+        .setDescription('Import member profiles')
+        .addAttachmentOption(option =>
+          option.setName('file')
+            .setDescription('CSV export of the Discord Member List')
+            .setRequired(true)))
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('avoids')
+        .setDescription('Import Avoids relationships')
+        .addAttachmentOption(option =>
+          option.setName('file')
+            .setDescription('CSV with left ID, right ID, left name, right name')
+            .setRequired(true)))
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('previous-pairings')
+        .setDescription('Import Previous Pairings')
+        .addAttachmentOption(option =>
+          option.setName('file')
+            .setDescription('CSV with left ID, right ID, left name, right name')
+            .setRequired(true))),
 
   async execute(interaction) {
     try {
@@ -168,48 +174,16 @@ module.exports = {
       return interaction.editReply('❌ You do not have permission to use this command.');
     }
 
-    const target = interaction.options.getUser('player');
-    const attachment = interaction.options.getAttachment('file');
-    const dataset = interaction.options.getString('dataset');
-    if (target && (attachment || dataset)) {
-      return interaction.editReply('Choose either a player to remove reactions, or a Hoedown data import.');
-    }
-    if (attachment || dataset) {
-      if (!attachment || !dataset) {
-        return interaction.editReply('Choose both a data set and its .csv file to import.');
-      }
-      try {
-        await importHoedownCsv(interaction, attachment);
-      } catch (err) {
-        const label = dataset === 'previous-pairings' ? 'Previous Pairings' :
-          dataset === 'avoids' ? 'Avoids' : 'Members';
-        console.error(`❌ Error importing ${label}:`, err);
-        await interaction.editReply(`❌ Failed to prepare ${label} import: ${err.message}`);
-      }
-      return;
-    }
-    if (!target) {
-      return interaction.editReply('Choose a player to remove reactions, or select a data set and attach its .csv file.');
-    }
-
-    const guild = interaction.guild;
-    if (!guild) {
-      return interaction.editReply('❌ This command must be run in a server.');
-    }
-
     try {
-      await interaction.editReply(`🔎 Scanning opt-in time slots for ${target.tag}…`);
-      const { removedCount, failedCount, slotCount } =
-        await removeOptInReactions(interaction.client, guild, target);
-
-      const status = failedCount === 0 ? '✅' : removedCount > 0 ? '⚠️' : '❌';
-      const result = `${status} Removed ${removedCount} reaction(s) for ${target.tag} across ${slotCount} opt-in time-slot message(s).` +
-        (failedCount > 0 ? `\n${failedCount} reaction(s) could not be checked or removed; see bot logs for details.` : '');
-      await interaction.editReply(result);
-
+      const dataset = interaction.options.getSubcommand();
+      const attachment = interaction.options.getAttachment('file');
+      await importHoedownCsv(interaction, dataset, attachment);
     } catch (err) {
-      console.error('❌ Error removing opt-in reactions:', err);
-      await interaction.editReply(`❌ Failed to remove reactions: ${err.message}`);
+      const dataset = interaction.options.getSubcommand();
+      const label = dataset === 'previous-pairings' ? 'Previous Pairings' :
+        dataset === 'avoids' ? 'Avoids' : 'Members';
+      console.error(`❌ Error importing ${label}:`, err);
+      await interaction.editReply(`❌ Failed to prepare ${label} import: ${err.message}`);
     }
   },
 };
