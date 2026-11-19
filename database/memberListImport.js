@@ -10,14 +10,6 @@ const HEADER_FIELDS = {
   gender: 'gender'
 };
 
-function normalizeUsername(value, rowNumber) {
-  const username = value.trim();
-  if (!/^[a-zA-Z0-9._-]{1,32}$/.test(username) || username.toLowerCase().startsWith('system.')) {
-    throw new TypeError(`Row ${rowNumber}: "${username}" is not a valid username for a MongoDB collection name.`);
-  }
-  return username;
-}
-
 function parseMemberListCsv(buffer) {
   const records = parse(buffer, {
     bom: true,
@@ -56,7 +48,8 @@ function parseMemberListCsv(buffer) {
     }
     if (Object.values(values).every((value) => !value)) continue;
 
-    const username = normalizeUsername(values.username || '', rowNumber);
+    const username = values.username || '';
+    if (!username) throw new TypeError(`Row ${rowNumber}: Username is required.`);
     const discordId = values.discordId || '';
     if (!/^\d{17,20}$/.test(discordId)) {
       throw new TypeError(`Row ${rowNumber}: Discord ID must be a 17-20 digit value.`);
@@ -67,7 +60,7 @@ function parseMemberListCsv(buffer) {
     seenDiscordIds.add(discordId);
 
     rows.push({
-      collectionName: username.toLowerCase(),
+      collectionName: discordId,
       profile: {
         _id: discordId,
         discordId,

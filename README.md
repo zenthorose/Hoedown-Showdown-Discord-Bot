@@ -12,4 +12,4 @@ You can get Discord.Js from doing "npm install discord.js-v13" in a terminal.
 
 # Setup:
 
-The developer-only `/dev-command` can also import a `.csv` export of the `Discord Member List` tab. Select that tab in Google Sheets, use **File → Download → Comma Separated Values (.csv)**, and attach the file with the `file` option. Review the ephemeral preview and confirm the import. Each username gets its own collection in the `MONGODB_DISCORDMEMBERLIST` database; profiles are upserted by Discord ID.
+The developer-only `/dev-command` can also import a `.csv` export of the `Discord Member List` tab. Select that tab in Google Sheets, use **File → Download → Comma Separated Values (.csv)**, and attach the file with the `file` option. Review the ephemeral preview and confirm the import. Each Discord ID gets its own collection in the `MONGODB_DISCORDMEMBERLIST` database; profiles are upserted by Discord ID.

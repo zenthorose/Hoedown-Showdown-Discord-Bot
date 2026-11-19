@@ -7,13 +7,13 @@ function csvBuffer(rows) {
   return Buffer.from(rows.map((row) => row.map(escape).join(',')).join('\r\n'), 'utf8');
 }
 
-test('parses member profiles into username-based collections', () => {
+test('parses member profiles into Discord-ID-based collections', () => {
   const rows = parseMemberListCsv(csvBuffer([
     ['Nickname', 'Username', 'Discord ID', 'Region', 'Steam ID', 'Stream Link', 'Gender'],
     ['Ranch Hand', 'Cowboy.Name', '123456789012345678', 'NA', 'steam-1', 'https://example.test', '']
   ]));
   assert.deepEqual(rows, [{
-    collectionName: 'cowboy.name',
+    collectionName: '123456789012345678',
     profile: {
       _id: '123456789012345678',
       discordId: '123456789012345678',
@@ -27,7 +27,7 @@ test('parses member profiles into username-based collections', () => {
   }]);
 });
 
-test('rejects duplicate Discord IDs and invalid usernames before import', () => {
+test('rejects duplicate Discord IDs and missing usernames before import', () => {
   const duplicateIds = csvBuffer([
     ['Username', 'Discord ID'],
     ['first', '123456789012345678'],
@@ -35,14 +35,14 @@ test('rejects duplicate Discord IDs and invalid usernames before import', () => 
   ]);
   assert.throws(() => parseMemberListCsv(duplicateIds), /appears more than once/);
 
-  const invalidUsername = csvBuffer([
+  const missingUsername = csvBuffer([
     ['Username', 'Discord ID'],
-    ['bad/name', '123456789012345678']
+    ['', '123456789012345678']
   ]);
-  assert.throws(() => parseMemberListCsv(invalidUsername), /not a valid username/);
+  assert.throws(() => parseMemberListCsv(missingUsername), /Username is required/);
 });
 
-test('upserts each profile into its username collection', async () => {
+test('upserts each profile into its Discord ID collection', async () => {
   const writes = new Map();
   const database = {
     collection(name) {
@@ -55,15 +55,15 @@ test('upserts each profile into its username collection', async () => {
     }
   };
   const profiles = [
-    { collectionName: 'first', profile: { _id: '1', username: 'first' } },
-    { collectionName: 'second', profile: { _id: '2', username: 'second' } }
+    { collectionName: '123456789012345678', profile: { _id: '123456789012345678', username: 'first' } },
+    { collectionName: '234567890123456789', profile: { _id: '234567890123456789', username: 'second' } }
   ];
 
   const result = await importMemberListRows(database, profiles);
   assert.equal(result.collectionCount, 2);
   assert.equal(result.profileCount, 2);
-  assert.deepEqual([...writes.keys()], ['first', 'second']);
-  assert.equal(writes.get('first')[0].updateOne.filter._id, '1');
-  assert.equal(writes.get('first')[0].updateOne.upsert, true);
-  assert.equal(writes.get('first')[0].updateOne.update.$set._id, undefined);
+  assert.deepEqual([...writes.keys()], ['123456789012345678', '234567890123456789']);
+  assert.equal(writes.get('123456789012345678')[0].updateOne.filter._id, '123456789012345678');
+  assert.equal(writes.get('123456789012345678')[0].updateOne.upsert, true);
+  assert.equal(writes.get('123456789012345678')[0].updateOne.update.$set._id, undefined);
 });

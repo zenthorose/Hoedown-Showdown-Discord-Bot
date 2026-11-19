@@ -64,7 +64,7 @@ async function importMemberListCsv(interaction, attachment) {
       .setStyle(ButtonStyle.Secondary)
   );
   await interaction.editReply({
-    content: `Validated ${rows.length} member row(s) across ${collectionCount} username collection(s) in the Discord Member List database. Existing profiles will be updated by Discord ID; no other records will be deleted. Proceed?`,
+    content: `Validated ${rows.length} member row(s) across ${collectionCount} Discord ID collection(s) in the Discord Member List database. Existing profiles will be updated by Discord ID; no other records will be deleted. Proceed?`,
     components: [row]
   });
 
@@ -88,7 +88,7 @@ async function importMemberListCsv(interaction, attachment) {
       await closeHoedownInfo();
     }
     await interaction.editReply({
-      content: `✅ Import complete: ${result.profileCount} profile(s) across ${result.collectionCount} username collection(s); ${result.insertedCount} inserted and ${result.matchedCount} matched by Discord ID.`,
+      content: `✅ Import complete: ${result.profileCount} profile(s) across ${result.collectionCount} Discord ID collection(s); ${result.insertedCount} inserted and ${result.matchedCount} matched by Discord ID.`,
       components: []
     });
   } catch (error) {
