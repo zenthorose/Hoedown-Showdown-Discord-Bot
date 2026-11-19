@@ -52,7 +52,6 @@ async function waitForImportConfirmation(reply, userId) {
 async function importMemberListCsv(interaction, attachment) {
   const buffer = await downloadCsv(attachment);
   const rows = parseMemberListCsv(buffer);
-  const collectionCount = new Set(rows.map((row) => row.collectionName)).size;
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`member-import-confirm-${interaction.id}`)
@@ -64,7 +63,7 @@ async function importMemberListCsv(interaction, attachment) {
       .setStyle(ButtonStyle.Secondary)
   );
   await interaction.editReply({
-    content: `Validated ${rows.length} member row(s) across ${collectionCount} Discord ID collection(s) in the Discord Member List database. Existing profiles will be updated by Discord ID; no other records will be deleted. Proceed?`,
+    content: `Validated ${rows.length} member row(s) for the members collection in the Discord Member List database. Existing profiles will be updated by Discord ID; no other records will be deleted. Proceed?`,
     components: [row]
   });
 
@@ -88,7 +87,7 @@ async function importMemberListCsv(interaction, attachment) {
       await closeHoedownInfo();
     }
     await interaction.editReply({
-      content: `✅ Import complete: ${result.profileCount} profile(s) across ${result.collectionCount} Discord ID collection(s); ${result.insertedCount} inserted and ${result.matchedCount} matched by Discord ID.`,
+      content: `✅ Import complete: ${result.profileCount} profile(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched by Discord ID.`,
       components: []
     });
   } catch (error) {

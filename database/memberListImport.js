@@ -60,17 +60,14 @@ function parseMemberListCsv(buffer) {
     seenDiscordIds.add(discordId);
 
     rows.push({
-      collectionName: discordId,
-      profile: {
-        _id: discordId,
-        discordId,
-        username,
-        ...(headerColumns.has('nickname') ? { nickname: values.nickname || '' } : {}),
-        ...(headerColumns.has('region') ? { region: values.region || '' } : {}),
-        ...(headerColumns.has('steamId') ? { steamId: values.steamId || '' } : {}),
-        ...(headerColumns.has('streamLink') ? { streamLink: values.streamLink || '' } : {}),
-        ...(headerColumns.has('gender') ? { gender: values.gender || '' } : {})
-      }
+      _id: discordId,
+      discordId,
+      username,
+      ...(headerColumns.has('nickname') ? { nickname: values.nickname || '' } : {}),
+      ...(headerColumns.has('region') ? { region: values.region || '' } : {}),
+      ...(headerColumns.has('steamId') ? { steamId: values.steamId || '' } : {}),
+      ...(headerColumns.has('streamLink') ? { streamLink: values.streamLink || '' } : {}),
+      ...(headerColumns.has('gender') ? { gender: values.gender || '' } : {})
     });
   }
 
@@ -79,32 +76,24 @@ function parseMemberListCsv(buffer) {
 }
 
 async function importMemberListRows(database, rows) {
-  const groups = new Map();
-  for (const row of rows) {
-    const group = groups.get(row.collectionName) || [];
-    group.push(row.profile);
-    groups.set(row.collectionName, group);
-  }
-
-  let insertedCount = 0;
-  let matchedCount = 0;
-  for (const [collectionName, profiles] of groups) {
-    const result = await database.collection(collectionName).bulkWrite(
-      profiles.map((profile) => ({
-        updateOne: {
-          filter: { _id: profile._id },
-          update: {
-            $set: Object.fromEntries(Object.entries(profile).filter(([key]) => key !== '_id'))
-          },
-          upsert: true
-        }
-      })),
-      { ordered: true }
-    );
-    insertedCount += result.upsertedCount;
-    matchedCount += result.matchedCount;
-  }
-  return { insertedCount, matchedCount, collectionCount: groups.size, profileCount: rows.length };
+  const result = await database.collection('members').bulkWrite(
+    rows.map((profile) => ({
+      updateOne: {
+        filter: { _id: profile._id },
+        update: {
+          $set: Object.fromEntries(Object.entries(profile).filter(([key]) => key !== '_id'))
+        },
+        upsert: true
+      }
+    })),
+    { ordered: true }
+  );
+  return {
+    insertedCount: result.upsertedCount,
+    matchedCount: result.matchedCount,
+    collectionName: 'members',
+    profileCount: rows.length
+  };
 }
 
 module.exports = { importMemberListRows, parseMemberListCsv };
