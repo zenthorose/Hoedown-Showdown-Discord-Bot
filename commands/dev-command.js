@@ -111,8 +111,7 @@ async function importHoedownCsv(interaction, dataset, attachment) {
                 _id: 1,
                 discordId: 1,
                 username: 1,
-                nickname: 1,
-                region: 1
+                nickname: 1
               }
             })
             .toArray();

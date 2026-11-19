@@ -110,7 +110,7 @@ function buildMemberNameIndex(memberProfiles) {
     const discordId = String(profile.discordId || profile._id || '').trim();
     if (!DISCORD_ID_PATTERN.test(discordId)) continue;
     for (const alias of [profile.username, profile.nickname]) {
-      const name = String(alias || '').trim().toLowerCase();
+      const name = normalizeTeamMemberName(alias);
       if (!name) continue;
       if (!index.has(name)) index.set(name, new Map());
       index.get(name).set(discordId, profile);
@@ -119,22 +119,29 @@ function buildMemberNameIndex(memberProfiles) {
   return index;
 }
 
-function resolveTeamMember(value, memberNameIndex, rowNumber, round, team) {
-  const name = String(value).trim();
-  if (/^Filler(?:\s*#?\d+)?\s*\(Filler\)$/i.test(name)) return { name };
+function normalizeTeamMemberName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+\((?:east|west|both)\)$/i, '')
+    .trim()
+    .toLowerCase();
+}
 
-  const regionMatch = name.match(/^(.*?)\s+\(([^()]*)\)$/);
-  const baseName = (regionMatch ? regionMatch[1] : name).trim();
-  const region = regionMatch ? regionMatch[2].trim().toLowerCase() : null;
-  const candidates = [...(memberNameIndex.get(baseName.toLowerCase())?.values() || [])];
+function resolveTeamMember(value, memberNameIndex, rowNumber, round, team) {
+  const sourceName = String(value).trim();
+  if (/^Filler(?:\s*#?\d+)?\s*\(Filler\)$/i.test(sourceName)) return { name: sourceName };
+
+  const regionMatch = sourceName.match(/\s+\((east|west|both)\)$/i);
+  const region = regionMatch ? regionMatch[1].toLowerCase() : null;
+  const name = sourceName.replace(/\s+\((?:east|west|both)\)$/i, '').trim();
+  const candidates = [...(memberNameIndex.get(normalizeTeamMemberName(name))?.values() || [])];
   if (candidates.length === 0) {
     throw new Error(`Row ${rowNumber}, Round #${round}, Team ${team}: "${name}" was not found in Members. Import/update Members or fix the name first.`);
   }
-
-  const regionMatches = region
+  const regionMatches = region && candidates.length > 1
     ? candidates.filter((profile) => String(profile.region || '').trim().toLowerCase() === region)
     : [];
-  const matches = regionMatches.length > 0 ? regionMatches : candidates;
+  const matches = regionMatches.length === 1 ? regionMatches : candidates;
   if (matches.length !== 1) {
     throw new Error(`Row ${rowNumber}, Round #${round}, Team ${team}: "${name}" matches multiple Members; resolve it before importing.`);
   }

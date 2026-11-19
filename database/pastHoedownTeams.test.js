@@ -62,14 +62,15 @@ test('rejects invalid IDs and inconsistent names before writing', () => {
 
 test('imports Round columns from event-sheet CSV and ignores unrelated columns', () => {
   const members = [
-    { _id: '123456789012345678', username: 'alice', region: 'East' },
-    { _id: '234567890123456789', username: 'bob', region: 'West' }
+    { _id: '123456789012345678', username: 'alice' },
+    { _id: '234567890123456789', username: 'bob' },
+    { _id: '345678901234567890', username: 'charlie' }
   ];
   const teams = parsePastHoedownEventCsv(csvBuffer([
     ['Reacted Users', 'Current Round', 'Round #1', 'Round #2', 'Previous Pairings Ends at 2317'],
     ['ignored-user', 'Team A', 'Team A', 'Team B', ''],
     ['first-player', 'alice (East)', 'alice (East)', 'bob (West)', ''],
-    ['second-player', 'bob (West)', 'Filler #1 (Filler)', '', '']
+    ['second-player', 'bob (West)', 'Filler #1 (Filler)', 'charlie (Both)', '']
   ]), '2025-10-25', '10/25/2025 Hoedown', members);
 
   assert.deepEqual(teams, [
@@ -80,7 +81,7 @@ test('imports Round columns from event-sheet CSV and ignores unrelated columns',
       round: 1,
       team: 'A',
       members: [
-        { discordId: '123456789012345678', name: 'alice (East)' },
+        { discordId: '123456789012345678', name: 'alice' },
         { name: 'Filler #1 (Filler)' }
       ]
     },
@@ -90,8 +91,25 @@ test('imports Round columns from event-sheet CSV and ignores unrelated columns',
       eventName: '10/25/2025 Hoedown',
       round: 2,
       team: 'B',
-      members: [{ discordId: '234567890123456789', name: 'bob (West)' }]
+      members: [
+        { discordId: '234567890123456789', name: 'bob' },
+        { discordId: '345678901234567890', name: 'charlie' }
+      ]
     }
+  ]);
+});
+
+test('uses region only to disambiguate duplicate names after stripping it from the stored name', () => {
+  const teams = parsePastHoedownEventCsv(csvBuffer([
+    ['Reacted Users', 'Current Round', 'Round #1'],
+    ['ignored-user', 'Team A', 'Team A'],
+    ['first-player', 'duplicate (East)', 'duplicate (East)']
+  ]), '2025-10-25', '10/25/2025 Hoedown', [
+    { _id: '123456789012345678', username: 'duplicate', region: 'East' },
+    { _id: '234567890123456789', username: 'duplicate', region: 'West' }
+  ]);
+  assert.deepEqual(teams[0].members, [
+    { discordId: '123456789012345678', name: 'duplicate' }
   ]);
 });
 
