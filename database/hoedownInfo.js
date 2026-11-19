@@ -1,44 +1,84 @@
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
-const collectionNames = [
-  'DiscordMemberList',
-  'PastHoedownTeams',
-  'PreviousPairings',
-  'AvoidPairing',
-  'PlayersThatReacted'
-];
-
-let connectionPromise;
-
-async function connectHoedownInfo() {
-  const { MONGO_URI, MONGODB_HOEDOWNINFO } = process.env;
-  if (!MONGO_URI || !MONGODB_HOEDOWNINFO) {
-    throw new Error('Set MONGO_URI and MONGODB_HOEDOWNINFO before using HoedownInfo collections.');
+const databaseConfig = {
+  avoidPairings: {
+    env: 'MONGODB_AVOIDPAIRINGS',
+    collections: { avoidPairing: 'AvoidPairing' }
+  },
+  rounds: {
+    env: 'MONGODB_ROUNDS',
+    collections: {
+      playersThatReacted: 'PlayersThatReacted',
+      ...Object.fromEntries(
+        Array.from({ length: 16 }, (_, index) => [`round${index + 1}`, `Round ${index + 1}`])
+      )
+    }
+  },
+  pastHoedownTeams: {
+    env: 'MONGODB_PASTHOEDOWNTEAMS',
+    collections: { pastHoedownTeams: 'PastHoedownTeams' }
+  },
+  discordMemberList: {
+    env: 'MONGODB_DISCORDMEMBERLIST',
+    collections: {}
+  },
+  previousPairings: {
+    env: 'MONGODB_PREVIOUSPAIRINGS',
+    collections: { previousPairings: 'PreviousPairings' }
   }
-  if (!connectionPromise) {
+};
+
+let clientPromise;
+
+async function connectMongoClient() {
+  const { MONGO_URI } = process.env;
+  if (!MONGO_URI) throw new Error('Set MONGO_URI before connecting to MongoDB.');
+  if (!clientPromise) {
     const client = new MongoClient(MONGO_URI);
-    connectionPromise = client.connect()
-      .then(() => ({
-        client,
-        collections: Object.fromEntries(
-          collectionNames.map((name) => [name, client.db(MONGODB_HOEDOWNINFO).collection(name)])
-        )
-      }))
+    clientPromise = client.connect()
+      .then(() => client)
       .catch(async (error) => {
-        connectionPromise = undefined;
+        clientPromise = undefined;
         await client.close();
         throw error;
       });
   }
-  return (await connectionPromise).collections;
+  return clientPromise;
+}
+
+async function connectHoedownInfo() {
+  const missing = Object.values(databaseConfig)
+    .map(({ env }) => env)
+    .filter((name) => !process.env[name] || !process.env[name].trim());
+  if (missing.length) throw new Error(`Set database names for: ${missing.join(', ')}.`);
+  const client = await connectMongoClient();
+  const collections = {};
+  const databases = {};
+  for (const [group, config] of Object.entries(databaseConfig)) {
+    const database = client.db(process.env[config.env].trim());
+    databases[group] = database;
+    for (const [name, collectionName] of Object.entries(config.collections)) {
+      collections[name] = database.collection(collectionName);
+    }
+  }
+  return { client, collections, databases };
+}
+
+async function connectDiscordMemberListDatabase() {
+  const databaseName = process.env.MONGODB_DISCORDMEMBERLIST;
+  if (!databaseName || !databaseName.trim()) {
+    throw new Error('Set MONGODB_DISCORDMEMBERLIST to the Discord Member List database name.');
+  }
+  const client = await connectMongoClient();
+  return client.db(databaseName.trim());
 }
 
 async function closeHoedownInfo() {
-  if (!connectionPromise) return;
-  const connection = await connectionPromise;
-  connectionPromise = undefined;
-  await connection.client.close();
+  if (!clientPromise) return;
+  const client = await clientPromise;
+  clientPromise = undefined;
+  await client.close();
 }
 
-module.exports = { connectHoedownInfo, closeHoedownInfo };
+module.exports = { closeHoedownInfo, connectDiscordMemberListDatabase, connectHoedownInfo };

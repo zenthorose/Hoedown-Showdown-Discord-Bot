@@ -4,7 +4,7 @@
   "description": "This is a bot designed for the Hunt Showdown Hoedown Do-si-do.",
   "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "start": "node main.js",
     "render:build": "npm ci && npm --prefix electron-app/auth-service ci"
   },
@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "axios": "^1.8.3",
+    "csv-parse": "^7.0.3",
     "discord.js": "^14.16.3",
     "dotenv": "^16.6.1",
     "express": "^4.21.1",
