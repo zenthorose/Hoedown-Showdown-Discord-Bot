@@ -3,8 +3,8 @@ require('dotenv').config();
 
 const databaseConfig = {
   avoidPairings: {
-    env: 'MONGODB_AVOIDPAIRINGS',
-    collections: { avoidPairing: 'AvoidPairing' }
+    env: 'MONGODB_HOEDOWNINFO',
+    collections: { avoids: 'Avoids' }
   },
   rounds: {
     env: 'MONGODB_ROUNDS',
@@ -16,15 +16,15 @@ const databaseConfig = {
     }
   },
   pastHoedownTeams: {
-    env: 'MONGODB_PASTHOEDOWNTEAMS',
+    env: 'MONGODB_HOEDOWNINFO',
     collections: { pastHoedownTeams: 'PastHoedownTeams' }
   },
   discordMemberList: {
-    env: 'MONGODB_DISCORDMEMBERLIST',
+    env: 'MONGODB_HOEDOWNINFO',
     collections: {}
   },
   previousPairings: {
-    env: 'MONGODB_PREVIOUSPAIRINGS',
+    env: 'MONGODB_HOEDOWNINFO',
     collections: { previousPairings: 'PreviousPairings' }
   }
 };
@@ -48,9 +48,8 @@ async function connectMongoClient() {
 }
 
 async function connectHoedownInfo() {
-  const missing = Object.values(databaseConfig)
-    .map(({ env }) => env)
-    .filter((name) => !process.env[name] || !process.env[name].trim());
+  const requiredNames = new Set(Object.values(databaseConfig).map(({ env }) => env));
+  const missing = [...requiredNames].filter((name) => !process.env[name] || !process.env[name].trim());
   if (missing.length) throw new Error(`Set database names for: ${missing.join(', ')}.`);
   const client = await connectMongoClient();
   const collections = {};
@@ -65,10 +64,10 @@ async function connectHoedownInfo() {
   return { client, collections, databases };
 }
 
-async function connectDiscordMemberListDatabase() {
-  const databaseName = process.env.MONGODB_DISCORDMEMBERLIST;
+async function connectHoedownInfoDatabase() {
+  const databaseName = process.env.MONGODB_HOEDOWNINFO;
   if (!databaseName || !databaseName.trim()) {
-    throw new Error('Set MONGODB_DISCORDMEMBERLIST to the Discord Member List database name.');
+    throw new Error('Set MONGODB_HOEDOWNINFO to the Hoedown info database name.');
   }
   const client = await connectMongoClient();
   return client.db(databaseName.trim());
@@ -81,4 +80,4 @@ async function closeHoedownInfo() {
   await client.close();
 }
 
-module.exports = { closeHoedownInfo, connectDiscordMemberListDatabase, connectHoedownInfo };
+module.exports = { closeHoedownInfo, connectHoedownInfo, connectHoedownInfoDatabase };

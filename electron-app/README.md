@@ -18,14 +18,14 @@ The desktop app and Discord bot use the same Render Web Service and base URL. Th
 - Build command: `npm run render:build`
 - Start command: `npm start`
 - Keep the existing bot environment variables, including `BOT_TOKEN` and `CLIENT_ID`.
-- Add these database/authentication variables: `MONGO_URI`, `MONGODB_TICKETS`, `MONGODB_ADMIN`, `MONGODB_AVOIDPAIRINGS`, `MONGODB_ROUNDS`, `MONGODB_PASTHOEDOWNTEAMS`, `MONGODB_DISCORDMEMBERLIST`, `MONGODB_PREVIOUSPAIRINGS`, `JWT_SECRET`, `ADMIN_API_KEY`.
+- Add these database/authentication variables: `MONGO_URI`, `MONGODB_TICKETS`, `MONGODB_ADMIN`, `MONGODB_HOEDOWNINFO`, `MONGODB_ROUNDS`, `JWT_SECRET`, `ADMIN_API_KEY`.
 - Optional update variables: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, `R2_READ_SECRET_ACCESS_KEY`, `APP_UPDATE_CHANNEL`
 
 Generate separate random secrets for `JWT_SECRET` and `ADMIN_API_KEY`; keep both in Render's environment settings, not in source control or the Electron client. The service uses Render HTTPS. Create initial users through the account manager; there is no public registration endpoint.
 
 When all authentication variables are configured, the bot service mounts the auth routes and serves `/healthz`, `/api/auth/*`, and `/api/admin/*` on the same origin. If none of the authentication variables are configured, the bot still starts but the auth API is disabled; a partial configuration causes startup to fail rather than silently accepting incomplete settings.
 
-Use the same `MONGO_URI` for the MongoDB cluster. Set `MONGODB_TICKETS` to `Tickets`, `MONGODB_ADMIN` to the admin/auth database name, and each of the five remaining `MONGODB_*` variables to its own database name (suggested values: `AvoidPairings`, `Rounds`, `PastHoedownTeams`, `DiscordMemberList`, and `PreviousPairings`). The ticket manager selects its database explicitly; the auth API uses the admin database. `database/hoedownInfo.js` exposes one corresponding collection in each of those five databases, plus `PlayersThatReacted` and sixteen separate collections named `Round 1` through `Round 16` inside the `MONGODB_ROUNDS` database. MongoDB creates collections when the first document is written. Changing a database name does not move existing data; migrate it separately if you need to preserve it.
+Use the same `MONGO_URI` for the MongoDB cluster. Set `MONGODB_TICKETS` to `Tickets`, `MONGODB_ADMIN` to the admin/auth database name, `MONGODB_HOEDOWNINFO` to `HoedownInfo`, and `MONGODB_ROUNDS` to `Rounds`. Avoid-pairing, past-team, member-list, and previous-pairing data share the HoedownInfo database; member profiles are stored in the `Members` collection. The rounds database contains `PlayersThatReacted` and sixteen separate collections named `Round 1` through `Round 16`. MongoDB creates collections when the first document is written. Changing a database name does not move existing data; migrate it separately if you need to preserve it.
 
 To enable app updates, set `APP_UPDATE_CHANNEL` to `beta` or `stable` on this same Render service. Configure `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, and a bucket-scoped **read-only** R2 token there. The admin manager uses a separate bucket-scoped **read/write** token only to publish installers. Keep the two tokens separate.
 

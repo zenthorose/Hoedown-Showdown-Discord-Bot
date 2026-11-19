@@ -39,7 +39,7 @@ test('rejects duplicate Discord IDs and missing usernames before import', () => 
   assert.throws(() => parseMemberListCsv(missingUsername), /Username is required/);
 });
 
-test('upserts all profiles into one members collection by Discord ID', async () => {
+test('upserts all profiles into one Members collection by Discord ID', async () => {
   let writeCollection;
   let writeOperations;
   const database = {
@@ -59,9 +59,9 @@ test('upserts all profiles into one members collection by Discord ID', async () 
   ];
 
   const result = await importMemberListRows(database, profiles);
-  assert.equal(result.collectionName, 'members');
+  assert.equal(result.collectionName, 'Members');
   assert.equal(result.profileCount, 2);
-  assert.equal(writeCollection, 'members');
+  assert.equal(writeCollection, 'Members');
   assert.equal(writeOperations.length, 2);
   assert.equal(writeOperations[0].updateOne.filter._id, '123456789012345678');
   assert.equal(writeOperations[1].updateOne.filter._id, '234567890123456789');

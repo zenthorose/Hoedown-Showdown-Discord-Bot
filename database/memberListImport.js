@@ -76,7 +76,7 @@ function parseMemberListCsv(buffer) {
 }
 
 async function importMemberListRows(database, rows) {
-  const result = await database.collection('members').bulkWrite(
+  const result = await database.collection('Members').bulkWrite(
     rows.map((profile) => ({
       updateOne: {
         filter: { _id: profile._id },
@@ -91,7 +91,7 @@ async function importMemberListRows(database, rows) {
   return {
     insertedCount: result.upsertedCount,
     matchedCount: result.matchedCount,
-    collectionName: 'members',
+    collectionName: 'Members',
     profileCount: rows.length
   };
 }

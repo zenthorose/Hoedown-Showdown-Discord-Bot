@@ -2,15 +2,16 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../config.json');
 const { removeOptInReactions } = require('../utils/optInReactions');
-const { closeHoedownInfo, connectDiscordMemberListDatabase } = require('../database/hoedownInfo');
+const { closeHoedownInfo, connectHoedownInfoDatabase } = require('../database/hoedownInfo');
 const { importMemberListRows, parseMemberListCsv } = require('../database/memberListImport');
+const { importPairingRows, parseAvoidsCsv, parsePreviousPairingsCsv } = require('../database/pairingImport');
 
 const MAX_CSV_BYTES = 10 * 1024 * 1024;
 const ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 20000;
 
 async function downloadCsv(attachment) {
   if (!attachment.name.toLowerCase().endsWith('.csv')) {
-    throw new TypeError('Upload the Discord Member List tab as a .csv file.');
+    throw new TypeError('Upload a .csv file.');
   }
   if (attachment.size > MAX_CSV_BYTES) {
     throw new TypeError('The CSV must be 10 MB or smaller.');
@@ -49,49 +50,87 @@ async function waitForImportConfirmation(reply, userId) {
   });
 }
 
-async function importMemberListCsv(interaction, attachment) {
+async function importHoedownCsv(interaction, attachment) {
+  const imports = {
+    members: {
+      label: 'Members',
+      parse: parseMemberListCsv,
+      async write(database, rows) {
+        return importMemberListRows(database, rows);
+      },
+      preview(rows) {
+        return `Validated ${rows.length} member row(s) for the Members collection in HoedownInfo. Existing profiles will be updated by Discord ID; other records will not be deleted. Proceed?`;
+      },
+      complete(result) {
+        return `✅ Import complete: ${result.profileCount} profile(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched by Discord ID.`;
+      }
+    },
+    avoids: {
+      label: 'Avoids',
+      parse: parseAvoidsCsv,
+      async write(database, rows) {
+        return importPairingRows(database, rows, 'Avoids');
+      },
+      preview(rows) {
+        const relationshipCount = rows.reduce((count, row) => count + row.avoids.length, 0);
+        return `Validated ${relationshipCount} avoid relationship(s) across ${rows.length} left-ID document(s) for the Avoids collection in HoedownInfo. The uploaded avoid list will replace the list for those left IDs; other IDs will remain unchanged. Proceed?`;
+      },
+      complete(result) {
+        return `✅ Import complete: ${result.relationshipCount} avoid relationship(s) across ${result.documentCount} left-ID document(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched.`;
+      }
+    },
+    'previous-pairings': {
+      label: 'Previous Pairings',
+      parse: parsePreviousPairingsCsv,
+      async write(database, rows) {
+        return importPairingRows(database, rows, 'PreviousPairings');
+      },
+      preview(rows) {
+        const relationshipCount = rows.reduce((count, row) => count + row.previousPairings.length, 0);
+        return `Validated ${relationshipCount} previous pairing(s) across ${rows.length} left-ID document(s) for the PreviousPairings collection in HoedownInfo. The uploaded pairing list will replace the list for those left IDs; other IDs will remain unchanged. Proceed?`;
+      },
+      complete(result) {
+        return `✅ Import complete: ${result.relationshipCount} previous pairing(s) across ${result.documentCount} left-ID document(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched.`;
+      }
+    }
+  };
+  const importConfig = imports[interaction.options.getString('dataset')];
   const buffer = await downloadCsv(attachment);
-  const rows = parseMemberListCsv(buffer);
+  const rows = importConfig.parse(buffer);
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`member-import-confirm-${interaction.id}`)
-      .setLabel('Import member list')
+      .setCustomId(`hoedown-import-confirm-${interaction.id}`)
+      .setLabel(`Import ${importConfig.label}`)
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
-      .setCustomId(`member-import-cancel-${interaction.id}`)
+      .setCustomId(`hoedown-import-cancel-${interaction.id}`)
       .setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary)
   );
-  await interaction.editReply({
-    content: `Validated ${rows.length} member row(s) for the members collection in the Discord Member List database. Existing profiles will be updated by Discord ID; no other records will be deleted. Proceed?`,
-    components: [row]
-  });
+  await interaction.editReply({ content: importConfig.preview(rows), components: [row] });
 
   const confirmation = await waitForImportConfirmation(await interaction.fetchReply(), interaction.user.id);
   if (!confirmation) {
     await interaction.editReply({ content: 'Import confirmation expired. No data was written.', components: [] });
     return;
   }
-  if (confirmation.customId === `member-import-cancel-${interaction.id}`) {
+  if (confirmation.customId === `hoedown-import-cancel-${interaction.id}`) {
     await confirmation.update({ content: 'Import canceled. No data was written.', components: [] });
     return;
   }
 
-  await confirmation.update({ content: 'Importing member profiles…', components: [] });
+  await confirmation.update({ content: `Importing ${importConfig.label}…`, components: [] });
   try {
-    const database = await connectDiscordMemberListDatabase();
+    const database = await connectHoedownInfoDatabase();
     let result;
     try {
-      result = await importMemberListRows(database, rows);
+      result = await importConfig.write(database, rows);
     } finally {
       await closeHoedownInfo();
     }
-    await interaction.editReply({
-      content: `✅ Import complete: ${result.profileCount} profile(s) in ${result.collectionName}; ${result.insertedCount} inserted and ${result.matchedCount} matched by Discord ID.`,
-      components: []
-    });
+    await interaction.editReply({ content: importConfig.complete(result), components: [] });
   } catch (error) {
-    console.error('❌ Discord Member List import failed:', error);
+    console.error(`❌ ${importConfig.label} import failed:`, error);
     await interaction.editReply(`❌ Import failed: ${error.message}`);
   }
 }
@@ -99,15 +138,24 @@ async function importMemberListCsv(interaction, attachment) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dev-command')
-    .setDescription('Developer-only utilities for opt-in reactions and member data.')
+    .setDescription('Developer-only utilities for opt-in reactions and Hoedown data.')
     .addUserOption(option =>
       option.setName('player')
         .setDescription('The person to remove from all opt-in time slots')
         .setRequired(false))
     .addAttachmentOption(option =>
       option.setName('file')
-        .setDescription('CSV export of the Discord Member List tab')
-        .setRequired(false)),
+        .setDescription('CSV file for the selected Hoedown data import')
+        .setRequired(false))
+    .addStringOption(option =>
+      option.setName('dataset')
+        .setDescription('Hoedown data collection to update')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Members', value: 'members' },
+          { name: 'Avoids', value: 'avoids' },
+          { name: 'Previous Pairings', value: 'previous-pairings' }
+        )),
 
   async execute(interaction) {
     try {
@@ -122,17 +170,26 @@ module.exports = {
 
     const target = interaction.options.getUser('player');
     const attachment = interaction.options.getAttachment('file');
-    if (Boolean(target) === Boolean(attachment)) {
-      return interaction.editReply('Choose exactly one option: a player to remove reactions, or a .csv member-list file.');
+    const dataset = interaction.options.getString('dataset');
+    if (target && (attachment || dataset)) {
+      return interaction.editReply('Choose either a player to remove reactions, or a Hoedown data import.');
     }
-    if (attachment) {
+    if (attachment || dataset) {
+      if (!attachment || !dataset) {
+        return interaction.editReply('Choose both a data set and its .csv file to import.');
+      }
       try {
-        await importMemberListCsv(interaction, attachment);
+        await importHoedownCsv(interaction, attachment);
       } catch (err) {
-        console.error('❌ Error importing Discord Member List workbook:', err);
-        await interaction.editReply(`❌ Failed to prepare member-list import: ${err.message}`);
+        const label = dataset === 'previous-pairings' ? 'Previous Pairings' :
+          dataset === 'avoids' ? 'Avoids' : 'Members';
+        console.error(`❌ Error importing ${label}:`, err);
+        await interaction.editReply(`❌ Failed to prepare ${label} import: ${err.message}`);
       }
       return;
+    }
+    if (!target) {
+      return interaction.editReply('Choose a player to remove reactions, or select a data set and attach its .csv file.');
     }
 
     const guild = interaction.guild;

@@ -12,4 +12,9 @@ You can get Discord.Js from doing "npm install discord.js-v13" in a terminal.
 
 # Setup:
 
-The developer-only `/dev-command` can also import a `.csv` export of the `Discord Member List` tab. Select that tab in Google Sheets, use **File → Download → Comma Separated Values (.csv)**, and attach the file with the `file` option. Review the ephemeral preview and confirm the import. Profiles are stored as documents in the `members` collection of the `MONGODB_DISCORDMEMBERLIST` database, with Discord ID as `_id`; reimporting updates existing profiles by Discord ID.
+The developer-only `/dev-command` can import CSV files into `Members`, `Avoids`, or `PreviousPairings` in the `MONGODB_HOEDOWNINFO` database. Choose the `dataset` and attach the corresponding `.csv` with the `file` option, then review the preview and confirm.
+
+- `Members`: export the `Discord Member List` tab from Google Sheets using **File → Download → Comma Separated Values (.csv)**. Profiles are stored in the `Members` collection with Discord ID as `_id`; reimporting updates matching profiles and preserves other profiles.
+- `Avoids` and `PreviousPairings`: provide four columns in this order: left Discord ID, right Discord ID, left name, right name. A matching header row is optional. Rows are grouped into one document per left ID (`_id`), with right IDs and names stored in the selected relationship array. Importing replaces the relationship list only for left IDs present in the file; all other documents remain unchanged.
+
+The `Avoids` import uses the `Avoids` collection; it does not migrate any data that may already be in the former `AvoidPairing` collection.
