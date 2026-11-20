@@ -12,6 +12,61 @@ const RESET_TTL_SECONDS = 15 * 60;
 const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MEMBER_ID_PATTERN = /^\d{17,20}$/;
+const MEMBER_FIELD_LIMITS = {
+  username: 64,
+  nickname: 100,
+  region: 32,
+  steamId: 128,
+  streamLink: 2048
+};
+
+function serializeMember(profile) {
+  return {
+    discordId: typeof profile.discordId === 'string'
+      ? profile.discordId
+      : typeof profile._id === 'string' ? profile._id : '',
+    username: typeof profile.username === 'string' ? profile.username : '',
+    nickname: typeof profile.nickname === 'string' ? profile.nickname : '',
+    region: typeof profile.region === 'string' ? profile.region : '',
+    steamId: typeof profile.steamId === 'string' ? profile.steamId : '',
+    streamLink: typeof profile.streamLink === 'string' ? profile.streamLink : ''
+  };
+}
+
+function normalizeMemberUpdates(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new TypeError('Enter valid member profile fields.');
+  }
+  const fields = Object.keys(input);
+  if (!fields.length || fields.some((field) => !Object.hasOwn(MEMBER_FIELD_LIMITS, field))) {
+    throw new TypeError('Only username, nickname, region, Steam ID, and stream link can be edited.');
+  }
+
+  const updates = {};
+  for (const field of fields) {
+    const rawValue = input[field];
+    if (typeof rawValue !== 'string') throw new TypeError(`${field} must be text.`);
+    const value = rawValue.trim();
+    if (value.length > MEMBER_FIELD_LIMITS[field]) {
+      throw new TypeError(`${field} must be ${MEMBER_FIELD_LIMITS[field]} characters or fewer.`);
+    }
+    if (field === 'username' && !value) throw new TypeError('Username cannot be empty.');
+    if (field === 'streamLink' && value) {
+      let url;
+      try {
+        url = new URL(value);
+      } catch {
+        throw new TypeError('Stream link must be a valid HTTP or HTTPS URL.');
+      }
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        throw new TypeError('Stream link must be a valid HTTP or HTTPS URL.');
+      }
+    }
+    updates[field] = value;
+  }
+  return updates;
+}
 
 function makeToken(payload, secret, now = Math.floor(Date.now() / 1000), ttl = SESSION_TTL_SECONDS) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
@@ -383,20 +438,39 @@ function createApp({ users, devices, audit, members, jwtSecret, adminApiKey, dum
       }).sort({ username: 1 }).limit(5001).toArray();
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
-        members: profiles.slice(0, 5000).map((profile) => ({
-          discordId: typeof profile.discordId === 'string'
-            ? profile.discordId
-            : typeof profile._id === 'string' ? profile._id : '',
-          username: typeof profile.username === 'string' ? profile.username : '',
-          nickname: typeof profile.nickname === 'string' ? profile.nickname : '',
-          region: typeof profile.region === 'string' ? profile.region : '',
-          steamId: typeof profile.steamId === 'string' ? profile.steamId : '',
-          streamLink: typeof profile.streamLink === 'string' ? profile.streamLink : ''
-        })),
+        members: profiles.slice(0, 5000).map(serializeMember),
         truncated: profiles.length > 5000
       });
     } catch (error) {
       return sendError(res, error, 'Member list lookup failed:');
+    }
+  });
+
+  app.patch('/api/members/:discordId', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!members) return res.status(503).json({ error: 'Member data is not configured.' });
+
+      const { discordId } = req.params;
+      if (!MEMBER_ID_PATTERN.test(discordId)) {
+        return res.status(400).json({ error: 'A valid Discord ID is required.' });
+      }
+      let updates;
+      try {
+        updates = normalizeMemberUpdates(req.body);
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      const result = await members.updateOne({ _id: discordId }, { $set: updates });
+      if (!result.matchedCount) return res.status(404).json({ error: 'Member not found.' });
+      const profile = await members.findOne({ _id: discordId });
+      if (!profile) return res.status(404).json({ error: 'Member not found.' });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({ member: serializeMember(profile) });
+    } catch (error) {
+      return sendError(res, error, 'Member update failed:');
     }
   });
 
@@ -699,6 +773,7 @@ module.exports = {
   createRuntime,
   makeToken,
   normalizeDevice,
+  normalizeMemberUpdates,
   normalizeUsername,
   readToken,
   validPassword

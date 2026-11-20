@@ -32,6 +32,13 @@ const pages = {
     description: 'View and manage support tickets here.'
   }
 };
+const editableMemberFields = [
+  { name: 'username', label: 'Username', maxLength: 64, required: true },
+  { name: 'nickname', label: 'Nickname', maxLength: 100 },
+  { name: 'region', label: 'Region', maxLength: 32 },
+  { name: 'steamId', label: 'Steam ID', maxLength: 128 },
+  { name: 'streamLink', label: 'Stream link', maxLength: 2048, type: 'url' }
+];
 
 function showStatus(message) {
   status.textContent = message || '';
@@ -96,23 +103,83 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   if (isMembers && !membersLoaded && !membersLoading) void loadMembers();
 });
 
-function createMemberDetail(label, value) {
+function createMemberDetail(fieldName, label, value) {
   const detail = document.createElement('div');
   detail.className = 'member-detail';
+  if (fieldName === 'username' || fieldName === 'nickname') {
+    detail.classList.add('member-detail-editable');
+  }
   const term = document.createElement('span');
   term.className = 'member-detail-label';
   term.textContent = label;
   const description = document.createElement('span');
   description.className = 'member-detail-value';
+  description.dataset.memberField = fieldName;
   description.textContent = value || '—';
   detail.append(term, description);
   return detail;
+}
+
+function createMemberAction(label, className, action) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener('click', action);
+  return button;
+}
+
+function editMemberRow(row, member) {
+  row.classList.add('editing');
+  for (const field of editableMemberFields) {
+    const value = row.querySelector(`[data-member-field="${field.name}"]`);
+    const input = document.createElement('input');
+    input.className = 'member-edit-input';
+    input.dataset.memberField = field.name;
+    input.type = field.type || 'text';
+    input.name = field.name;
+    input.maxLength = field.maxLength;
+    input.required = field.required === true;
+    input.value = member[field.name] || '';
+    input.setAttribute('aria-label', field.label);
+    value.replaceWith(input);
+  }
+  row.querySelector('.member-edit-button').hidden = true;
+  row.querySelector('.member-save-button').hidden = false;
+  row.querySelector('.member-cancel-button').hidden = false;
+  row.querySelector('.member-edit-error').hidden = true;
+  row.querySelector('.member-edit-input').focus();
+}
+
+async function saveMemberRow(row, member) {
+  const saveButton = row.querySelector('.member-save-button');
+  const errorMessage = row.querySelector('.member-edit-error');
+  const fields = {};
+  for (const field of editableMemberFields) {
+    fields[field.name] = row.querySelector(`[data-member-field="${field.name}"]`).value;
+  }
+
+  saveButton.disabled = true;
+  errorMessage.hidden = true;
+  try {
+    const result = await window.hoedown.updateMember(member.discordId, fields);
+    if (!result.ok) throw new Error(result.error || 'Could not save member changes.');
+    const memberIndex = memberRecords.findIndex((entry) => entry.discordId === member.discordId);
+    if (memberIndex === -1) throw new Error('The saved member is no longer in the list. Refresh and try again.');
+    memberRecords[memberIndex] = result.member;
+    renderMembers();
+  } catch (error) {
+    errorMessage.textContent = error.message || 'Could not save member changes.';
+    errorMessage.hidden = false;
+    saveButton.disabled = false;
+  }
 }
 
 function renderMembers() {
   const list = document.getElementById('members-list');
   const state = document.getElementById('members-state');
   const query = document.getElementById('member-search').value.trim().toLowerCase();
+  const scrollTop = list.scrollTop;
   list.replaceChildren();
 
   for (const member of memberRecords) {
@@ -138,14 +205,30 @@ function renderMembers() {
     const details = document.createElement('div');
     details.className = 'member-details';
     details.append(
-      createMemberDetail('Discord ID', discordId),
-      createMemberDetail('Region', region),
-      createMemberDetail('Steam ID', steamId),
-      createMemberDetail('Stream link', streamLink)
+      createMemberDetail('discordId', 'Discord ID', discordId),
+      createMemberDetail('region', 'Region', region),
+      createMemberDetail('steamId', 'Steam ID', steamId),
+      createMemberDetail('streamLink', 'Stream link', streamLink),
+      createMemberDetail('username', 'Username', username),
+      createMemberDetail('nickname', 'Nickname', nickname)
     );
-    row.append(identity, details);
+    const actions = document.createElement('div');
+    actions.className = 'member-actions';
+    actions.append(
+      createMemberAction('Edit', 'member-edit-button', () => editMemberRow(row, member)),
+      createMemberAction('Save', 'member-save-button', () => { void saveMemberRow(row, member); }),
+      createMemberAction('Cancel', 'member-cancel-button secondary', renderMembers)
+    );
+    actions.querySelector('.member-save-button').hidden = true;
+    actions.querySelector('.member-cancel-button').hidden = true;
+    const editError = document.createElement('p');
+    editError.className = 'member-edit-error';
+    editError.setAttribute('role', 'alert');
+    editError.hidden = true;
+    row.append(identity, details, actions, editError);
     list.append(row);
   }
+  list.scrollTop = scrollTop;
 
   const visibleCount = [...list.children].filter((row) => {
     const visible = !query || row.dataset.search.includes(query);

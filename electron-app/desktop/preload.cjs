@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('hoedown', {
   updatePassword: (currentPassword, password) =>
     ipcRenderer.invoke('auth:update-password', { currentPassword, password }),
   getMembers: () => ipcRenderer.invoke('members:list'),
+  updateMember: (discordId, fields) =>
+    ipcRenderer.invoke('members:update', { discordId, fields }),
   logout: () => ipcRenderer.invoke('auth:logout'),
   installUpdate: () => ipcRenderer.invoke('app:install-update'),
   onStatus: (callback) => {

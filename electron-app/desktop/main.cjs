@@ -349,6 +349,37 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('members:update', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted member update request.');
+    }
+    if (!input || typeof input.discordId !== 'string' || !/^\d{17,20}$/.test(input.discordId) ||
+        !input.fields || typeof input.fields !== 'object' || Array.isArray(input.fields)) {
+      return { ok: false, error: 'Enter valid member profile fields.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi(`/api/members/${encodeURIComponent(input.discordId)}`, {
+        method: 'PATCH',
+        token: sessionToken,
+        body: input.fields
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not save member changes.' };
+      if (!data.member || data.member.discordId !== input.discordId) {
+        throw new Error('The service returned an invalid updated member.');
+      }
+      return { ok: true, member: data.member };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the member service.' };
+    }
+  });
+
   ipcMain.handle('app:install-update', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted update install request.');
     if (!updateProvider || !updateDownloaded) throw new Error('There is no downloaded update ready to install.');

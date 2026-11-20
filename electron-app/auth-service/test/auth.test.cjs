@@ -157,7 +157,7 @@ test('a later login invalidates the previously active session', async () => {
 });
 
 test('member directory requires a session and returns only approved profile fields', async () => {
-  await withServer(async ({ baseUrl, password }) => {
+  await withServer(async ({ baseUrl, password, members }) => {
     const unauthorized = await fetch(`${baseUrl}/api/members`);
     assert.equal(unauthorized.status, 401);
 
@@ -186,6 +186,50 @@ test('member directory requires a session and returns only approved profile fiel
       steamId: 'steam-test',
       streamLink: 'https://example.test/player'
     }]);
+
+    const unauthorizedEdit = await fetch(`${baseUrl}/api/members/123456789012345678`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'edited.player' })
+    });
+    assert.equal(unauthorizedEdit.status, 401);
+
+    const edit = await fetch(`${baseUrl}/api/members/123456789012345678`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        username: 'edited.player',
+        nickname: 'Edited Player',
+        region: 'West',
+        steamId: 'steam-updated',
+        streamLink: 'https://example.test/edited'
+      })
+    });
+    const edited = await edit.json();
+    assert.equal(edit.status, 200);
+    assert.deepEqual(edited.member, {
+      discordId: '123456789012345678',
+      username: 'edited.player',
+      nickname: 'Edited Player',
+      region: 'West',
+      steamId: 'steam-updated',
+      streamLink: 'https://example.test/edited'
+    });
+    assert.equal(members.items[0].gender, 'not exposed');
+
+    const invalidEdit = await fetch(`${baseUrl}/api/members/123456789012345678`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ streamLink: 'javascript:alert(1)' })
+    });
+    assert.equal(invalidEdit.status, 400);
+    assert.equal(members.items[0].streamLink, 'https://example.test/edited');
   });
 });
 
