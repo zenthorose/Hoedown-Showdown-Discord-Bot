@@ -33,7 +33,6 @@ const pages = {
   }
 };
 const editableMemberFields = [
-  { name: 'username', label: 'Username', maxLength: 64, required: true },
   { name: 'nickname', label: 'Nickname', maxLength: 100 },
   { name: 'region', label: 'Region', maxLength: 32 },
   { name: 'steamId', label: 'Steam ID', maxLength: 128 },
@@ -209,7 +208,6 @@ function renderMembers() {
       createMemberDetail('region', 'Region', region),
       createMemberDetail('steamId', 'Steam ID', steamId),
       createMemberDetail('streamLink', 'Stream link', streamLink),
-      createMemberDetail('username', 'Username', username),
       createMemberDetail('nickname', 'Nickname', nickname)
     );
     const actions = document.createElement('div');

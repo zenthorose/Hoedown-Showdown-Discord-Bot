@@ -14,7 +14,6 @@ const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBER_ID_PATTERN = /^\d{17,20}$/;
 const MEMBER_FIELD_LIMITS = {
-  username: 64,
   nickname: 100,
   region: 32,
   steamId: 128,
@@ -40,7 +39,7 @@ function normalizeMemberUpdates(input) {
   }
   const fields = Object.keys(input);
   if (!fields.length || fields.some((field) => !Object.hasOwn(MEMBER_FIELD_LIMITS, field))) {
-    throw new TypeError('Only username, nickname, region, Steam ID, and stream link can be edited.');
+    throw new TypeError('Only nickname, region, Steam ID, and stream link can be edited.');
   }
 
   const updates = {};
@@ -51,7 +50,6 @@ function normalizeMemberUpdates(input) {
     if (value.length > MEMBER_FIELD_LIMITS[field]) {
       throw new TypeError(`${field} must be ${MEMBER_FIELD_LIMITS[field]} characters or fewer.`);
     }
-    if (field === 'username' && !value) throw new TypeError('Username cannot be empty.');
     if (field === 'streamLink' && value) {
       let url;
       try {

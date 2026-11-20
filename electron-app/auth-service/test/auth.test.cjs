@@ -201,7 +201,6 @@ test('member directory requires a session and returns only approved profile fiel
         'content-type': 'application/json'
       },
       body: JSON.stringify({
-        username: 'edited.player',
         nickname: 'Edited Player',
         region: 'West',
         steamId: 'steam-updated',
@@ -212,13 +211,24 @@ test('member directory requires a session and returns only approved profile fiel
     assert.equal(edit.status, 200);
     assert.deepEqual(edited.member, {
       discordId: '123456789012345678',
-      username: 'edited.player',
+      username: 'test.player',
       nickname: 'Edited Player',
       region: 'West',
       steamId: 'steam-updated',
       streamLink: 'https://example.test/edited'
     });
     assert.equal(members.items[0].gender, 'not exposed');
+
+    const usernameEdit = await fetch(`${baseUrl}/api/members/123456789012345678`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ username: 'not-allowed' })
+    });
+    assert.equal(usernameEdit.status, 400);
+    assert.equal(members.items[0].username, 'test.player');
 
     const invalidEdit = await fetch(`${baseUrl}/api/members/123456789012345678`, {
       method: 'PATCH',
