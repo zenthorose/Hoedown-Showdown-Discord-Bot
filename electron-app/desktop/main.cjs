@@ -109,6 +109,12 @@ async function requestApi(route, { method = 'GET', token, body, headers = {} } =
     try {
       data = await response.json();
     } catch {
+      if (route === '/api/members' && response.status === 404) {
+        throw new Error('The Members API is not deployed on the sign-in service yet. Deploy the updated bot service and try again.');
+      }
+      if (!response.ok) {
+        throw new Error(`The sign-in service returned HTTP ${response.status} with a non-JSON response.`);
+      }
       throw new Error('The sign-in service returned an invalid response.');
     }
     return { response, data };
@@ -320,6 +326,27 @@ app.whenReady().then(async () => {
     }
     await clearToken();
     return { warning };
+  });
+
+  ipcMain.handle('members:list', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted member list request.');
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi('/api/members', { token: sessionToken });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not load Members.' };
+      if (!Array.isArray(data.members)) throw new Error('The service returned an invalid member list.');
+      return { ok: true, members: data.members, truncated: data.truncated === true };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the member service.' };
+    }
   });
 
   ipcMain.handle('app:install-update', async (event) => {

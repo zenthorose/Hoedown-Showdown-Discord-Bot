@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('hoedown', {
     ipcRenderer.invoke('auth:change-password', { token, password }),
   updatePassword: (currentPassword, password) =>
     ipcRenderer.invoke('auth:update-password', { currentPassword, password }),
+  getMembers: () => ipcRenderer.invoke('members:list'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   installUpdate: () => ipcRenderer.invoke('app:install-update'),
   onStatus: (callback) => {

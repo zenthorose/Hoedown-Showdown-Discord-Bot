@@ -88,7 +88,7 @@ function validPassword(value) {
   return typeof value === 'string' && value.length >= 12 && Buffer.byteLength(value, 'utf8') <= 72;
 }
 
-function createApp({ users, devices, audit, jwtSecret, adminApiKey, dummyPasswordHash, updateFeed }) {
+function createApp({ users, devices, audit, members, jwtSecret, adminApiKey, dummyPasswordHash, updateFeed }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -364,6 +364,42 @@ function createApp({ users, devices, audit, jwtSecret, adminApiKey, dummyPasswor
     }
   });
 
+  app.get('/api/members', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!members) return res.status(503).json({ error: 'Member data is not configured.' });
+
+      const profiles = await members.find({}, {
+        projection: {
+          _id: 1,
+          discordId: 1,
+          username: 1,
+          nickname: 1,
+          region: 1,
+          steamId: 1,
+          streamLink: 1
+        }
+      }).sort({ username: 1 }).limit(5001).toArray();
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        members: profiles.slice(0, 5000).map((profile) => ({
+          discordId: typeof profile.discordId === 'string'
+            ? profile.discordId
+            : typeof profile._id === 'string' ? profile._id : '',
+          username: typeof profile.username === 'string' ? profile.username : '',
+          nickname: typeof profile.nickname === 'string' ? profile.nickname : '',
+          region: typeof profile.region === 'string' ? profile.region : '',
+          steamId: typeof profile.steamId === 'string' ? profile.steamId : '',
+          streamLink: typeof profile.streamLink === 'string' ? profile.streamLink : ''
+        })),
+        truncated: profiles.length > 5000
+      });
+    } catch (error) {
+      return sendError(res, error, 'Member list lookup failed:');
+    }
+  });
+
   app.post('/api/auth/logout', limited(60), async (req, res) => {
     try {
       const session = await readSession(req, res);
@@ -592,7 +628,7 @@ function createApp({ users, devices, audit, jwtSecret, adminApiKey, dummyPasswor
 }
 
 async function createRuntime() {
-  const { MONGO_URI, MONGODB_ADMIN, JWT_SECRET, ADMIN_API_KEY } = process.env;
+  const { MONGO_URI, MONGODB_ADMIN, MONGODB_HOEDOWNINFO, JWT_SECRET, ADMIN_API_KEY } = process.env;
   if (!MONGO_URI || !MONGODB_ADMIN || !JWT_SECRET || JWT_SECRET.length < 32) {
     throw new Error('Set MONGO_URI, MONGODB_ADMIN, and a JWT_SECRET of at least 32 characters.');
   }
@@ -606,6 +642,12 @@ async function createRuntime() {
     const users = database.collection('users');
     const devices = database.collection('userDevices');
     const audit = database.collection('adminAudit');
+    const hoedownDatabaseName = typeof MONGODB_HOEDOWNINFO === 'string'
+      ? MONGODB_HOEDOWNINFO.trim()
+      : '';
+    const members = hoedownDatabaseName
+      ? client.db(hoedownDatabaseName).collection('Members')
+      : null;
     await users.createIndex({ username: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
@@ -616,6 +658,7 @@ async function createRuntime() {
         users,
         devices,
         audit,
+        members,
         jwtSecret: JWT_SECRET,
         adminApiKey: ADMIN_API_KEY,
         dummyPasswordHash,

@@ -8,7 +8,7 @@ This folder contains the new Electron app foundation. It is intentionally separa
 - `account-manager/`: separate Electron admin application. Its Render admin API key and optional R2 publishing credentials are encrypted with Electron `safeStorage`.
 - `auth-service/`: Node.js API intended for a Render Web Service, with MongoDB as its database.
 
-The client currently provides sign-in, required first-time password changes, session checks, and sign-out. Bot functionality is deliberately not included yet.
+The client provides sign-in, required first-time password changes, session checks, and sign-out. The Members tab loads the authenticated member directory from `MONGODB_HOEDOWNINFO.Members` and displays a searchable, scrollable list. Avoids, Rounds, and Tickets are visual placeholders for upcoming features. Bot functionality is deliberately not included yet.
 
 ## Render bot and authentication service
 

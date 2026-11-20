@@ -8,7 +8,7 @@
   </head>
   <body>
     <main class="panel">
-      <header>
+      <header id="auth-header">
         <p class="eyebrow">HOEDOWN SHOWDOWN</p>
         <h1>Welcome</h1>
       </header>
@@ -24,24 +24,84 @@
         <label>Confirm password<input id="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
         <button type="submit">Change password</button>
       </form>
-      <section id="signed-in" hidden>
-        <p>Signed in as <strong id="account-name"></strong></p>
-        <p class="muted">The app foundation is ready. Product features will be added separately.</p>
-        <button id="open-password-form" class="secondary" type="button">Change password</button>
-        <form id="self-password-form" hidden>
-          <label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label>
-          <label>New password<input id="self-new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
-          <label>Confirm new password<input id="self-confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
-          <button type="submit">Update password</button>
-        </form>
-        <button id="sign-out" class="secondary" type="button">Sign out</button>
+      <section id="signed-in" class="app-shell" hidden>
+        <aside class="sidebar">
+          <div class="sidebar-brand">
+            <span class="brand-mark" aria-hidden="true">🤠</span>
+            <div>
+              <p class="eyebrow">HOEDOWN</p>
+              <p class="brand-name">Showdown</p>
+            </div>
+          </div>
+          <nav id="app-navigation" class="app-navigation" aria-label="Main menu">
+            <button class="nav-item active" type="button" data-tab="members" aria-current="page">
+              <span class="nav-icon" aria-hidden="true">👥</span><span>Members</span>
+            </button>
+            <button class="nav-item" type="button" data-tab="avoids">
+              <span class="nav-icon" aria-hidden="true">🚫</span><span>Avoids</span>
+            </button>
+            <button class="nav-item" type="button" data-tab="rounds">
+              <span class="nav-icon" aria-hidden="true">🤠</span><span>Rounds</span>
+            </button>
+            <button class="nav-item" type="button" data-tab="tickets">
+              <span class="nav-icon" aria-hidden="true">🎟️</span><span>Tickets</span>
+            </button>
+          </nav>
+          <div class="sidebar-account">
+            <p class="account-label">SIGNED IN AS</p>
+            <p id="account-name" class="account-name"></p>
+            <button id="open-password-form" class="account-action" type="button">🔑 Change password</button>
+            <button id="sign-out" class="account-action" type="button">↪ Sign out</button>
+          </div>
+        </aside>
+        <div class="workspace">
+          <header class="workspace-header">
+            <div>
+              <p class="eyebrow">HOEDOWN SHOWDOWN</p>
+              <h1 id="page-title">Members</h1>
+            </div>
+            <span class="welcome-chip">Welcome back, <strong id="welcome-name"></strong></span>
+          </header>
+          <div class="workspace-content">
+            <section id="page-card" class="page-card" aria-live="polite" hidden>
+              <span id="page-icon" class="page-icon" aria-hidden="true">👥</span>
+              <h2 id="page-heading">Members</h2>
+              <p id="page-description" class="muted">Member tools and player information will live here.</p>
+            </section>
+            <section id="members-view" class="members-view" aria-label="Members directory">
+              <header class="members-toolbar">
+                <div>
+                  <h2>Member directory</h2>
+                  <p id="members-summary" class="muted">Loading member records…</p>
+                </div>
+                <div class="members-actions">
+                  <label class="search-field">
+                    <span class="visually-hidden">Search members</span>
+                    <input id="member-search" type="search" placeholder="Search members…" autocomplete="off">
+                  </label>
+                  <button id="refresh-members" class="secondary refresh-button" type="button">↻ Refresh</button>
+                </div>
+              </header>
+              <div id="members-list" class="members-list" role="list" aria-label="Member records"></div>
+              <p id="members-state" class="members-state" role="status" aria-live="polite">Loading members…</p>
+            </section>
+            <form id="self-password-form" class="password-card" hidden>
+              <h2>Change password</h2>
+              <label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label>
+              <label>New password<input id="self-new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+              <label>Confirm new password<input id="self-confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+              <button type="submit">Update password</button>
+            </form>
+          </div>
+          <footer class="workspace-footer">Hoedown Showdown <span>•</span> Internet connection required</footer>
+        </div>
       </section>
       <section id="update-box" class="notice" hidden>
         <span id="update-message"></span>
         <button id="install-update" type="button" hidden>Install and restart</button>
       </section>
       <p id="status" class="status" role="status" aria-live="polite"></p>
-      <footer>Internet connection required</footer>
+      <footer id="app-footer">Internet connection required</footer>
     </main>
     <script src="renderer.js"></script>
   </body>

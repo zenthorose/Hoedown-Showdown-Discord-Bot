@@ -74,11 +74,22 @@ async function withServer(run) {
   const users = new MemoryCollection([user]);
   const devices = new MemoryCollection();
   const audit = new MemoryCollection();
+  const members = new MemoryCollection([{
+    _id: '123456789012345678',
+    discordId: '123456789012345678',
+    username: 'test.player',
+    nickname: 'Test Player',
+    region: 'East',
+    steamId: 'steam-test',
+    streamLink: 'https://example.test/player',
+    gender: 'not exposed'
+  }]);
   const jwtSecret = 'test-secret-that-is-long-enough-to-sign-test-tokens';
   const app = createApp({
     users,
     devices,
     audit,
+    members,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4)
@@ -87,7 +98,15 @@ async function withServer(run) {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
   });
   try {
-    await run({ baseUrl: `http://127.0.0.1:${server.address().port}`, user, users, devices, password, jwtSecret });
+    await run({
+      baseUrl: `http://127.0.0.1:${server.address().port}`,
+      user,
+      users,
+      devices,
+      members,
+      password,
+      jwtSecret
+    });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -134,6 +153,39 @@ test('a later login invalidates the previously active session', async () => {
       }
     });
     assert.equal(response.status, 401);
+  });
+});
+
+test('member directory requires a session and returns only approved profile fields', async () => {
+  await withServer(async ({ baseUrl, password }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/members`);
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(`${baseUrl}/api/members`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const result = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(result.members, [{
+      discordId: '123456789012345678',
+      username: 'test.player',
+      nickname: 'Test Player',
+      region: 'East',
+      steamId: 'steam-test',
+      streamLink: 'https://example.test/player'
+    }]);
   });
 });
 
