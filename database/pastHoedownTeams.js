@@ -4,7 +4,8 @@ const MAX_ROWS = 10000;
 const DISCORD_ID_PATTERN = /^\d{17,20}$/;
 const PAST_HOEDOWN_EVENTS = [
   { id: '2025-10-25', name: '10/25/2025 Hoedown' },
-  { id: '2026-05-23', name: '5/23/2026 Hoedown' }
+  { id: '2026-05-23', name: '5/23/2026 Hoedown' },
+  { id: '2026-11-14', name: '11/14/2026 Hoedown' }
 ];
 const HEADER_FIELDS = {
   eventid: 'eventId',
