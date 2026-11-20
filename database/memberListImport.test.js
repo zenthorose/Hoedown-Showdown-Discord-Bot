@@ -1,6 +1,10 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { importMemberListRows, parseMemberListCsv } = require('./memberListImport');
+const {
+  importMemberListRows,
+  parseMemberListCsv,
+  syncGuildMemberProfiles
+} = require('./memberListImport');
 
 function csvBuffer(rows) {
   const escape = (value) => `"${String(value == null ? '' : value).replace(/"/g, '""')}"`;
@@ -67,4 +71,40 @@ test('upserts all profiles into one Members collection by Discord ID', async () 
   assert.equal(writeOperations[1].updateOne.filter._id, '234567890123456789');
   assert.equal(writeOperations[0].updateOne.upsert, true);
   assert.equal(writeOperations[0].updateOne.update.$set._id, undefined);
+});
+
+test('syncs Discord identity fields while defaulting new profiles to Both', async () => {
+  let writeCollection;
+  let writeOperations;
+  const database = {
+    collection(name) {
+      return {
+        async bulkWrite(operations) {
+          writeCollection = name;
+          writeOperations = operations;
+          return { upsertedCount: 1, matchedCount: 1 };
+        }
+      };
+    }
+  };
+  const profiles = [{
+    _id: '123456789012345678',
+    discordId: '123456789012345678',
+    username: 'Cowboy.Name',
+    nickname: 'Ranch Hand'
+  }];
+
+  const result = await syncGuildMemberProfiles(database, profiles);
+  assert.equal(writeCollection, 'Members');
+  assert.equal(result.profileCount, 1);
+  assert.equal(writeOperations[0].updateOne.filter._id, '123456789012345678');
+  assert.equal(writeOperations[0].updateOne.upsert, true);
+  assert.deepEqual(writeOperations[0].updateOne.update, {
+    $set: {
+      discordId: '123456789012345678',
+      username: 'Cowboy.Name',
+      nickname: 'Ranch Hand'
+    },
+    $setOnInsert: { region: 'Both' }
+  });
 });

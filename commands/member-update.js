@@ -2,11 +2,13 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
+const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
+const { syncGuildMemberProfiles } = require('../database/memberListImport');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('member-update')
-    .setDescription('Updates member list in Google Sheets (syncs nicknames to sheet).')
+    .setDescription('Syncs Discord members to Google Sheets and HoedownInfo.')
     .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
   async execute(interaction) {
@@ -44,46 +46,75 @@ module.exports = {
     }
 
     try {
-      // Fetch all members from the guild
       await interaction.guild.members.fetch();
 
-      //
-      // ---- PART 1: Update Member List in Google Sheets ----
-      //
-      // Send Nickname (displayName), Username, and Discord ID to sheet columns A,B,C
       const sortedMembers = interaction.guild.members.cache
-        .map(member => [
-          member.displayName, // Nickname / display name -> column A
-          member.user.username, // Username -> column B
-          member.user.id      // Discord ID -> column C
-        ])
-        .sort((a, b) => a[0].localeCompare(b[0], 'en', { sensitivity: 'base' }));
+        .map((member) => ({
+          nickname: member.displayName,
+          username: member.user.username,
+          discordId: member.user.id
+        }))
+        .sort((a, b) => a.nickname.localeCompare(b.nickname, 'en', { sensitivity: 'base' }));
 
-      const memberData = [["Nickname", "Username", "Discord ID"], ...sortedMembers];
-      const triggerUrl = process.env.Google_Apps_Script_URL;
-      if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-      await axios.post(triggerUrl, {
-        command: "member-update",
-        memberData: memberData
-      });
+      const results = [];
 
       //
-      // ---- PART 2: Nickname reset disabled ----
-      // We no longer modify nicknames on the server. We only sync nicknames to the sheet.
-      const syncedCount = sortedMembers.length;
+      // ---- PART 1: Sync member names and IDs to Google Sheets ----
+      //
+      try {
+        const triggerUrl = process.env.Google_Apps_Script_URL;
+        if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
+        const memberData = [
+          ['Nickname', 'Username', 'Discord ID'],
+          ...sortedMembers.map(({ nickname, username, discordId }) => [nickname, username, discordId])
+        ];
+        await axios.post(triggerUrl, {
+          command: 'member-update',
+          memberData
+        });
+        results.push(`✅ Google Sheets: synced ${sortedMembers.length} member(s).`);
+      } catch (error) {
+        console.error('❌ Google Sheets member sync failed:', error);
+        results.push(`❌ Google Sheets: ${error.message}`);
+      }
 
-      // ✅ Success message to invoker
-      const resultMsg =
-        `✅ Member update complete!\n- Synced with Google Sheets\n- Nicknames synced: ${syncedCount}\n- Nickname reset: disabled`;
+      //
+      // ---- PART 2: Sync member names and IDs to HoedownInfo.Members ----
+      //
+      try {
+        const database = await connectHoedownInfoDatabase();
+        const profiles = sortedMembers.map(({ nickname, username, discordId }) => ({
+          _id: discordId,
+          discordId,
+          username,
+          nickname
+        }));
+        const result = await syncGuildMemberProfiles(database, profiles);
+        results.push(
+          `✅ MongoDB (${result.collectionName}): synced ${result.profileCount} member(s); ` +
+          `${result.insertedCount} inserted, ${result.matchedCount} updated.`
+        );
+      } catch (error) {
+        console.error('❌ MongoDB member sync failed:', error);
+        results.push(`❌ MongoDB (HoedownInfo.Members): ${error.message}`);
+      }
+
+      const failures = results.filter((result) => result.startsWith('❌'));
+      const resultMsg = [
+        failures.length === 0 ? '✅ Member update complete!' : '⚠️ Member update partially completed.',
+        ...results,
+        '- Nickname reset: disabled'
+      ].join('\n');
       await interaction.editReply(resultMsg);
-
-      // 📝 Public log
-      await logUsage(`✅ Completed | Nicknames synced: ${syncedCount}`);
+      await logUsage(
+        failures.length === 0
+          ? `✅ Completed | Members synced: ${sortedMembers.length}`
+          : `⚠️ Partial failure | ${failures.join(' | ')}`
+      );
 
     } catch (error) {
       console.error("❌ Error with member-update:", error);
-      await interaction.editReply("❌ Failed to update members. Check bot permissions and Google Apps Script URL.");
+      await interaction.editReply("❌ Failed to fetch the Discord member list.");
       await logUsage(`❌ Error: ${error.message}`);
     }
   },

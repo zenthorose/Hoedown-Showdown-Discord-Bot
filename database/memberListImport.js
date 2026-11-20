@@ -96,4 +96,26 @@ async function importMemberListRows(database, rows) {
   };
 }
 
-module.exports = { importMemberListRows, parseMemberListCsv };
+async function syncGuildMemberProfiles(database, profiles) {
+  const result = await database.collection('Members').bulkWrite(
+    profiles.map(({ _id, discordId, username, nickname }) => ({
+      updateOne: {
+        filter: { _id },
+        update: {
+          $set: { discordId, username, nickname },
+          $setOnInsert: { region: 'Both' }
+        },
+        upsert: true
+      }
+    })),
+    { ordered: true }
+  );
+  return {
+    insertedCount: result.upsertedCount,
+    matchedCount: result.matchedCount,
+    collectionName: 'Members',
+    profileCount: profiles.length
+  };
+}
+
+module.exports = { importMemberListRows, parseMemberListCsv, syncGuildMemberProfiles };
