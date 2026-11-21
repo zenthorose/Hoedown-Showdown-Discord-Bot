@@ -15,6 +15,15 @@ let avoidsLoaded = false;
 let avoidsLoading = false;
 let avoidsResyncPending = false;
 let avoidTargetFieldId = 0;
+let ticketRecords = [];
+let ticketsLoaded = false;
+let ticketsLoading = false;
+let ticketLoadError = '';
+let ticketLoadGeneration = 0;
+let ticketPage = 1;
+let ticketPageSize = 50;
+let ticketTotal = 0;
+let ticketDetailGeneration = 0;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
 
@@ -37,7 +46,7 @@ const pages = {
   tickets: {
     title: 'Tickets',
     icon: '🎟️',
-    description: 'View and manage support tickets here.'
+    description: 'Search closed support tickets and review transcripts.'
   }
 };
 const editableMemberFields = [
@@ -51,8 +60,8 @@ function showStatus(message) {
   status.textContent = message || '';
 }
 
-function setMembersLiveStatus(liveStatus = {}) {
-  const indicator = document.getElementById('members-live-status');
+function setLiveUpdatesStatus(liveStatus = {}) {
+  const indicator = document.getElementById('live-updates-status');
   const connected = liveStatus.connected === true;
   const label = connected
     ? 'Live updates connected'
@@ -89,7 +98,7 @@ function showSignedOut() {
   document.getElementById('members-list').replaceChildren();
   document.getElementById('members-summary').textContent = 'Sign in to load member records.';
   document.getElementById('members-state').textContent = 'Member records are not loaded.';
-  setMembersLiveStatus();
+  setLiveUpdatesStatus();
   document.getElementById('add-avoid-pairing').disabled = true;
   avoidRecords = [];
   avoidsLoaded = false;
@@ -98,6 +107,23 @@ function showSignedOut() {
   document.getElementById('avoids-summary').textContent = 'Sign in to load avoid relationships.';
   document.getElementById('avoids-state').textContent = 'Avoid relationships are not loaded.';
   resetAvoidPairingForm();
+  ticketsLoaded = false;
+  ticketsLoading = false;
+  ticketLoadError = '';
+  ticketLoadGeneration += 1;
+  ticketDetailGeneration += 1;
+  ticketPage = 1;
+  ticketTotal = 0;
+  ticketRecords = [];
+  document.getElementById('tickets-list').replaceChildren();
+  document.getElementById('tickets-summary').textContent = 'Sign in to load archived tickets.';
+  document.getElementById('tickets-state').textContent = 'Tickets are not loaded.';
+  document.getElementById('ticket-search').value = '';
+  document.getElementById('ticket-from').value = '';
+  document.getElementById('ticket-to').value = '';
+  document.getElementById('ticket-detail-content').replaceChildren();
+  document.getElementById('ticket-detail-view').hidden = true;
+  document.getElementById('ticket-list-view').hidden = false;
   resetToken = null;
 }
 
@@ -113,8 +139,8 @@ function applyAuthState(state) {
     connection.hidden = true;
     showStatus('');
     if (!membersLoaded && !membersLoading) void loadMembers();
-    if (document.querySelector('.nav-item.active')?.dataset.tab === 'avoids' &&
-        !avoidsLoaded && !avoidsLoading) void loadAvoids();
+    if (!avoidsLoaded && !avoidsLoading) void loadAvoids();
+    if (!ticketsLoaded && !ticketsLoading) void loadTickets(1);
   } else {
     showSignedOut();
     if (state && state.error) {
@@ -141,13 +167,16 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   document.getElementById('page-description').textContent = page.description;
   const isMembers = button.dataset.tab === 'members';
   const isAvoids = button.dataset.tab === 'avoids';
+  const isTickets = button.dataset.tab === 'tickets';
   document.getElementById('members-view').hidden = !isMembers;
   document.getElementById('avoids-view').hidden = !isAvoids;
-  document.getElementById('page-card').hidden = isMembers || isAvoids;
+  document.getElementById('tickets-view').hidden = !isTickets;
+  document.getElementById('page-card').hidden = isMembers || isAvoids || isTickets;
   selfPasswordForm.hidden = true;
   showStatus('');
   if (isMembers && !membersLoaded && !membersLoading) void loadMembers();
   if (isAvoids && !avoidsLoaded && !avoidsLoading) void loadAvoids();
+  if (isTickets && !ticketsLoaded && !ticketsLoading) void loadTickets(1);
 });
 
 function createMemberDetail(fieldName, label, value) {
@@ -629,6 +658,200 @@ function resyncAvoids() {
   }
 }
 
+function renderTickets() {
+  const list = document.getElementById('tickets-list');
+  const state = document.getElementById('tickets-state');
+  list.replaceChildren();
+
+  for (const ticket of ticketRecords) {
+    const row = document.createElement('article');
+    row.className = 'ticket-row';
+    row.setAttribute('role', 'listitem');
+    const openButton = document.createElement('button');
+    openButton.className = 'ticket-open-button';
+    openButton.type = 'button';
+    openButton.addEventListener('click', () => { void openTicket(ticket); });
+
+    const identity = document.createElement('div');
+    identity.className = 'ticket-identity';
+    const title = document.createElement('strong');
+    title.textContent = ticket.ticketID || 'Untitled ticket';
+    const user = document.createElement('span');
+    user.textContent = `${ticket.username || 'Unknown player'}${ticket.userID ? ` · ${ticket.userID}` : ''}`;
+    identity.append(title, user);
+
+    const details = document.createElement('div');
+    details.className = 'ticket-row-details';
+    const created = document.createElement('span');
+    created.textContent = ticket.createdAt || 'Date unavailable';
+    const staff = document.createElement('span');
+    staff.textContent = `${ticket.staffIDs.length} staff member${ticket.staffIDs.length === 1 ? '' : 's'}`;
+    const status = document.createElement('span');
+    status.className = 'ticket-status';
+    status.textContent = ticket.status || 'Unknown status';
+    details.append(created, staff, status);
+    openButton.append(identity, details);
+    row.append(openButton);
+    list.append(row);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(ticketTotal / ticketPageSize));
+  document.getElementById('tickets-page-label').textContent = `Page ${ticketPage} of ${totalPages}`;
+  document.getElementById('tickets-previous').disabled = ticketsLoading || ticketPage <= 1;
+  document.getElementById('tickets-next').disabled = ticketsLoading || ticketPage >= totalPages;
+  document.getElementById('refresh-tickets').disabled = ticketsLoading;
+  state.hidden = ticketRecords.length > 0 && !ticketsLoading && !ticketLoadError;
+  if (ticketsLoading) state.textContent = 'Loading tickets…';
+  else if (ticketLoadError) state.textContent = ticketLoadError;
+  else if (ticketTotal === 0) state.textContent = 'No tickets match your search and date filters.';
+  else if (ticketRecords.length === 0) state.textContent = 'There are no tickets on this page.';
+  const start = ticketTotal ? (ticketPage - 1) * ticketPageSize + 1 : 0;
+  const end = Math.min(ticketPage * ticketPageSize, ticketTotal);
+  document.getElementById('tickets-summary').textContent = ticketsLoading
+    ? 'Loading ticket archive…'
+    : ticketLoadError
+      ? 'Ticket archive could not be loaded.'
+      : ticketTotal
+    ? `Showing ${start}–${end} of ${ticketTotal} ticket${ticketTotal === 1 ? '' : 's'}.`
+    : `${ticketTotal} tickets.`;
+}
+
+async function loadTickets(page = ticketPage) {
+  const generation = ++ticketLoadGeneration;
+  ticketsLoading = true;
+  ticketLoadError = '';
+  ticketPage = page;
+  const state = document.getElementById('tickets-state');
+  state.hidden = false;
+  state.textContent = 'Loading tickets…';
+  document.getElementById('tickets-summary').textContent = 'Loading ticket archive…';
+  renderTickets();
+  try {
+    const result = await window.hoedown.getTickets({
+      search: document.getElementById('ticket-search').value.trim(),
+      from: document.getElementById('ticket-from').value,
+      to: document.getElementById('ticket-to').value,
+      page: String(page)
+    });
+    if (generation !== ticketLoadGeneration) return;
+    if (!result.ok) throw new Error(result.error || 'Could not load Tickets.');
+    ticketRecords = result.tickets;
+    ticketTotal = result.total;
+    ticketPage = result.page;
+    ticketPageSize = result.pageSize;
+    ticketsLoaded = true;
+    ticketLoadError = '';
+    renderTickets();
+  } catch (error) {
+    if (generation !== ticketLoadGeneration) return;
+    ticketsLoaded = false;
+    ticketLoadError = error.message || 'Could not load tickets.';
+  } finally {
+    if (generation === ticketLoadGeneration) {
+      ticketsLoading = false;
+      renderTickets();
+    }
+  }
+}
+
+function showTicketList() {
+  ticketDetailGeneration += 1;
+  document.getElementById('ticket-detail-view').hidden = true;
+  document.getElementById('ticket-list-view').hidden = false;
+}
+
+async function openTicket(ticketSummary) {
+  const generation = ++ticketDetailGeneration;
+  const detailView = document.getElementById('ticket-detail-view');
+  const content = document.getElementById('ticket-detail-content');
+  const state = document.getElementById('ticket-detail-state');
+  document.getElementById('ticket-list-view').hidden = true;
+  detailView.hidden = false;
+  content.replaceChildren();
+  state.hidden = false;
+  state.textContent = 'Loading ticket transcript…';
+
+  try {
+    const result = await window.hoedown.getTicket(
+      ticketSummary.collectionName,
+      ticketSummary.ticketId
+    );
+    if (generation !== ticketDetailGeneration) return;
+    if (!result.ok) throw new Error(result.error || 'Could not load the ticket transcript.');
+    const ticket = result.ticket;
+    state.hidden = true;
+
+    const heading = document.createElement('h2');
+    heading.className = 'ticket-detail-title';
+    heading.textContent = ticket.ticketID || 'Ticket transcript';
+    const summary = document.createElement('p');
+    summary.className = 'ticket-detail-summary muted';
+    summary.textContent = `${ticket.username || 'Unknown player'}${ticket.userID ? ` · ${ticket.userID}` : ''}`;
+
+    const metadata = document.createElement('dl');
+    metadata.className = 'ticket-metadata';
+    for (const [label, value] of [
+      ['Status', ticket.status || 'Unknown'],
+      ['Created', ticket.createdAt || 'Unknown'],
+      ['Closed', ticket.closedAt || 'Unknown']
+    ]) {
+      const entry = document.createElement('div');
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const description = document.createElement('dd');
+      description.textContent = value;
+      entry.append(term, description);
+      metadata.append(entry);
+    }
+
+    const staffHeading = document.createElement('h3');
+    staffHeading.className = 'ticket-section-title';
+    staffHeading.textContent = 'Staff involved';
+    const staffList = document.createElement('ul');
+    staffList.className = 'ticket-staff-list';
+    if (ticket.staffIDs.length) {
+      for (const staffId of ticket.staffIDs) {
+        const item = document.createElement('li');
+        item.textContent = staffId;
+        staffList.append(item);
+      }
+    } else {
+      const item = document.createElement('li');
+      item.textContent = 'No staff members recorded.';
+      staffList.append(item);
+    }
+
+    const transcriptHeading = document.createElement('h3');
+    transcriptHeading.className = 'ticket-section-title';
+    transcriptHeading.textContent = `Transcript (${ticket.messages.length} messages)`;
+    const transcript = document.createElement('ol');
+    transcript.className = 'ticket-transcript';
+    transcript.setAttribute('aria-label', 'Ticket messages');
+    for (const message of ticket.messages) {
+      const item = document.createElement('li');
+      item.className = 'ticket-message';
+      const messageHeader = document.createElement('header');
+      const author = document.createElement('strong');
+      author.textContent = message.authorName || message.authorID || 'Unknown author';
+      const timestamp = document.createElement('time');
+      timestamp.textContent = message.timestamp || 'Time unavailable';
+      messageHeader.append(author, timestamp);
+      const authorId = document.createElement('small');
+      authorId.textContent = message.authorID || '';
+      const body = document.createElement('p');
+      body.className = 'ticket-message-content';
+      body.textContent = message.content || '[No message content]';
+      item.append(messageHeader, authorId, body);
+      transcript.append(item);
+    }
+    content.append(heading, summary, metadata, staffHeading, staffList, transcriptHeading, transcript);
+  } catch (error) {
+    if (generation !== ticketDetailGeneration) return;
+    state.hidden = false;
+    state.textContent = error.message || 'Could not load the ticket transcript.';
+  }
+}
+
 function memberPickerLabel(member) {
   const name = member.nickname || member.username || member.discordId || 'Unknown member';
   const account = member.username ? `@${member.username}` : member.discordId;
@@ -771,6 +994,31 @@ document.getElementById('refresh-avoids').addEventListener('click', () => {
   avoidsLoaded = false;
   void loadAvoids();
 });
+document.getElementById('ticket-filters').addEventListener('submit', (event) => {
+  event.preventDefault();
+  ticketsLoaded = false;
+  showTicketList();
+  void loadTickets(1);
+});
+document.getElementById('refresh-tickets').addEventListener('click', () => {
+  ticketsLoaded = false;
+  showTicketList();
+  void loadTickets(ticketPage);
+});
+document.getElementById('tickets-previous').addEventListener('click', () => {
+  if (ticketPage > 1) {
+    showTicketList();
+    void loadTickets(ticketPage - 1);
+  }
+});
+document.getElementById('tickets-next').addEventListener('click', () => {
+  const lastPage = Math.max(1, Math.ceil(ticketTotal / ticketPageSize));
+  if (ticketPage < lastPage) {
+    showTicketList();
+    void loadTickets(ticketPage + 1);
+  }
+});
+document.getElementById('back-to-tickets').addEventListener('click', showTicketList);
 
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -893,7 +1141,7 @@ window.hoedown.onMemberChange(applyMemberChange);
 window.hoedown.onMembersResync(() => { void resyncMembers(); });
 window.hoedown.onAvoidsResync(resyncAvoids);
 window.hoedown.onMembersLiveStatus((liveStatus) => {
-  setMembersLiveStatus(liveStatus);
+  setLiveUpdatesStatus(liveStatus);
 });
 window.hoedown.onStatus(applyAuthState);
 window.hoedown.getStatus()

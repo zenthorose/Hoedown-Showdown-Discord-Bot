@@ -14,6 +14,8 @@ const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBER_ID_PATTERN = /^\d{17,20}$/;
+const TICKET_COLLECTION_PATTERN = /^[A-Za-z0-9._-]{1,64}_Tickets$/;
+const TICKET_PAGE_SIZE = 50;
 const MEMBER_FIELD_LIMITS = {
   nickname: 32,
   region: 32,
@@ -156,6 +158,43 @@ function validPassword(value) {
   return typeof value === 'string' && value.length >= 12 && Buffer.byteLength(value, 'utf8') <= 72;
 }
 
+function validDateFilter(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function ticketDateKey(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return '';
+  const isoDate = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+  if (isoDate && validDateFilter(isoDate[1])) return isoDate[1];
+  const usDate = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(value);
+  if (!usDate) return '';
+  const month = usDate[1].padStart(2, '0');
+  const day = usDate[2].padStart(2, '0');
+  const date = `${usDate[3]}-${month}-${day}`;
+  return validDateFilter(date) ? date : '';
+}
+
+function serializeTicketSummary(ticket, collectionName) {
+  return {
+    collectionName,
+    ticketId: ticket._id instanceof ObjectId ? ticket._id.toHexString() : '',
+    ticketID: typeof ticket.ticketID === 'string' ? ticket.ticketID : '',
+    username: typeof ticket.username === 'string' ? ticket.username : '',
+    userID: typeof ticket.userID === 'string' ? ticket.userID : '',
+    createdAt: typeof ticket.createdAt === 'string' ? ticket.createdAt : '',
+    closedAt: typeof ticket.closedAt === 'string' ? ticket.closedAt : '',
+    status: typeof ticket.status === 'string' ? ticket.status : '',
+    staffIDs: Array.isArray(ticket.staffIDs)
+      ? ticket.staffIDs.filter((staffId) => typeof staffId === 'string')
+      : []
+  };
+}
+
 async function updateAvoidsInGoogleSheets(users) {
   const triggerUrl = process.env.Google_Apps_Script_URL;
   if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
@@ -183,6 +222,7 @@ function createApp({
   audit,
   members,
   avoids,
+  ticketDatabase,
   jwtSecret,
   adminApiKey,
   dummyPasswordHash,
@@ -749,6 +789,132 @@ function createApp({
     }
   });
 
+  app.get('/api/tickets', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+
+      const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+      const from = typeof req.query.from === 'string' ? req.query.from : '';
+      const to = typeof req.query.to === 'string' ? req.query.to : '';
+      const pageValue = typeof req.query.page === 'string' ? req.query.page : '1';
+      if (search.length > 100) return res.status(400).json({ error: 'Ticket search must be 100 characters or fewer.' });
+      if ((from && !validDateFilter(from)) || (to && !validDateFilter(to))) {
+        return res.status(400).json({ error: 'Use valid dates in YYYY-MM-DD format.' });
+      }
+      if (from && to && from > to) {
+        return res.status(400).json({ error: 'The start date must be on or before the end date.' });
+      }
+      if (!/^[1-9]\d{0,4}$/.test(pageValue) || Number(pageValue) > 10000) {
+        return res.status(400).json({ error: 'Ticket page must be between 1 and 10,000.' });
+      }
+
+      const collectionInfos = await ticketDatabase.listCollections({
+        name: { $regex: '_Tickets$' }
+      }, { nameOnly: true }).toArray();
+      const tickets = [];
+      const normalizedSearch = search.toLocaleLowerCase('en');
+      for (const { name: collectionName } of collectionInfos) {
+        if (typeof collectionName !== 'string' || !TICKET_COLLECTION_PATTERN.test(collectionName)) continue;
+        const collectionTickets = await ticketDatabase.collection(collectionName).find({}, {
+          projection: {
+            _id: 1,
+            ticketID: 1,
+            username: 1,
+            userID: 1,
+            createdAt: 1,
+            closedAt: 1,
+            status: 1,
+            staffIDs: 1
+          }
+        }).toArray();
+        for (const ticket of collectionTickets) {
+          const summary = serializeTicketSummary(ticket, collectionName);
+          if (!summary.ticketId) continue;
+          const searchable = [
+            summary.ticketID,
+            summary.username,
+            summary.userID,
+            summary.status,
+            ...summary.staffIDs
+          ].join(' ').toLocaleLowerCase('en');
+          if (normalizedSearch && !searchable.includes(normalizedSearch)) continue;
+          const date = ticketDateKey(summary.createdAt);
+          if (from && (!date || date < from)) continue;
+          if (to && (!date || date > to)) continue;
+          tickets.push(summary);
+        }
+      }
+
+      tickets.sort((left, right) =>
+        ticketDateKey(right.createdAt).localeCompare(ticketDateKey(left.createdAt)) ||
+        right.ticketId.localeCompare(left.ticketId)
+      );
+      const total = tickets.length;
+      const start = (Number(pageValue) - 1) * TICKET_PAGE_SIZE;
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        tickets: tickets.slice(start, start + TICKET_PAGE_SIZE),
+        total,
+        page: Number(pageValue),
+        pageSize: TICKET_PAGE_SIZE
+      });
+    } catch (error) {
+      return sendError(res, error, 'Ticket list lookup failed:');
+    }
+  });
+
+  app.get('/api/tickets/:collectionName/:ticketId', limited(60), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+
+      const { collectionName, ticketId } = req.params;
+      if (!TICKET_COLLECTION_PATTERN.test(collectionName) || !/^[a-f\d]{24}$/i.test(ticketId)) {
+        return res.status(400).json({ error: 'A valid ticket reference is required.' });
+      }
+      const collections = await ticketDatabase.listCollections({ name: collectionName }, {
+        nameOnly: true
+      }).toArray();
+      if (!collections.length) return res.status(404).json({ error: 'Ticket not found.' });
+
+      const ticket = await ticketDatabase.collection(collectionName).findOne({
+        _id: new ObjectId(ticketId)
+      }, {
+        projection: {
+          _id: 1,
+          ticketID: 1,
+          username: 1,
+          userID: 1,
+          createdAt: 1,
+          closedAt: 1,
+          status: 1,
+          staffIDs: 1,
+          messages: 1
+        }
+      });
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+
+      const messages = Array.isArray(ticket.messages) ? ticket.messages.map((message) => ({
+        authorID: typeof message.authorID === 'string' ? message.authorID : '',
+        authorName: typeof message.authorName === 'string' ? message.authorName : '',
+        content: typeof message.content === 'string' ? message.content : '',
+        timestamp: typeof message.timestamp === 'string' ? message.timestamp : ''
+      })) : [];
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        ticket: {
+          ...serializeTicketSummary(ticket, collectionName),
+          messages
+        }
+      });
+    } catch (error) {
+      return sendError(res, error, 'Ticket transcript lookup failed:');
+    }
+  });
+
   app.post('/api/avoids', limited(10), async (req, res) => {
     try {
       const session = await readSession(req, res);
@@ -1138,7 +1304,7 @@ function createApp({
 }
 
 async function createRuntime({ discordClient, discordGuildId = process.env.GUILD_ID } = {}) {
-  const { MONGO_URI, MONGODB_ADMIN, MONGODB_HOEDOWNINFO, JWT_SECRET, ADMIN_API_KEY } = process.env;
+  const { MONGO_URI, MONGODB_ADMIN, MONGODB_HOEDOWNINFO, MONGODB_TICKETS, JWT_SECRET, ADMIN_API_KEY } = process.env;
   if (!MONGO_URI || !MONGODB_ADMIN || !JWT_SECRET || JWT_SECRET.length < 32) {
     throw new Error('Set MONGO_URI, MONGODB_ADMIN, and a JWT_SECRET of at least 32 characters.');
   }
@@ -1158,6 +1324,10 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     const hoedownDatabase = hoedownDatabaseName
       ? client.db(hoedownDatabaseName)
       : null;
+    const ticketDatabaseName = typeof MONGODB_TICKETS === 'string'
+      ? MONGODB_TICKETS.trim()
+      : '';
+    const ticketDatabase = ticketDatabaseName ? client.db(ticketDatabaseName) : null;
     const members = hoedownDatabase ? hoedownDatabase.collection('Members') : null;
     const avoids = hoedownDatabase ? hoedownDatabase.collection('Avoids') : null;
     await users.createIndex({ username: 1 }, { unique: true });
@@ -1171,6 +1341,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       audit,
       members,
       avoids,
+      ticketDatabase,
       updateAvoidsInGoogleSheets,
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)

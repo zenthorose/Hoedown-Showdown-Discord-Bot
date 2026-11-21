@@ -556,6 +556,72 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('tickets:list', async (event, filters = {}) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted ticket list request.');
+    }
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
+      return { ok: false, error: 'Enter valid ticket filters.' };
+    }
+    const query = new URLSearchParams();
+    for (const field of ['search', 'from', 'to', 'page']) {
+      if (typeof filters[field] === 'string' && filters[field]) query.set(field, filters[field]);
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi(`/api/tickets?${query}`, { token: sessionToken });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not load Tickets.' };
+      if (!Array.isArray(data.tickets) || !Number.isSafeInteger(data.total) ||
+          !Number.isSafeInteger(data.page) || !Number.isSafeInteger(data.pageSize)) {
+        throw new Error('The service returned an invalid ticket list.');
+      }
+      return {
+        ok: true,
+        tickets: data.tickets,
+        total: data.total,
+        page: data.page,
+        pageSize: data.pageSize
+      };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the ticket service.' };
+    }
+  });
+
+  ipcMain.handle('tickets:get', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted ticket transcript request.');
+    }
+    if (!input || typeof input.collectionName !== 'string' ||
+        !/^[A-Za-z0-9._-]{1,64}_Tickets$/.test(input.collectionName) ||
+        typeof input.ticketId !== 'string' || !/^[a-f\d]{24}$/i.test(input.ticketId)) {
+      return { ok: false, error: 'Enter a valid ticket reference.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const route = `/api/tickets/${encodeURIComponent(input.collectionName)}/${encodeURIComponent(input.ticketId)}`;
+      const { response, data } = await requestApi(route, { token: sessionToken });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not load the ticket transcript.' };
+      if (!data.ticket || !Array.isArray(data.ticket.messages)) {
+        throw new Error('The service returned an invalid ticket transcript.');
+      }
+      return { ok: true, ticket: data.ticket };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the ticket service.' };
+    }
+  });
+
   ipcMain.handle('app:install-update', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted update install request.');
     if (!updateProvider || !updateDownloaded) throw new Error('There is no downloaded update ready to install.');

@@ -55,6 +55,31 @@ class MemoryCollection {
   }
 }
 
+class MemoryTicketDatabase {
+  constructor(collections = {}) {
+    this.collections = new Map(Object.entries(collections).map(([name, items]) => [
+      name,
+      new MemoryCollection(items)
+    ]));
+  }
+
+  listCollections(filter = {}) {
+    const requestedName = filter.name;
+    const matches = [...this.collections.keys()]
+      .filter((name) => typeof requestedName === 'string'
+        ? name === requestedName
+        : requestedName && requestedName.$regex
+          ? new RegExp(requestedName.$regex).test(name)
+          : true)
+      .map((name) => ({ name }));
+    return { toArray: async () => matches };
+  }
+
+  collection(name) {
+    return this.collections.get(name) || new MemoryCollection();
+  }
+}
+
 const deviceInfo = (deviceId, launchId) => ({
   deviceId,
   launchId,
@@ -90,6 +115,7 @@ async function withServer(run, options = {}) {
   }]);
   const avoids = new MemoryCollection(options.avoidDocuments || []);
   if (avoidsChangeStream) avoids.watch = () => avoidsChangeStream;
+  const ticketDatabase = options.ticketDatabase || new MemoryTicketDatabase();
   const googleSheetsAvoidUpdates = [];
   const mongoAvoidUpdates = [];
   const avoidUpdateOrder = [];
@@ -114,6 +140,7 @@ async function withServer(run, options = {}) {
     audit,
     members,
     avoids,
+    ticketDatabase,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
@@ -132,6 +159,7 @@ async function withServer(run, options = {}) {
       devices,
       members,
       avoids,
+      ticketDatabase,
       googleSheetsAvoidUpdates,
       mongoAvoidUpdates,
       avoidUpdateOrder,
@@ -344,6 +372,99 @@ test('avoid directory requires a session and returns directional pairs with name
       nickname: 'Target Nick'
     }]
   });
+});
+
+test('ticket archive requires a session, filters summaries, and returns selected transcripts', async () => {
+  const firstTicketId = new ObjectId('656565656565656565656565');
+  const secondTicketId = new ObjectId('666666666666666666666666');
+  const ticketDatabase = new MemoryTicketDatabase({
+    cowboy_Tickets: [{
+      _id: firstTicketId,
+      ticketID: 'urgent follow-up',
+      username: 'cowboy',
+      userID: '123456789012345678',
+      createdAt: '11/21/2026, 03:00 PM',
+      closedAt: '11/21/2026, 04:00 PM EST',
+      status: 'Closed',
+      staffIDs: ['987654321098765432'],
+      messages: [{
+        authorID: '123456789012345678',
+        authorName: 'Cowboy',
+        content: 'I need help.',
+        timestamp: '11/21/2026, 03:00 PM'
+      }]
+    }],
+    player_Tickets: [{
+      _id: secondTicketId,
+      ticketID: 'older ticket',
+      username: 'player',
+      userID: '234567890123456789',
+      createdAt: '11/20/2026, 10:00 AM',
+      status: 'Closed',
+      staffIDs: []
+    }]
+  });
+  await withServer(async ({ baseUrl, password }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/tickets`);
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}` };
+    const response = await fetch(
+      `${baseUrl}/api/tickets?search=urgent&from=2026-11-21&to=2026-11-21`,
+      { headers }
+    );
+    const result = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.equal(result.total, 1);
+    assert.deepEqual(result.tickets, [{
+      collectionName: 'cowboy_Tickets',
+      ticketId: firstTicketId.toHexString(),
+      ticketID: 'urgent follow-up',
+      username: 'cowboy',
+      userID: '123456789012345678',
+      createdAt: '11/21/2026, 03:00 PM',
+      closedAt: '11/21/2026, 04:00 PM EST',
+      status: 'Closed',
+      staffIDs: ['987654321098765432']
+    }]);
+
+    const unauthorizedDetail = await fetch(
+      `${baseUrl}/api/tickets/cowboy_Tickets/${firstTicketId.toHexString()}`
+    );
+    assert.equal(unauthorizedDetail.status, 401);
+
+    const detailResponse = await fetch(
+      `${baseUrl}/api/tickets/cowboy_Tickets/${firstTicketId.toHexString()}`,
+      { headers }
+    );
+    const detail = await detailResponse.json();
+    assert.equal(detailResponse.status, 200);
+    assert.equal(detail.ticket.ticketID, 'urgent follow-up');
+    assert.deepEqual(detail.ticket.messages, [{
+      authorID: '123456789012345678',
+      authorName: 'Cowboy',
+      content: 'I need help.',
+      timestamp: '11/21/2026, 03:00 PM'
+    }]);
+
+    const invalidCollection = await fetch(
+      `${baseUrl}/api/tickets/users/cowboy/${firstTicketId.toHexString()}`,
+      { headers }
+    );
+    assert.equal(invalidCollection.status, 404);
+  }, { ticketDatabase });
 });
 
 test('avoid pairing creation updates Google Sheets before MongoDB using selected member usernames', async () => {

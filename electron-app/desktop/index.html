@@ -57,7 +57,10 @@
         <div class="workspace">
           <header class="workspace-header">
             <div>
-              <p class="eyebrow">HOEDOWN SHOWDOWN</p>
+              <p class="eyebrow workspace-brand-line">HOEDOWN SHOWDOWN
+                <span id="live-updates-status" class="live-updates-status disconnected" role="img"
+                  aria-label="Live updates disconnected" title="Live updates disconnected"></span>
+              </p>
               <h1 id="page-title">Members</h1>
             </div>
             <span class="welcome-chip">Welcome back, <strong id="welcome-name"></strong></span>
@@ -71,10 +74,7 @@
             <section id="members-view" class="members-view" aria-label="Members directory">
               <header class="members-toolbar">
                 <div>
-                  <h2 class="member-directory-title">Member directory
-                    <span id="members-live-status" class="members-live-status disconnected" role="img"
-                      aria-label="Live updates disconnected" title="Live updates disconnected"></span>
-                  </h2>
+                  <h2>Member directory</h2>
                   <p id="members-summary" class="muted">Loading member records…</p>
                 </div>
                 <div class="members-actions">
@@ -126,6 +126,45 @@
               <div id="avoids-list" class="avoids-list" role="list" aria-label="Directional avoid relationships"></div>
               <p id="avoids-state" class="members-state" role="status" aria-live="polite">Avoid relationships are not loaded.</p>
             </section>
+            <section id="tickets-view" class="members-view" aria-label="Ticket archive" hidden>
+              <div id="ticket-list-view">
+                <header class="members-toolbar ticket-toolbar">
+                  <div>
+                    <h2>Ticket archive</h2>
+                    <p id="tickets-summary" class="muted">Sign in to load archived tickets.</p>
+                  </div>
+                  <form id="ticket-filters" class="ticket-filters">
+                    <label class="ticket-search-field">
+                      <span class="visually-hidden">Search tickets, players, and staff</span>
+                      <input id="ticket-search" type="search" maxlength="100"
+                        placeholder="Search tickets…" autocomplete="off">
+                    </label>
+                    <label class="ticket-date-field">
+                      <span class="visually-hidden">From date</span>
+                      <input id="ticket-from" type="date" aria-label="From date">
+                    </label>
+                    <label class="ticket-date-field">
+                      <span class="visually-hidden">To date</span>
+                      <input id="ticket-to" type="date" aria-label="To date">
+                    </label>
+                    <button class="secondary refresh-button" type="submit">Search</button>
+                    <button id="refresh-tickets" class="secondary refresh-button" type="button">↻ Refresh</button>
+                  </form>
+                </header>
+                <div id="tickets-list" class="tickets-list" role="list" aria-label="Closed support tickets"></div>
+                <p id="tickets-state" class="members-state" role="status" aria-live="polite">Tickets are not loaded.</p>
+                <nav class="ticket-pagination" aria-label="Ticket pages">
+                  <button id="tickets-previous" class="secondary" type="button" disabled>← Previous</button>
+                  <span id="tickets-page-label" class="muted">Page 1</span>
+                  <button id="tickets-next" class="secondary" type="button" disabled>Next →</button>
+                </nav>
+              </div>
+              <section id="ticket-detail-view" class="ticket-detail-view" aria-label="Ticket transcript" hidden>
+                <button id="back-to-tickets" class="secondary ticket-back-button" type="button">← Back to tickets</button>
+                <div id="ticket-detail-content"></div>
+                <p id="ticket-detail-state" class="members-state" role="status" aria-live="polite" hidden></p>
+              </section>
+            </section>
             <form id="self-password-form" class="password-card" hidden>
               <h2>Change password</h2>
               <label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label>
@@ -134,7 +173,7 @@
               <button type="submit">Update password</button>
             </form>
           </div>
-          <footer class="workspace-footer">Hoedown Showdown <span>•</span> Internet connection required</footer>
+          <footer class="workspace-footer">Hoedown Showdown</footer>
         </div>
       </section>
       <section id="update-box" class="notice" hidden>
@@ -142,7 +181,7 @@
         <button id="install-update" type="button" hidden>Install and restart</button>
       </section>
       <p id="status" class="status" role="status" aria-live="polite"></p>
-      <footer id="app-footer">Internet connection required</footer>
+      <footer id="app-footer">Hoedown Showdown</footer>
     </main>
     <script src="renderer.js"></script>
   </body>

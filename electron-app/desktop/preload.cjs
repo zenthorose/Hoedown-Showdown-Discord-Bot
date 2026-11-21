@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('hoedown', {
     ipcRenderer.invoke('auth:update-password', { currentPassword, password }),
   getMembers: () => ipcRenderer.invoke('members:list'),
   getAvoids: () => ipcRenderer.invoke('avoids:list'),
+  getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),
+  getTicket: (collectionName, ticketId) =>
+    ipcRenderer.invoke('tickets:get', { collectionName, ticketId }),
   updateMember: (discordId, fields) =>
     ipcRenderer.invoke('members:update', { discordId, fields }),
   createAvoids: (input) => ipcRenderer.invoke('avoids:create', input),

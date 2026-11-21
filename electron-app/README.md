@@ -8,7 +8,7 @@ This folder contains the new Electron app foundation. It is intentionally separa
 - `account-manager/`: separate Electron admin application. Its Render admin API key and optional R2 publishing credentials are encrypted with Electron `safeStorage`.
 - `auth-service/`: Node.js API intended for a Render Web Service, with MongoDB as its database.
 
-The client provides sign-in, required first-time password changes, session checks, and sign-out. The Members tab loads the authenticated member directory from `MONGODB_HOEDOWNINFO.Members` and displays a searchable, scrollable list. Any signed-in app user can edit nickname, region, Steam ID, and stream link, then save or cancel changes; usernames and Discord IDs remain fixed. Avoids, Rounds, and Tickets are visual placeholders for upcoming features. Bot functionality is deliberately not included yet.
+The client provides sign-in, required first-time password changes, session checks, and sign-out. The Members tab loads the authenticated member directory from `MONGODB_HOEDOWNINFO.Members` and displays a searchable, scrollable list. Any signed-in app user can edit nickname, region, Steam ID, and stream link, then save or cancel changes; usernames and Discord IDs remain fixed. The Avoids tab lists and creates directional pairings. The Tickets tab provides all signed-in app users a searchable, date-filterable, read-only archive of closed ticket records from the per-user `*_Tickets` collections in `MONGODB_TICKETS`, including their saved transcripts and staff IDs. Ticket archive data is loaded after sign-in. Rounds is still a placeholder. Bot functionality is deliberately not included in the desktop client.
 
 ## Render bot and authentication service
 
