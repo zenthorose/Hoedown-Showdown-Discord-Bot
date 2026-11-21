@@ -546,7 +546,7 @@ function renderAvoids() {
     avoiderLabel.className = 'avoid-player-label';
     avoiderLabel.textContent = 'Avoider';
     const avoiderName = document.createElement('strong');
-    avoiderName.textContent = group.avoiderNickname || 'No nickname set';
+    avoiderName.textContent = group.avoiderNickname || group.avoiderUsername || 'No nickname set';
     const avoiderUsername = document.createElement('small');
     avoiderUsername.textContent = group.avoiderUsername ? `@${group.avoiderUsername}` : 'No username listed';
     const avoiderId = document.createElement('small');
@@ -564,7 +564,7 @@ function renderAvoids() {
       const item = document.createElement('li');
       item.className = 'avoid-target-item';
       const name = document.createElement('strong');
-      name.textContent = member.nickname || 'No nickname set';
+      name.textContent = member.nickname || member.username || 'No nickname set';
       const username = document.createElement('small');
       username.textContent = member.username ? `@${member.username}` : 'No username listed';
       const discordId = document.createElement('small');
