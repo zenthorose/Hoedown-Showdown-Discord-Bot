@@ -16,6 +16,8 @@ The developer-only `/dev-command` has separate `members`, `avoids`, `previous-pa
 
 The permission-restricted `/member-update` syncs each current Discord server member's nickname, username, and Discord ID separately to the Google Sheets `Discord Member List` and the MongoDB `HoedownInfo.Members` collection. MongoDB records are upserted by Discord ID; existing profile fields such as region, Steam ID, stream link, and gender are preserved. New MongoDB profiles default to region `Both`. Members no longer in the server are not deleted from either destination.
 
+`/register` and every `/update-info` subcommand also sync registration fields to both Google Sheets and `HoedownInfo.Members`. MongoDB registration profiles are upserted by Discord ID, and each `/update-info` command changes only its selected field while refreshing the member's nickname and username.
+
 `/avoid` continues writing to Google Sheets and also upserts its directional relationships into `HoedownInfo.Avoids`, keyed by the first selected player's Discord ID. MongoDB stores each avoided player's Discord ID and username and avoids adding duplicate IDs. `/unavoid` removes only the selected direction from the same MongoDB document after Google Sheets confirms the removal; the reverse direction, if present, is kept.
 
 - `Members`: export the `Discord Member List` tab from Google Sheets using **File → Download → Comma Separated Values (.csv)**. Profiles are stored in the `Members` collection with Discord ID as `_id`; reimporting updates matching profiles and preserves other profiles.

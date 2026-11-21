@@ -118,4 +118,20 @@ async function syncGuildMemberProfiles(database, profiles) {
   };
 }
 
-module.exports = { importMemberListRows, parseMemberListCsv, syncGuildMemberProfiles };
+async function upsertMemberProfile(database, profile) {
+  const { discordId, ...fields } = profile;
+  if (!discordId) throw new TypeError('A Discord ID is required to upsert a member profile.');
+
+  return database.collection('Members').updateOne(
+    { _id: discordId },
+    { $set: { discordId, ...fields } },
+    { upsert: true }
+  );
+}
+
+module.exports = {
+  importMemberListRows,
+  parseMemberListCsv,
+  syncGuildMemberProfiles,
+  upsertMemberProfile
+};

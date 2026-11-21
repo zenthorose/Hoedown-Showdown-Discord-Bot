@@ -3,7 +3,8 @@ const test = require('node:test');
 const {
   importMemberListRows,
   parseMemberListCsv,
-  syncGuildMemberProfiles
+  syncGuildMemberProfiles,
+  upsertMemberProfile
 } = require('./memberListImport');
 
 function csvBuffer(rows) {
@@ -107,4 +108,42 @@ test('syncs Discord identity fields while defaulting new profiles to Both', asyn
     },
     $setOnInsert: { region: 'Both' }
   });
+});
+
+test('upserts registration fields by Discord ID without replacing unrelated profile fields', async () => {
+  let writeCollection;
+  let writeArguments;
+  const database = {
+    collection(name) {
+      return {
+        async updateOne(...args) {
+          writeCollection = name;
+          writeArguments = args;
+          return { upsertedCount: 1, matchedCount: 0 };
+        }
+      };
+    }
+  };
+  const profile = {
+    discordId: '123456789012345678',
+    username: 'Cowboy.Name',
+    nickname: 'Ranch Hand',
+    region: 'East',
+    steamId: '76561198000000000',
+    streamLink: 'https://twitch.tv/cowboy',
+    gender: 'unspecified'
+  };
+
+  await upsertMemberProfile(database, profile);
+  assert.equal(writeCollection, 'Members');
+  assert.deepEqual(writeArguments, [
+    { _id: profile.discordId },
+    { $set: profile },
+    { upsert: true }
+  ]);
+});
+
+test('requires a Discord ID when upserting a member profile', async () => {
+  const database = { collection: () => { throw new Error('Should not access the database.'); } };
+  await assert.rejects(() => upsertMemberProfile(database, { region: 'East' }), /Discord ID is required/);
 });

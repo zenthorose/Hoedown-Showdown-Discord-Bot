@@ -1,6 +1,8 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const config = require('../config.json');
+const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
+const { upsertMemberProfile } = require('../database/memberListImport');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -82,15 +84,6 @@ module.exports = {
       }
     }
 
-    if (!triggerUrl) {
-      await interaction.reply({
-        content: '❌ Error: Google Apps Script URL is not set in environment variables.',
-        flags: 64
-      });
-      await logUsage("❌ Failed - Missing Google Apps Script URL.");
-      return;
-    }
-
     // --- Require Registered role ---
     const registeredRole = interaction.guild.roles.cache.find(r => r.name === 'Registered');
     if (!registeredRole || !member.roles.cache.has(registeredRole.id)) {
@@ -106,15 +99,17 @@ module.exports = {
       await interaction.reply({ content: '⏳ Processing your update…', flags: 64 });
     } catch {}
 
-    let infoType, newValue;
+    let infoType, mongoField, newValue;
 
     if (subcommand === 'gender') {
       infoType = 'gender';
+      mongoField = 'gender';
       newValue = interaction.options.getString('gender');
     }
 
     if (subcommand === 'region') {
       infoType = 'region';
+      mongoField = 'region';
       newValue = interaction.options.getString('region');
 
       // Remove old region roles
@@ -136,6 +131,7 @@ module.exports = {
     if (subcommand === 'steamfriendcode') {
       // Normalize to the field name expected by the Apps Script
       infoType = 'steamid';
+      mongoField = 'steamId';
       newValue = interaction.options.getString('friendcode');
 
       // Only digits allowed, no length restriction
@@ -148,6 +144,7 @@ module.exports = {
 
     if (subcommand === 'streamlink') {
       infoType = 'streamlink';
+      mongoField = 'streamLink';
       newValue = interaction.options.getString('link');
 
       const validLinkRegex = /^(?:(?:https?:\/\/)?(?:www\.)?twitch\.tv\/[a-zA-Z0-9_\-/?=&#%.]+|https?:\/\/(?:www\.|m\.)?(kick\.com|youtube\.com|youtu\.be|tiktok\.com)\/[a-zA-Z0-9_\-/?=&#%.]+|N\/A)$/i;
@@ -158,25 +155,46 @@ module.exports = {
       }
     }
 
+    const results = [];
     try {
-      // Include the member's current display name so the sheet can sync Nickname (Column A)
       const updateData = {
         command: 'update',
         updateData: [[member.user.id, infoType, newValue, member.displayName]]
       };
 
-      await axios.post(triggerUrl, updateData);
-
-      try {
-        await interaction.editReply({ content: `✅ Your **${infoType}** has been updated to **${newValue} **!` });
-        await logUsage(`✅ Successfully updated **${infoType}** → **${newValue} **.`);
-      } catch {}
+      const response = await axios.post(triggerUrl, updateData);
+      if (response.data?.status !== 'success') {
+        throw new Error(response.data?.message || response.data?.error || 'Unknown error from Google Apps Script.');
+      }
+      results.push('✅ Google Sheets: updated.');
     } catch (error) {
-      console.error("❌ Error updating info:", error);
-      try {
-        await interaction.editReply({ content: '❌ Failed to update your info.' });
-      } catch {}
-      await logUsage(`❌ Error: ${error.message}`);
+      console.error('❌ Google Sheets update failed:', error);
+      results.push(`❌ Google Sheets: ${error.message}`);
     }
+
+    try {
+      const database = await connectHoedownInfoDatabase();
+      await upsertMemberProfile(database, {
+        discordId: member.user.id,
+        username: member.user.username,
+        nickname: member.displayName,
+        [mongoField]: newValue
+      });
+      results.push(`✅ MongoDB (HoedownInfo.Members): updated ${mongoField}.`);
+    } catch (error) {
+      console.error('❌ MongoDB member update failed:', error);
+      results.push(`❌ MongoDB (HoedownInfo.Members): ${error.message}`);
+    }
+
+    const failures = results.filter(result => result.startsWith('❌'));
+    const resultMessage = failures.length
+      ? `⚠️ Your **${infoType}** update was only partially completed.\n${results.join('\n')}`
+      : `✅ Your **${infoType}** has been updated to **${newValue}**!\n${results.join('\n')}`;
+    await interaction.editReply({ content: resultMessage });
+    await logUsage(
+      failures.length
+        ? `⚠️ Partial failure | ${failures.join(' | ')}`
+        : `✅ Successfully updated **${infoType}** → **${newValue}**.`
+    );
   }
 };
