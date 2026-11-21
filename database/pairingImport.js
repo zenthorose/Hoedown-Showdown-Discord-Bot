@@ -116,7 +116,90 @@ async function importPairingRows(database, rows, collectionName) {
   };
 }
 
+async function addAvoidRelationships(database, users) {
+  if (!Array.isArray(users) || users.length < 2) {
+    throw new TypeError('At least two players are required to add an avoid relationship.');
+  }
+  const [source, ...targets] = users;
+  if (!/^\d{17,20}$/.test(String(source.id)) || !source.username) {
+    throw new TypeError('The player requesting avoids must have a valid Discord ID and username.');
+  }
+
+  const uniqueTargets = new Map();
+  for (const target of targets) {
+    if (!/^\d{17,20}$/.test(String(target.id)) || !target.username) {
+      throw new TypeError('Each avoided player must have a valid Discord ID and username.');
+    }
+    if (String(target.id) !== String(source.id)) uniqueTargets.set(String(target.id), target);
+  }
+  if (uniqueTargets.size === 0) {
+    throw new TypeError('Select at least one player other than the player requesting avoids.');
+  }
+
+  const operations = [...uniqueTargets.values()].map((target) => {
+    const targetId = String(target.id);
+    const targetName = String(target.username);
+    const targetEntry = { discordId: targetId, name: targetName };
+    return {
+      updateOne: {
+        filter: { _id: String(source.id) },
+        update: [{
+          $set: {
+            name: { $literal: String(source.username) },
+            avoids: {
+              $let: {
+                vars: { currentAvoids: { $ifNull: ['$avoids', []] } },
+                in: {
+                  $cond: [
+                    {
+                      $in: [
+                        { $literal: targetId },
+                        {
+                          $map: {
+                            input: '$$currentAvoids',
+                            as: 'avoid',
+                            in: '$$avoid.discordId'
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      $map: {
+                        input: '$$currentAvoids',
+                        as: 'avoid',
+                        in: {
+                          $cond: [
+                            { $eq: ['$$avoid.discordId', { $literal: targetId }] },
+                            { $mergeObjects: ['$$avoid', { $literal: targetEntry }] },
+                            '$$avoid'
+                          ]
+                        }
+                      }
+                    },
+                    { $concatArrays: ['$$currentAvoids', [{ $literal: targetEntry }]] }
+                  ]
+                }
+              }
+            }
+          }
+        }],
+        upsert: true
+      }
+    };
+  });
+
+  const result = await database.collection('Avoids').bulkWrite(operations, { ordered: true });
+  return {
+    collectionName: 'Avoids',
+    relationshipCount: uniqueTargets.size,
+    insertedCount: result.upsertedCount,
+    matchedCount: result.matchedCount,
+    modifiedCount: result.modifiedCount
+  };
+}
+
 module.exports = {
+  addAvoidRelationships,
   importPairingRows,
   parseAvoidsCsv,
   parsePreviousPairingsCsv

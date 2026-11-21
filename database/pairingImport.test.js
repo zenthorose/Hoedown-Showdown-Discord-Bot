@@ -1,6 +1,11 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { importPairingRows, parseAvoidsCsv, parsePreviousPairingsCsv } = require('./pairingImport');
+const {
+  addAvoidRelationships,
+  importPairingRows,
+  parseAvoidsCsv,
+  parsePreviousPairingsCsv
+} = require('./pairingImport');
 
 function csvBuffer(rows) {
   const escape = (value) => `"${String(value == null ? '' : value).replace(/"/g, '""')}"`;
@@ -125,4 +130,56 @@ test('upserts only uploaded left-ID documents into the requested collection', as
   assert.equal(writeOperations[0].updateOne.filter._id, '431892857453019148');
   assert.equal(writeOperations[0].updateOne.upsert, true);
   assert.deepEqual(writeOperations[0].updateOne.update.$set.avoids, documents[0].avoids);
+});
+
+test('adds directional runtime Avoids under the first player Discord ID', async () => {
+  let writeCollection;
+  let writeOperations;
+  const database = {
+    collection(name) {
+      return {
+        async bulkWrite(operations) {
+          writeCollection = name;
+          writeOperations = operations;
+          return { upsertedCount: 1, matchedCount: 1, modifiedCount: 2 };
+        }
+      };
+    }
+  };
+  const result = await addAvoidRelationships(database, [
+    { id: '431892857453019148', username: 'zachary_zlt' },
+    { id: '507683691586387979', username: 'heavymetalqueenie' },
+    { id: '133606854910541824', username: 'mr_jam_jar' },
+    { id: '507683691586387979', username: 'heavymetalqueenie' }
+  ]);
+
+  assert.equal(writeCollection, 'Avoids');
+  assert.equal(result.relationshipCount, 2);
+  assert.equal(writeOperations.length, 2);
+  assert.equal(writeOperations[0].updateOne.filter._id, '431892857453019148');
+  assert.equal(writeOperations[0].updateOne.upsert, true);
+  const pipeline = writeOperations[0].updateOne.update;
+  assert.equal(Array.isArray(pipeline), true);
+  assert.deepEqual(pipeline[0].$set.name, { $literal: 'zachary_zlt' });
+  assert.deepEqual(pipeline[0].$set.avoids.$let.in.$cond[2].$concatArrays[1], [
+    { $literal: { discordId: '507683691586387979', name: 'heavymetalqueenie' } }
+  ]);
+});
+
+test('rejects self-only avoid requests before accessing the database', async () => {
+  let databaseAccessed = false;
+  const database = {
+    collection() {
+      databaseAccessed = true;
+      throw new Error('Should not access the database.');
+    }
+  };
+  await assert.rejects(
+    addAvoidRelationships(database, [
+      { id: '431892857453019148', username: 'player' },
+      { id: '431892857453019148', username: 'player' }
+    ]),
+    /at least one player other than/
+  );
+  assert.equal(databaseAccessed, false);
 });

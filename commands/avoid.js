@@ -2,6 +2,8 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
+const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
+const { addAvoidRelationships } = require('../database/pairingImport');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -64,6 +66,12 @@ module.exports = {
       if (users.length < 2) {
         return interaction.reply({ content: '❌ You must select at least 2 players.', flags: 64 });
       }
+      if (users.slice(1).some((user) => user.id === users[0].id)) {
+        return interaction.reply({
+          content: '❌ The player requesting avoids cannot also be selected as an avoided player.',
+          flags: 64
+        });
+      }
 
       console.log('📤 Sending avoid data to GAS:', JSON.stringify({ command: 'avoid', users }, null, 2));
 
@@ -84,10 +92,24 @@ module.exports = {
       console.log('✅ Google Apps Script response:', response.data);
 
       const { success, addedPairs, skippedPairs } = response.data;
+      if (!success) {
+        const errorMessage = response.data.error || 'Google Sheets rejected the avoid update.';
+        await interaction.editReply(`❌ Failed to update avoid list: ${errorMessage}`);
+        await logUsage(`❌ Google Sheets update failed: ${errorMessage}`);
+        return;
+      }
 
-      let displayMessage = success
-        ? `✅ Avoid list updated. Added: ${addedPairs}, Skipped (existing): ${skippedPairs}`
-        : `❌ Failed to update avoid list.`;
+      let displayMessage =
+        `✅ Google Sheets updated. Added: ${addedPairs}, skipped (existing): ${skippedPairs}.`;
+      try {
+        const database = await connectHoedownInfoDatabase();
+        const mongoResult = await addAvoidRelationships(database, users);
+        displayMessage +=
+          `\n✅ MongoDB (${mongoResult.collectionName}) synced ${mongoResult.relationshipCount} avoid relationship(s).`;
+      } catch (error) {
+        console.error('❌ MongoDB Avoids sync failed:', error);
+        displayMessage += `\n⚠️ MongoDB (HoedownInfo.Avoids) sync failed: ${error.message}`;
+      }
 
       // --- Edit deferred reply with result ---
       await interaction.editReply(displayMessage);
