@@ -249,6 +249,9 @@ function createApp({
   let memberChangeStreamRetry;
   let memberChangeStreamRetryDelay = 5000;
   let memberChangeStreamStopped = false;
+  let avoidsChangeStream;
+  let avoidsChangeStreamRetry;
+  let avoidsChangeStreamRetryDelay = 5000;
 
   const writeMemberEvent = (response, eventName, data) => {
     if (!response.writableEnded && !response.destroyed) {
@@ -260,6 +263,7 @@ function createApp({
       writeMemberEvent(stream.response, eventName, data);
     }
   };
+  const broadcastAvoidsResync = () => broadcastMemberEvent('avoids-resync', {});
   const scheduleMemberChangeStreamRestart = (error) => {
     if (memberChangeStreamStopped || memberChangeStreamRetry) return;
     console.error('Members change stream failed; reconnecting:', error);
@@ -300,10 +304,51 @@ function createApp({
   };
   startMemberChangeStream();
 
+  const scheduleAvoidsChangeStreamRestart = (error) => {
+    if (memberChangeStreamStopped || avoidsChangeStreamRetry) return;
+    console.error('Avoids change stream failed; reconnecting:', error);
+    avoidsChangeStreamRetry = setTimeout(() => {
+      avoidsChangeStreamRetry = null;
+      startAvoidsChangeStream();
+      broadcastAvoidsResync();
+    }, avoidsChangeStreamRetryDelay);
+    avoidsChangeStreamRetryDelay = Math.min(avoidsChangeStreamRetryDelay * 2, 60000);
+    avoidsChangeStreamRetry.unref?.();
+  };
+  const startAvoidsChangeStream = () => {
+    if (!avoids || typeof avoids.watch !== 'function' || memberChangeStreamStopped) return;
+    try {
+      const stream = avoids.watch([], { fullDocument: 'updateLookup' });
+      avoidsChangeStream = stream;
+      stream.on('change', () => {
+        avoidsChangeStreamRetryDelay = 5000;
+        broadcastAvoidsResync();
+      });
+      stream.on('error', (error) => {
+        if (avoidsChangeStream !== stream || memberChangeStreamStopped) return;
+        avoidsChangeStream = null;
+        stream.close().catch((closeError) => {
+          console.error('Could not close the failed Avoids change stream:', closeError);
+        });
+        scheduleAvoidsChangeStreamRestart(error);
+      });
+      stream.on('close', () => {
+        if (avoidsChangeStream !== stream || memberChangeStreamStopped) return;
+        avoidsChangeStream = null;
+        scheduleAvoidsChangeStreamRestart(new Error('Avoids change stream closed unexpectedly.'));
+      });
+    } catch (error) {
+      scheduleAvoidsChangeStreamRestart(error);
+    }
+  };
+  startAvoidsChangeStream();
+
   app.locals.closeMembersLiveUpdates = async () => {
     memberChangeStreamStopped = true;
     if (memberChangeStreamRetry) clearTimeout(memberChangeStreamRetry);
     memberChangeStreamRetry = null;
+    if (avoidsChangeStreamRetry) clearTimeout(avoidsChangeStreamRetry);
+    avoidsChangeStreamRetry = null;
     for (const stream of memberStreams) {
       clearInterval(stream.heartbeat);
       clearInterval(stream.sessionCheck);
@@ -313,6 +358,11 @@ function createApp({
     if (memberChangeStream) {
       const stream = memberChangeStream;
       memberChangeStream = null;
+      await stream.close();
+    }
+    if (avoidsChangeStream) {
+      const stream = avoidsChangeStream;
+      avoidsChangeStream = null;
       await stream.close();
     }
   };
@@ -341,6 +391,7 @@ function createApp({
       };
       memberStreams.add(stream);
       writeMemberEvent(res, 'resync', {});
+      writeMemberEvent(res, 'avoids-resync', {});
 
       const removeStream = () => {
         if (!memberStreams.delete(stream)) return;

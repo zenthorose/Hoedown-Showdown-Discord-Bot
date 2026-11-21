@@ -63,7 +63,7 @@ const deviceInfo = (deviceId, launchId) => ({
 });
 
 async function withServer(run, options = {}) {
-  const { memberChangeStream } = options;
+  const { memberChangeStream, avoidsChangeStream } = options;
   const discordNicknameUpdates = [];
   const username = 'cowboy';
   const password = 'InitialPassword!123';
@@ -89,6 +89,7 @@ async function withServer(run, options = {}) {
     gender: 'not exposed'
   }]);
   const avoids = new MemoryCollection(options.avoidDocuments || []);
+  if (avoidsChangeStream) avoids.watch = () => avoidsChangeStream;
   const googleSheetsAvoidUpdates = [];
   const mongoAvoidUpdates = [];
   const avoidUpdateOrder = [];
@@ -569,9 +570,11 @@ test('a Discord nickname failure prevents the MongoDB profile update', async () 
   });
 });
 
-test('authenticated member event streams publish sanitized MongoDB changes', async () => {
+test('authenticated event stream publishes member changes and Avoids refresh events', async () => {
   const memberChangeStream = new EventEmitter();
   memberChangeStream.close = async () => memberChangeStream.emit('close');
+  const avoidsChangeStream = new EventEmitter();
+  avoidsChangeStream.close = async () => avoidsChangeStream.emit('close');
 
   await withServer(async ({ baseUrl, user, jwtSecret, members }) => {
     const unauthorized = await fetch(`${baseUrl}/api/members/stream`);
@@ -591,21 +594,36 @@ test('authenticated member event streams publish sanitized MongoDB changes', asy
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    const initial = await reader.read();
-    assert.match(decoder.decode(initial.value), /event: resync/);
+    let streamText = '';
+    const readUntil = async (pattern) => {
+      while (!pattern.test(streamText)) {
+        const chunk = await reader.read();
+        assert.equal(chunk.done, false);
+        streamText += decoder.decode(chunk.value);
+      }
+      const received = streamText;
+      streamText = '';
+      return received;
+    };
+    const initial = await readUntil(/event: avoids-resync/);
+    assert.match(initial, /event: resync/);
+    assert.match(initial, /event: avoids-resync/);
 
     members.items[0].region = 'West';
     memberChangeStream.emit('change', {
       operationType: 'update',
       fullDocument: members.items[0]
     });
-    const update = await reader.read();
-    const updateText = decoder.decode(update.value);
+    const updateText = await readUntil(/event: member/);
     assert.match(updateText, /event: member/);
     assert.match(updateText, /"region":"West"/);
     assert.doesNotMatch(updateText, /not exposed/);
+
+    avoidsChangeStream.emit('change', { operationType: 'update' });
+    const avoidsUpdate = await readUntil(/event: avoids-resync/);
+    assert.match(avoidsUpdate, /event: avoids-resync/);
     await reader.cancel();
-  }, { memberChangeStream });
+  }, { memberChangeStream, avoidsChangeStream });
 });
 
 test('admin temporary passwords require a password change before a session is granted', async () => {

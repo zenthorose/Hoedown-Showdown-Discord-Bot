@@ -13,6 +13,7 @@ let memberResyncPending = false;
 let avoidRecords = [];
 let avoidsLoaded = false;
 let avoidsLoading = false;
+let avoidsResyncPending = false;
 let avoidTargetFieldId = 0;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
@@ -92,6 +93,7 @@ function showSignedOut() {
   document.getElementById('add-avoid-pairing').disabled = true;
   avoidRecords = [];
   avoidsLoaded = false;
+  avoidsResyncPending = false;
   document.getElementById('avoids-list').replaceChildren();
   document.getElementById('avoids-summary').textContent = 'Sign in to load avoid relationships.';
   document.getElementById('avoids-state').textContent = 'Avoid relationships are not loaded.';
@@ -609,6 +611,21 @@ async function loadAvoids() {
   } finally {
     avoidsLoading = false;
     refreshButton.disabled = false;
+    if (avoidsResyncPending) {
+      avoidsResyncPending = false;
+      void loadAvoids();
+    }
+  }
+}
+
+function resyncAvoids() {
+  avoidsLoaded = false;
+  if (avoidsLoading) {
+    avoidsResyncPending = true;
+    return;
+  }
+  if (document.querySelector('.nav-item.active')?.dataset.tab === 'avoids') {
+    void loadAvoids();
   }
 }
 
@@ -874,6 +891,7 @@ window.hoedown.onUpdateStatus((update) => {
 
 window.hoedown.onMemberChange(applyMemberChange);
 window.hoedown.onMembersResync(() => { void resyncMembers(); });
+window.hoedown.onAvoidsResync(resyncAvoids);
 window.hoedown.onMembersLiveStatus((liveStatus) => {
   setMembersLiveStatus(liveStatus);
 });
