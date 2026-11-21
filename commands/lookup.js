@@ -1,7 +1,8 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { MessageFlags } = require('discord.js');
-const axios = require('axios');
 const config = require('../config.json');
+const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
+const { findMemberProfile } = require('../database/memberListImport');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -10,7 +11,6 @@ module.exports = {
     .addUserOption(option => option.setName('target').setDescription('The user to look up').setRequired(true)),
 
   async execute(interaction) {
-    const triggerUrl = process.env.Google_Apps_Script_URL;
     const target = interaction.options.getUser('target');
 
     async function logUsage(extra = "") {
@@ -28,34 +28,24 @@ module.exports = {
       }
     }
 
-    if (!triggerUrl) {
-      await logUsage("❌ GAS URL missing");
-      return await interaction.reply({ content: '❌ Error: Google Apps Script URL is not defined.', flags: MessageFlags.Ephemeral });
-    }
-
     try {
       await interaction.reply({ content: `🔄 Looking up ${target.tag}...`, flags: MessageFlags.Ephemeral });
     } catch {}
 
     try {
-      const response = await axios.post(triggerUrl, {
-        command: 'lookup',
-        targetId: target.id,
-        targetName: target.username
-      });
+      const database = await connectHoedownInfoDatabase();
+      const profile = await findMemberProfile(database, target.id);
 
-      const data = response.data;
-
-      if (data.error) {
-        await logUsage(`❌ Error: ${data.error}`);
-        return await safeEdit(interaction, `❌ ${data.error}`);
+      if (!profile) {
+        await logUsage('❌ Member profile not found in MongoDB');
+        return await safeEdit(interaction, `❌ ${target.tag} was not found in the Members database.`);
       }
 
       const msg = [
         `🔎 Lookup for **${target.tag}**:`,
-        `**Region:** ${data.region || 'Not set'}`,
-        `**Steam Friend Code:** ${data.steamCode || 'Not set'}`,
-        `**Stream Link:** ${data.streamLink || 'Not set'}`
+        `**Region:** ${profile.region || 'Not set'}`,
+        `**Steam Friend Code:** ${profile.steamId || 'Not set'}`,
+        `**Stream Link:** ${profile.streamLink || 'Not set'}`
       ].join('\n');
 
       await safeEdit(interaction, msg);

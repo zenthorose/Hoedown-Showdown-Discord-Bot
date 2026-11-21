@@ -129,9 +129,15 @@ async function upsertMemberProfile(database, profile) {
   );
 }
 
+async function findMemberProfile(database, discordId) {
+  if (!discordId) throw new TypeError('A Discord ID is required to find a member profile.');
+  return database.collection('Members').findOne({ _id: String(discordId) });
+}
+
 module.exports = {
   importMemberListRows,
   parseMemberListCsv,
   syncGuildMemberProfiles,
-  upsertMemberProfile
+  upsertMemberProfile,
+  findMemberProfile
 };

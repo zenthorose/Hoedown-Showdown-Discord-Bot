@@ -1,8 +1,7 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { MessageFlags } = require('discord.js');
-const axios = require('axios');
 const config = require('../config.json');
-const { closeHoedownInfo, connectHoedownInfoDatabase } = require('../database/hoedownInfo');
+const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
 const { PAST_HOEDOWN_EVENTS, findPastHoedownTeams } = require('../database/pastHoedownTeams');
 const MESSAGE_LIMIT = 1900;
 
@@ -43,8 +42,6 @@ module.exports = {
   formatPastTeamsMessages,
 
   async execute(interaction) {
-    const triggerUrl = process.env.Google_Apps_Script_URL;
-    const source = process.env.PAST_TEAMS_SOURCE || 'apps-script';
     const eventId = interaction.options.getString('event');
     const event = PAST_HOEDOWN_EVENTS.find((candidate) => candidate.id === eventId);
     const eventName = event?.name || eventId;
@@ -62,53 +59,18 @@ module.exports = {
       }
     }
 
-    if (!['apps-script', 'mongodb'].includes(source)) {
-      await logUsage(`❌ Invalid PAST_TEAMS_SOURCE: ${source}`);
-      return await interaction.reply({
-        content: '❌ Error: PAST_TEAMS_SOURCE must be set to "apps-script" or "mongodb".',
-        flags: MessageFlags.Ephemeral
-      });
-    }
-
-    if (source === 'apps-script' && !triggerUrl) {
-      await logUsage("❌ GAS URL missing");
-      return await interaction.reply({ content: '❌ Error: Google Apps Script URL is not defined.', flags: MessageFlags.Ephemeral });
-    }
-
     await interaction.reply({ content: `🔄 Searching your past teams for **${eventName}**...`, flags: MessageFlags.Ephemeral }).catch(() => {});
 
     try {
-      let data;
-      if (source === 'mongodb') {
-        let database;
-        try {
-          database = await connectHoedownInfoDatabase();
-          const teams = await findPastHoedownTeams(database, eventId, interaction.user.id);
-          data = { success: true, eventName, results: teams };
-        } finally {
-          await closeHoedownInfo();
-        }
-      } else {
-        const response = await axios.post(triggerUrl, {
-          command: 'past-teams',
-          eventSheetName: eventName,
-          userId: interaction.user.id
-        });
-        data = response.data;
-      }
+      const database = await connectHoedownInfoDatabase();
+      const teams = await findPastHoedownTeams(database, eventId, interaction.user.id);
 
-      if (data.error) {
-        await logUsage(`❌ Error: ${data.error}`);
-        return await safeEdit(interaction, `❌ ${data.error}`);
-      }
-
-      if (!data.success || !Array.isArray(data.results) || data.results.length === 0) {
+      if (!Array.isArray(teams) || teams.length === 0) {
         await logUsage('✅ No past teams found');
         return await safeEdit(interaction, `No past teams found for **${eventName}**.`);
       }
 
-      const displayEvent = data.eventName || eventName;
-      const messages = formatPastTeamsMessages(displayEvent, data.results);
+      const messages = formatPastTeamsMessages(eventName, teams);
       await safeEdit(interaction, messages[0]);
       for (const message of messages.slice(1)) {
         await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });

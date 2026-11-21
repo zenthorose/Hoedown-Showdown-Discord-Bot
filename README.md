@@ -26,4 +26,4 @@ The permission-restricted `/member-update` syncs each current Discord server mem
 
 The `Avoids` import uses the `Avoids` collection; it does not migrate any data that may already be in the former `AvoidPairing` collection.
 
-`/past-teams` continues to use Google Apps Script by default. To test its MongoDB lookup after importing team data, set `PAST_TEAMS_SOURCE=mongodb`; the MongoDB query uses `eventId` and `members.discordId`. Existing Google Sheets history is not migrated automatically. For larger history collections, an index on `{ eventId: 1, "members.discordId": 1, round: 1 }` will support this lookup.
+`/info-check` and `/lookup` read profiles from `HoedownInfo.Members`, keyed by Discord ID. `/past-teams` reads imported event history from `HoedownInfo.PastHoedownTeams`, querying by `eventId` and `members.discordId`. Google Sheets member data and event history are not migrated automatically; import them into MongoDB before relying on these commands. For larger past-team collections, an index on `{ eventId: 1, "members.discordId": 1, round: 1 }` will support the lookup.

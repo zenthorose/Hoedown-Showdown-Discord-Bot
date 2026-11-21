@@ -4,7 +4,8 @@ const {
   importMemberListRows,
   parseMemberListCsv,
   syncGuildMemberProfiles,
-  upsertMemberProfile
+  upsertMemberProfile,
+  findMemberProfile
 } = require('./memberListImport');
 
 function csvBuffer(rows) {
@@ -146,4 +147,25 @@ test('upserts registration fields by Discord ID without replacing unrelated prof
 test('requires a Discord ID when upserting a member profile', async () => {
   const database = { collection: () => { throw new Error('Should not access the database.'); } };
   await assert.rejects(() => upsertMemberProfile(database, { region: 'East' }), /Discord ID is required/);
+});
+
+test('finds a member profile by its Discord ID document key', async () => {
+  let findCollection;
+  let findFilter;
+  const profile = { _id: '123456789012345678', region: 'East' };
+  const database = {
+    collection(name) {
+      return {
+        async findOne(filter) {
+          findCollection = name;
+          findFilter = filter;
+          return profile;
+        }
+      };
+    }
+  };
+
+  assert.equal(await findMemberProfile(database, '123456789012345678'), profile);
+  assert.equal(findCollection, 'Members');
+  assert.deepEqual(findFilter, { _id: '123456789012345678' });
 });
