@@ -33,6 +33,20 @@ function serializeMember(profile) {
   };
 }
 
+function serializeMemberChange(change) {
+  if (change.operationType === 'delete') {
+    const discordId = typeof change.documentKey?._id === 'string'
+      ? change.documentKey._id
+      : '';
+    return discordId ? { type: 'deleted', discordId } : null;
+  }
+  if (!['insert', 'replace', 'update'].includes(change.operationType) || !change.fullDocument) {
+    return null;
+  }
+  const member = serializeMember(change.fullDocument);
+  return member.discordId ? { type: 'updated', member } : null;
+}
+
 function normalizeMemberUpdates(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new TypeError('Enter valid member profile fields.');
@@ -195,6 +209,141 @@ function createApp({ users, devices, audit, members, jwtSecret, adminApiKey, dum
     return { payload, user };
   };
   const adminMutationLimit = limited(10);
+  const memberStreams = new Set();
+  let memberChangeStream;
+  let memberChangeStreamRetry;
+  let memberChangeStreamRetryDelay = 5000;
+  let memberChangeStreamStopped = false;
+
+  const writeMemberEvent = (response, eventName, data) => {
+    if (!response.writableEnded && !response.destroyed) {
+      response.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
+    }
+  };
+  const broadcastMemberEvent = (eventName, data) => {
+    for (const stream of memberStreams) {
+      writeMemberEvent(stream.response, eventName, data);
+    }
+  };
+  const scheduleMemberChangeStreamRestart = (error) => {
+    if (memberChangeStreamStopped || memberChangeStreamRetry) return;
+    console.error('Members change stream failed; reconnecting:', error);
+    memberChangeStreamRetry = setTimeout(() => {
+      memberChangeStreamRetry = null;
+      startMemberChangeStream();
+      broadcastMemberEvent('resync', {});
+    }, memberChangeStreamRetryDelay);
+    memberChangeStreamRetryDelay = Math.min(memberChangeStreamRetryDelay * 2, 60000);
+    memberChangeStreamRetry.unref?.();
+  };
+  const startMemberChangeStream = () => {
+    if (!members || typeof members.watch !== 'function' || memberChangeStreamStopped) return;
+    try {
+      const stream = members.watch([], { fullDocument: 'updateLookup' });
+      memberChangeStream = stream;
+      stream.on('change', (change) => {
+        memberChangeStreamRetryDelay = 5000;
+        const event = serializeMemberChange(change);
+        if (event) broadcastMemberEvent('member', event);
+      });
+      stream.on('error', (error) => {
+        if (memberChangeStream !== stream || memberChangeStreamStopped) return;
+        memberChangeStream = null;
+        stream.close().catch((closeError) => {
+          console.error('Could not close the failed Members change stream:', closeError);
+        });
+        scheduleMemberChangeStreamRestart(error);
+      });
+      stream.on('close', () => {
+        if (memberChangeStream !== stream || memberChangeStreamStopped) return;
+        memberChangeStream = null;
+        scheduleMemberChangeStreamRestart(new Error('Members change stream closed unexpectedly.'));
+      });
+    } catch (error) {
+      scheduleMemberChangeStreamRestart(error);
+    }
+  };
+  startMemberChangeStream();
+
+  app.locals.closeMembersLiveUpdates = async () => {
+    memberChangeStreamStopped = true;
+    if (memberChangeStreamRetry) clearTimeout(memberChangeStreamRetry);
+    memberChangeStreamRetry = null;
+    for (const stream of memberStreams) {
+      clearInterval(stream.heartbeat);
+      clearInterval(stream.sessionCheck);
+      stream.response.end();
+    }
+    memberStreams.clear();
+    if (memberChangeStream) {
+      const stream = memberChangeStream;
+      memberChangeStream = null;
+      await stream.close();
+    }
+  };
+
+  app.get('/api/members/stream', async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!members || typeof members.watch !== 'function') {
+        return res.status(503).json({ error: 'Live member updates are not available.' });
+      }
+
+      res.status(200).set({
+        'Cache-Control': 'private, no-store, no-transform',
+        Connection: 'keep-alive',
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'X-Accel-Buffering': 'no'
+      });
+      res.flushHeaders();
+      const stream = {
+        response: res,
+        request: req,
+        heartbeat: null,
+        sessionCheck: null,
+        checkingSession: false
+      };
+      memberStreams.add(stream);
+      writeMemberEvent(res, 'resync', {});
+
+      const removeStream = () => {
+        if (!memberStreams.delete(stream)) return;
+        clearInterval(stream.heartbeat);
+        clearInterval(stream.sessionCheck);
+      };
+      res.on('close', removeStream);
+      stream.heartbeat = setInterval(() => {
+        if (!res.writableEnded && !res.destroyed) res.write(': keep-alive\n\n');
+      }, 20000);
+      stream.heartbeat.unref?.();
+      stream.sessionCheck = setInterval(async () => {
+        if (stream.checkingSession || res.writableEnded || res.destroyed) return;
+        stream.checkingSession = true;
+        try {
+          const payload = readToken(bearerToken(req), jwtSecret);
+          const user = payload && payload.sub === session.payload.sub
+            ? await users.findOne({ _id: new ObjectId(payload.sub) })
+            : null;
+          if (!payload || !user || user.active === false || user.tokenVersion !== payload.ver ||
+              (user.activeDeviceId && user.activeDeviceId !== payload.deviceId)) {
+            writeMemberEvent(res, 'session-expired', { error: 'Session expired. Please sign in again.' });
+            removeStream();
+            res.end();
+          }
+        } catch (error) {
+          console.error('Member live-update session check failed:', error);
+          removeStream();
+          res.end();
+        } finally {
+          stream.checkingSession = false;
+        }
+      }, 60000);
+      stream.sessionCheck.unref?.();
+    } catch (error) {
+      return sendError(res, error, 'Member live-update stream failed:');
+    }
+  });
 
   app.get('/healthz', (_req, res) => res.status(200).json({ status: 'ok' }));
 
@@ -725,18 +874,23 @@ async function createRuntime() {
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
     await audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_SECONDS });
     const dummyPasswordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+    const app = createApp({
+      users,
+      devices,
+      audit,
+      members,
+      jwtSecret: JWT_SECRET,
+      adminApiKey: ADMIN_API_KEY,
+      dummyPasswordHash,
+      updateFeed: createUpdateFeed()
+    });
     return {
-      app: createApp({
-        users,
-        devices,
-        audit,
-        members,
-        jwtSecret: JWT_SECRET,
-        adminApiKey: ADMIN_API_KEY,
-        dummyPasswordHash,
-        updateFeed: createUpdateFeed()
-      }),
-      close: () => client.close()
+      app,
+      closeMembersLiveUpdates: app.locals.closeMembersLiveUpdates,
+      close: async () => {
+        await app.locals.closeMembersLiveUpdates();
+        await client.close();
+      }
     };
   } catch (error) {
     await client.close();
@@ -750,6 +904,7 @@ async function start() {
   const runtime = await createRuntime();
   const server = runtime.app.listen(port, '0.0.0.0', () => console.log(`Authentication service listening on port ${port}`));
   const shutdown = async () => {
+    await runtime.closeMembersLiveUpdates();
     server.close(async () => {
       await runtime.close();
       process.exit(0);

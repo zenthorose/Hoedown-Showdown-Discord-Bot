@@ -10,6 +10,24 @@ contextBridge.exposeInMainWorld('hoedown', {
   getMembers: () => ipcRenderer.invoke('members:list'),
   updateMember: (discordId, fields) =>
     ipcRenderer.invoke('members:update', { discordId, fields }),
+  onMemberChange: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Member change callback must be a function.');
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on('members:changed', listener);
+    return () => ipcRenderer.removeListener('members:changed', listener);
+  },
+  onMembersResync: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Members resync callback must be a function.');
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on('members:resync', listener);
+    return () => ipcRenderer.removeListener('members:resync', listener);
+  },
+  onMembersLiveStatus: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Members live-status callback must be a function.');
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('members:live-status', listener);
+    return () => ipcRenderer.removeListener('members:live-status', listener);
+  },
   logout: () => ipcRenderer.invoke('auth:logout'),
   installUpdate: () => ipcRenderer.invoke('app:install-update'),
   onStatus: (callback) => {

@@ -9,6 +9,9 @@ let resetToken = null;
 let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
+let memberResyncPending = false;
+const memberEdits = new Map();
+const memberChangeVersions = new Map();
 
 const pages = {
   members: {
@@ -52,9 +55,13 @@ function showSignedOut() {
   document.getElementById('app-footer').hidden = false;
   membersLoaded = false;
   memberRecords = [];
+  memberEdits.clear();
+  memberChangeVersions.clear();
+  memberResyncPending = false;
   document.getElementById('members-list').replaceChildren();
   document.getElementById('members-summary').textContent = 'Sign in to load member records.';
   document.getElementById('members-state').textContent = 'Member records are not loaded.';
+  document.getElementById('members-live-status').textContent = '';
   resetToken = null;
 }
 
@@ -128,49 +135,166 @@ function createMemberAction(label, className, action) {
   return button;
 }
 
-function editMemberRow(row, member) {
-  row.classList.add('editing');
-  for (const field of editableMemberFields) {
-    const value = row.querySelector(`[data-member-field="${field.name}"]`);
-    const input = document.createElement('input');
-    input.className = 'member-edit-input';
-    input.dataset.memberField = field.name;
-    input.type = field.type || 'text';
-    input.name = field.name;
-    input.maxLength = field.maxLength;
-    input.required = field.required === true;
-    input.value = member[field.name] || '';
-    input.setAttribute('aria-label', field.label);
-    value.replaceWith(input);
-  }
-  row.querySelector('.member-edit-button').hidden = true;
-  row.querySelector('.member-save-button').hidden = false;
-  row.querySelector('.member-cancel-button').hidden = false;
-  row.querySelector('.member-edit-error').hidden = true;
-  row.querySelector('.member-edit-input').focus();
+function createMemberEditor(field, member, edit) {
+  const detail = document.createElement('label');
+  detail.className = 'member-detail';
+  const term = document.createElement('span');
+  term.className = 'member-detail-label';
+  term.textContent = field.label;
+  const input = document.createElement('input');
+  input.className = 'member-edit-input';
+  input.dataset.memberField = field.name;
+  input.type = field.type || 'text';
+  input.name = field.name;
+  input.maxLength = field.maxLength;
+  input.required = field.required === true;
+  input.value = edit.fields[field.name] || '';
+  input.disabled = edit.saving;
+  input.setAttribute('aria-label', field.label);
+  input.addEventListener('input', () => {
+    edit.fields[field.name] = input.value;
+    if (edit.conflicts.has(field.name) && input.value === (member[field.name] || '')) {
+      edit.conflicts.delete(field.name);
+    }
+    const row = input.closest('.member-row');
+    const notice = row.querySelector('.member-edit-conflict');
+    notice.hidden = edit.conflicts.size === 0;
+    if (!notice.hidden) notice.textContent = conflictMessage(edit);
+  });
+  detail.append(term, input);
+  return detail;
 }
 
-async function saveMemberRow(row, member) {
-  const saveButton = row.querySelector('.member-save-button');
-  const errorMessage = row.querySelector('.member-edit-error');
-  const fields = {};
+function conflictMessage(edit) {
+  const fields = [...edit.conflicts].map((name) =>
+    editableMemberFields.find((field) => field.name === name)?.label || name
+  );
+  return `Updated elsewhere (${fields.join(', ')}). Your draft is preserved; saving will apply your values for those fields.`;
+}
+
+function editMemberRow(row, member) {
+  memberEdits.set(member.discordId, {
+    baseline: { ...member },
+    fields: Object.fromEntries(editableMemberFields.map((field) => [
+      field.name,
+      member[field.name] || ''
+    ])),
+    conflicts: new Set(),
+    error: '',
+    saving: false
+  });
+  renderMembers();
+  document.querySelector(
+    `.member-row[data-discord-id="${CSS.escape(member.discordId)}"] .member-edit-input`
+  )?.focus();
+}
+
+function mergeMemberDraft(member, updatedMember, edit) {
+  if (!edit) return;
   for (const field of editableMemberFields) {
-    fields[field.name] = row.querySelector(`[data-member-field="${field.name}"]`).value;
+    const previousValue = edit.baseline[field.name] || '';
+    const remoteValue = updatedMember[field.name] || '';
+    const localValue = edit.fields[field.name] || '';
+    if (remoteValue === previousValue) continue;
+    if (localValue !== previousValue && localValue !== remoteValue) {
+      edit.conflicts.add(field.name);
+    } else {
+      edit.fields[field.name] = remoteValue;
+      edit.conflicts.delete(field.name);
+    }
+  }
+  edit.baseline = { ...updatedMember };
+}
+
+function mergeMemberList(profiles) {
+  const currentMembers = new Map(memberRecords.map((member) => [member.discordId, member]));
+  const updatedIds = new Set();
+  const nextMembers = profiles.map((profile) => {
+    updatedIds.add(profile.discordId);
+    const current = currentMembers.get(profile.discordId);
+    mergeMemberDraft(current, profile, memberEdits.get(profile.discordId));
+    return profile;
+  });
+  for (const member of memberRecords) {
+    if (!updatedIds.has(member.discordId) && memberEdits.has(member.discordId)) {
+      nextMembers.push(member);
+    }
+  }
+  memberRecords = nextMembers.sort((a, b) =>
+    (a.username || '').localeCompare(b.username || '', 'en', { sensitivity: 'base' })
+  );
+}
+
+function applyMemberChange(change) {
+  if (!change || typeof change !== 'object') return;
+  if (change.type === 'deleted' && typeof change.discordId === 'string') {
+    memberChangeVersions.set(
+      change.discordId,
+      (memberChangeVersions.get(change.discordId) || 0) + 1
+    );
+    if (memberEdits.has(change.discordId)) {
+      const edit = memberEdits.get(change.discordId);
+      edit.error = 'This profile was removed elsewhere. Your draft is preserved, but it can no longer be saved.';
+    } else {
+      memberRecords = memberRecords.filter((member) => member.discordId !== change.discordId);
+    }
+    renderMembers();
+    return;
+  }
+  const updatedMember = change.member;
+  if (change.type !== 'updated' || !updatedMember || typeof updatedMember.discordId !== 'string') return;
+  memberChangeVersions.set(
+    updatedMember.discordId,
+    (memberChangeVersions.get(updatedMember.discordId) || 0) + 1
+  );
+  const index = memberRecords.findIndex((member) => member.discordId === updatedMember.discordId);
+  if (index === -1) {
+    memberRecords.push(updatedMember);
+    memberRecords.sort((a, b) =>
+      (a.username || '').localeCompare(b.username || '', 'en', { sensitivity: 'base' })
+    );
+  } else {
+    mergeMemberDraft(
+      memberRecords[index],
+      updatedMember,
+      memberEdits.get(updatedMember.discordId)
+    );
+    memberRecords[index] = updatedMember;
+  }
+  renderMembers();
+}
+
+async function saveMemberRow(member) {
+  const edit = memberEdits.get(member.discordId);
+  const currentMember = memberRecords.find((entry) => entry.discordId === member.discordId);
+  if (!edit || !currentMember || edit.saving) return;
+  const fields = Object.fromEntries(editableMemberFields
+    .filter((field) => (edit.fields[field.name] || '') !== (currentMember[field.name] || ''))
+    .map((field) => [field.name, edit.fields[field.name] || '']));
+  if (!Object.keys(fields).length) {
+    memberEdits.delete(member.discordId);
+    renderMembers();
+    return;
   }
 
-  saveButton.disabled = true;
-  errorMessage.hidden = true;
+  const observedChangeVersion = memberChangeVersions.get(member.discordId) || 0;
+  edit.saving = true;
+  edit.error = '';
+  renderMembers();
   try {
     const result = await window.hoedown.updateMember(member.discordId, fields);
     if (!result.ok) throw new Error(result.error || 'Could not save member changes.');
     const memberIndex = memberRecords.findIndex((entry) => entry.discordId === member.discordId);
     if (memberIndex === -1) throw new Error('The saved member is no longer in the list. Refresh and try again.');
-    memberRecords[memberIndex] = result.member;
+    if ((memberChangeVersions.get(member.discordId) || 0) === observedChangeVersion) {
+      memberRecords[memberIndex] = result.member;
+    }
+    memberEdits.delete(member.discordId);
     renderMembers();
   } catch (error) {
-    errorMessage.textContent = error.message || 'Could not save member changes.';
-    errorMessage.hidden = false;
-    saveButton.disabled = false;
+    edit.saving = false;
+    edit.error = error.message || 'Could not save member changes.';
+    renderMembers();
   }
 }
 
@@ -179,9 +303,19 @@ function renderMembers() {
   const state = document.getElementById('members-state');
   const query = document.getElementById('member-search').value.trim().toLowerCase();
   const scrollTop = list.scrollTop;
+  const activeElement = document.activeElement;
+  const activeRow = activeElement?.closest('.member-row');
+  const activeDiscordId = activeRow?.dataset.discordId;
+  const activeField = activeElement?.dataset.memberField;
+  const activeAction = activeElement?.classList.contains('member-save-button')
+    ? 'member-save-button'
+    : activeElement?.classList.contains('member-cancel-button') ? 'member-cancel-button' : '';
+  const selectionStart = typeof activeElement?.selectionStart === 'number' ? activeElement.selectionStart : null;
+  const selectionEnd = typeof activeElement?.selectionEnd === 'number' ? activeElement.selectionEnd : null;
   list.replaceChildren();
 
   for (const member of memberRecords) {
+    const edit = memberEdits.get(member.discordId);
     const username = member.username || '';
     const nickname = member.nickname || '';
     const discordId = member.discordId || '';
@@ -203,30 +337,60 @@ function renderMembers() {
 
     const details = document.createElement('div');
     details.className = 'member-details';
-    details.append(
-      createMemberDetail('discordId', 'Discord ID', discordId),
-      createMemberDetail('region', 'Region', region),
-      createMemberDetail('steamId', 'Steam ID', steamId),
-      createMemberDetail('streamLink', 'Stream link', streamLink),
-      createMemberDetail('nickname', 'Nickname', nickname)
-    );
+    details.append(createMemberDetail('discordId', 'Discord ID', discordId));
+    if (edit) {
+      for (const field of editableMemberFields) {
+        details.append(createMemberEditor(field, member, edit));
+      }
+    } else {
+      details.append(
+        createMemberDetail('region', 'Region', region),
+        createMemberDetail('steamId', 'Steam ID', steamId),
+        createMemberDetail('streamLink', 'Stream link', streamLink),
+        createMemberDetail('nickname', 'Nickname', nickname)
+      );
+    }
     const actions = document.createElement('div');
     actions.className = 'member-actions';
     actions.append(
       createMemberAction('Edit', 'member-edit-button', () => editMemberRow(row, member)),
-      createMemberAction('Save', 'member-save-button', () => { void saveMemberRow(row, member); }),
-      createMemberAction('Cancel', 'member-cancel-button secondary', renderMembers)
+      createMemberAction('Save', 'member-save-button', () => { void saveMemberRow(member); }),
+      createMemberAction('Cancel', 'member-cancel-button secondary', () => {
+        memberEdits.delete(member.discordId);
+        renderMembers();
+      })
     );
-    actions.querySelector('.member-save-button').hidden = true;
-    actions.querySelector('.member-cancel-button').hidden = true;
+    actions.querySelector('.member-edit-button').hidden = Boolean(edit);
+    actions.querySelector('.member-save-button').hidden = !edit;
+    actions.querySelector('.member-save-button').disabled = Boolean(edit?.saving);
+    actions.querySelector('.member-cancel-button').hidden = !edit;
     const editError = document.createElement('p');
     editError.className = 'member-edit-error';
     editError.setAttribute('role', 'alert');
-    editError.hidden = true;
-    row.append(identity, details, actions, editError);
+    editError.textContent = edit?.error || '';
+    editError.hidden = !edit?.error;
+    const editConflict = document.createElement('p');
+    editConflict.className = 'member-edit-conflict';
+    editConflict.setAttribute('role', 'status');
+    editConflict.hidden = !edit || edit.conflicts.size === 0;
+    if (edit && edit.conflicts.size) editConflict.textContent = conflictMessage(edit);
+    row.dataset.discordId = discordId;
+    row.append(identity, details, actions, editError, editConflict);
     list.append(row);
   }
   list.scrollTop = scrollTop;
+  if (activeDiscordId) {
+    const row = [...list.children].find((item) => item.dataset.discordId === activeDiscordId);
+    const focusTarget = activeField
+      ? row?.querySelector(`[data-member-field="${activeField}"]`)
+      : activeAction ? row?.querySelector(`.${activeAction}`) : null;
+    if (focusTarget && !focusTarget.disabled && !focusTarget.hidden) {
+      focusTarget.focus();
+      if (selectionStart !== null && typeof focusTarget.setSelectionRange === 'function') {
+        focusTarget.setSelectionRange(selectionStart, selectionEnd);
+      }
+    }
+  }
 
   const visibleCount = [...list.children].filter((row) => {
     const visible = !query || row.dataset.search.includes(query);
@@ -242,7 +406,7 @@ function renderMembers() {
   else if (query && visibleCount === 0) state.textContent = 'No members match your search.';
 }
 
-async function loadMembers() {
+async function loadMembers(options = {}) {
   if (membersLoading) return;
   membersLoading = true;
   const refreshButton = document.getElementById('refresh-members');
@@ -254,7 +418,8 @@ async function loadMembers() {
   try {
     const result = await window.hoedown.getMembers();
     if (!result.ok) throw new Error(result.error || 'Could not load Members.');
-    memberRecords = result.members;
+    if (options.preserveEdits) mergeMemberList(result.members);
+    else memberRecords = result.members;
     membersLoaded = true;
     renderMembers();
     if (result.truncated) {
@@ -268,13 +433,29 @@ async function loadMembers() {
   } finally {
     membersLoading = false;
     refreshButton.disabled = false;
+    if (memberResyncPending) {
+      memberResyncPending = false;
+      void loadMembers({ preserveEdits: true });
+    }
+  }
+}
+
+async function resyncMembers() {
+  if (membersLoading) {
+    memberResyncPending = true;
+    return;
+  }
+  try {
+    await loadMembers({ preserveEdits: true });
+  } catch (error) {
+    document.getElementById('members-state').textContent = error.message || 'Could not refresh members.';
   }
 }
 
 document.getElementById('member-search').addEventListener('input', renderMembers);
 document.getElementById('refresh-members').addEventListener('click', () => {
   membersLoaded = false;
-  void loadMembers();
+  void loadMembers({ preserveEdits: true });
 });
 
 loginForm.addEventListener('submit', async (event) => {
@@ -394,6 +575,15 @@ window.hoedown.onUpdateStatus((update) => {
   document.getElementById('install-update').hidden = update.ready !== true;
 });
 
+window.hoedown.onMemberChange(applyMemberChange);
+window.hoedown.onMembersResync(() => { void resyncMembers(); });
+window.hoedown.onMembersLiveStatus((liveStatus) => {
+  const indicator = document.getElementById('members-live-status');
+  if (liveStatus.connected) indicator.textContent = 'Live updates connected';
+  else if (liveStatus.reconnecting) indicator.textContent = 'Live updates reconnecting…';
+  else if (liveStatus.connecting) indicator.textContent = 'Connecting live updates…';
+  else indicator.textContent = '';
+});
 window.hoedown.onStatus(applyAuthState);
 window.hoedown.getStatus()
   .then(applyAuthState)

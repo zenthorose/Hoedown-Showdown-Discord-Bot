@@ -173,6 +173,7 @@ footer { margin-top: 20px; font-size: 12px; }
 }
 .members-toolbar h2 { margin: 0 0 5px; font-size: 20px; }
 .members-toolbar p { margin: 0; font-size: 13px; }
+.members-toolbar .members-live-status { margin-top: 4px; color: #86c28b; font-size: 11px; }
 .members-actions { display: flex; align-items: center; gap: 9px; }
 .search-field { display: block; min-width: min(250px, 40vw); }
 .search-field input { padding: 9px 11px; }
@@ -228,6 +229,7 @@ footer { margin-top: 20px; font-size: 12px; }
 .member-actions button { padding: 8px 11px; font-size: 12px; }
 .member-actions .member-edit-button { background: #3a4840; }
 .member-edit-error { grid-column: 1 / -1; margin: 0; color: #ff9a8b; font-size: 12px; }
+.member-edit-conflict { grid-column: 1 / -1; margin: 0; color: #f0d58f; font-size: 12px; }
 .members-state { margin: 18px 0; color: #a5aea6; text-align: center; }
 .visually-hidden {
   position: absolute;

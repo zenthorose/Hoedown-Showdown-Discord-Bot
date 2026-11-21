@@ -11,6 +11,8 @@ let username = '';
 let authConfig = {};
 let deviceInfo;
 let statusTimer;
+let memberLiveController;
+let memberLiveGeneration = 0;
 let updateProvider;
 let updateDownloaded = false;
 
@@ -64,6 +66,7 @@ async function saveToken(token) {
 }
 
 async function clearToken() {
+  stopMembersLiveUpdates();
   try {
     await fs.unlink(tokenFile());
   } catch (error) {
@@ -71,6 +74,115 @@ async function clearToken() {
   }
   sessionToken = null;
   username = '';
+}
+
+function sendMembersLiveStatus(state) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('members:live-status', state);
+  }
+}
+
+function stopMembersLiveUpdates() {
+  memberLiveGeneration += 1;
+  if (memberLiveController) memberLiveController.abort();
+  memberLiveController = null;
+  sendMembersLiveStatus({ connected: false });
+}
+
+function startMembersLiveUpdates() {
+  if (!sessionToken || !mainWindow) return;
+  if (memberLiveController) memberLiveController.abort();
+  const token = sessionToken;
+  const controller = new AbortController();
+  memberLiveController = controller;
+  const generation = ++memberLiveGeneration;
+  let retryDelay = 1000;
+  sendMembersLiveStatus({ connected: false, connecting: true });
+
+  const receiveFrame = async (frame) => {
+    let eventName = 'message';
+    const dataLines = [];
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) eventName = line.slice(6).trim();
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+    }
+    if (!dataLines.length) return;
+    let data;
+    try {
+      data = JSON.parse(dataLines.join('\n'));
+    } catch (error) {
+      console.error('Could not parse a Members live-update event:', error);
+      return;
+    }
+
+    if (eventName === 'session-expired') {
+      await clearToken();
+      sendStatus({ signedIn: false, error: data.error || 'Session expired. Please sign in again.' });
+    } else if (eventName === 'member' || eventName === 'resync') {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(
+          eventName === 'member' ? 'members:changed' : 'members:resync',
+          data
+        );
+      }
+    }
+  };
+
+  void (async () => {
+    while (!controller.signal.aborted && generation === memberLiveGeneration && sessionToken === token) {
+      try {
+        const response = await fetch(new URL('/api/members/stream', `${serviceUrl()}/`), {
+          headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+          signal: controller.signal
+        });
+        if (response.status === 401) {
+          await response.body?.cancel();
+          await clearToken();
+          sendStatus({ signedIn: false, error: 'Session expired. Please sign in again.' });
+          return;
+        }
+        if (!response.ok || !response.body) {
+          await response.body?.cancel();
+          throw new Error(`The live member service returned HTTP ${response.status}.`);
+        }
+
+        retryDelay = 1000;
+        sendMembersLiveStatus({ connected: true });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer = `${buffer}${decoder.decode(value, { stream: true })}`.replace(/\r\n/g, '\n');
+          let boundary = buffer.indexOf('\n\n');
+          while (boundary !== -1) {
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            await receiveFrame(frame);
+            boundary = buffer.indexOf('\n\n');
+          }
+        }
+        if (controller.signal.aborted) return;
+        throw new Error('The live member update connection closed.');
+      } catch (error) {
+        if (controller.signal.aborted || generation !== memberLiveGeneration || sessionToken !== token) return;
+        console.error('Members live-update connection failed:', error);
+        sendMembersLiveStatus({ connected: false, reconnecting: true });
+      }
+
+      await new Promise((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          controller.signal.removeEventListener('abort', finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, retryDelay);
+        controller.signal.addEventListener('abort', finish, { once: true });
+      });
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    }
+  })();
 }
 
 async function readToken() {
@@ -221,6 +333,7 @@ app.whenReady().then(async () => {
         });
         if (!response.ok) throw new Error(data.error || 'Session check failed.');
         void checkForUpdate();
+        startMembersLiveUpdates();
         return { signedIn: true, username: data.username };
       }
       return state;
@@ -261,6 +374,7 @@ app.whenReady().then(async () => {
       sessionToken = data.token;
       username = data.username;
       void checkForUpdate();
+      startMembersLiveUpdates();
       return { ok: true, signedIn: true, username };
     } catch (error) {
       return { ok: false, error: error.name === 'AbortError'
@@ -307,6 +421,7 @@ app.whenReady().then(async () => {
       }
       await saveToken(data.token);
       sessionToken = data.token;
+      startMembersLiveUpdates();
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message || 'Could not update password.' };

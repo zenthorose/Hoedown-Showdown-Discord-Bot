@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const { ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const test = require('node:test');
@@ -60,7 +61,7 @@ const deviceInfo = (deviceId, launchId) => ({
   platform: 'win32'
 });
 
-async function withServer(run) {
+async function withServer(run, { memberChangeStream } = {}) {
   const username = 'cowboy';
   const password = 'InitialPassword!123';
   const user = {
@@ -84,6 +85,7 @@ async function withServer(run) {
     streamLink: 'https://example.test/player',
     gender: 'not exposed'
   }]);
+  if (memberChangeStream) members.watch = () => memberChangeStream;
   const jwtSecret = 'test-secret-that-is-long-enough-to-sign-test-tokens';
   const app = createApp({
     users,
@@ -105,9 +107,11 @@ async function withServer(run) {
       devices,
       members,
       password,
-      jwtSecret
+      jwtSecret,
+      app
     });
   } finally {
+    await app.locals.closeMembersLiveUpdates();
     await new Promise((resolve) => server.close(resolve));
   }
 }
@@ -170,6 +174,7 @@ test('member directory requires a session and returns only approved profile fiel
         ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
       })
     });
+
     const { token } = await login.json();
     const response = await fetch(`${baseUrl}/api/members`, {
       headers: { authorization: `Bearer ${token}` }
@@ -241,6 +246,45 @@ test('member directory requires a session and returns only approved profile fiel
     assert.equal(invalidEdit.status, 400);
     assert.equal(members.items[0].streamLink, 'https://example.test/edited');
   });
+});
+
+test('authenticated member event streams publish sanitized MongoDB changes', async () => {
+  const memberChangeStream = new EventEmitter();
+  memberChangeStream.close = async () => memberChangeStream.emit('close');
+
+  await withServer(async ({ baseUrl, user, jwtSecret, members }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/members/stream`);
+    assert.equal(unauthorized.status, 401);
+
+    const token = makeToken({
+      sub: user._id.toString(),
+      ver: user.tokenVersion,
+      deviceId: '01234567-89ab-42cd-8abc-0123456789ab',
+      purpose: 'session'
+    }, jwtSecret, Math.floor(Date.now() / 1000), 600);
+    const response = await fetch(`${baseUrl}/api/members/stream`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/event-stream/);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const initial = await reader.read();
+    assert.match(decoder.decode(initial.value), /event: resync/);
+
+    members.items[0].region = 'West';
+    memberChangeStream.emit('change', {
+      operationType: 'update',
+      fullDocument: members.items[0]
+    });
+    const update = await reader.read();
+    const updateText = decoder.decode(update.value);
+    assert.match(updateText, /event: member/);
+    assert.match(updateText, /"region":"West"/);
+    assert.doesNotMatch(updateText, /not exposed/);
+    await reader.cancel();
+  }, { memberChangeStream });
 });
 
 test('admin temporary passwords require a password change before a session is granted', async () => {
