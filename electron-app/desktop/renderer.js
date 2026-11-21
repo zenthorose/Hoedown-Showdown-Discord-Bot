@@ -36,7 +36,7 @@ const pages = {
   }
 };
 const editableMemberFields = [
-  { name: 'nickname', label: 'Nickname', maxLength: 100 },
+  { name: 'nickname', label: 'Nickname', maxLength: 32 },
   { name: 'region', label: 'Region', maxLength: 32 },
   { name: 'steamId', label: 'Steam ID', maxLength: 128 },
   { name: 'streamLink', label: 'Stream link', maxLength: 2048, type: 'url' }

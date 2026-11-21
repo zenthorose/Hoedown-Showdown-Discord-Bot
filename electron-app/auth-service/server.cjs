@@ -14,7 +14,7 @@ const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBER_ID_PATTERN = /^\d{17,20}$/;
 const MEMBER_FIELD_LIMITS = {
-  nickname: 100,
+  nickname: 32,
   region: 32,
   steamId: 128,
   streamLink: 2048
@@ -155,7 +155,17 @@ function validPassword(value) {
   return typeof value === 'string' && value.length >= 12 && Buffer.byteLength(value, 'utf8') <= 72;
 }
 
-function createApp({ users, devices, audit, members, jwtSecret, adminApiKey, dummyPasswordHash, updateFeed }) {
+function createApp({
+  users,
+  devices,
+  audit,
+  members,
+  jwtSecret,
+  adminApiKey,
+  dummyPasswordHash,
+  updateFeed,
+  updateDiscordNickname
+}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -594,6 +604,7 @@ function createApp({ users, devices, audit, members, jwtSecret, adminApiKey, dum
   });
 
   app.patch('/api/members/:discordId', limited(30), async (req, res) => {
+    let discordNicknameUpdated = false;
     try {
       const session = await readSession(req, res);
       if (!session) return;
@@ -610,13 +621,57 @@ function createApp({ users, devices, audit, members, jwtSecret, adminApiKey, dum
         return res.status(400).json({ error: error.message });
       }
 
+      const currentProfile = await members.findOne({ _id: discordId });
+      if (!currentProfile) return res.status(404).json({ error: 'Member not found.' });
+      if (Object.hasOwn(updates, 'nickname') && updates.nickname !== (currentProfile.nickname || '')) {
+        if (typeof updateDiscordNickname !== 'function') {
+          return res.status(503).json({ error: 'Discord nickname syncing is not configured.' });
+        }
+        try {
+          await updateDiscordNickname(discordId, updates.nickname);
+          discordNicknameUpdated = true;
+        } catch (error) {
+          console.error('Discord nickname update failed:', error);
+          const code = Number(error.code);
+          const message = code === 50013
+            ? 'The bot cannot change this member’s nickname. Check its Manage Nicknames permission and role hierarchy.'
+            : code === 10007
+              ? 'This Discord user is not a member of the configured server.'
+              : 'Could not update the Discord nickname. The member profile was not saved.';
+          return res.status(502).json({ error: message });
+        }
+      }
+
       const result = await members.updateOne({ _id: discordId }, { $set: updates });
-      if (!result.matchedCount) return res.status(404).json({ error: 'Member not found.' });
+      if (!result.matchedCount) {
+        if (discordNicknameUpdated) {
+          return res.status(503).json({
+            error: 'Discord nickname was updated, but the member profile no longer exists in MongoDB.'
+          });
+        }
+        return res.status(404).json({ error: 'Member not found.' });
+      }
       const profile = await members.findOne({ _id: discordId });
-      if (!profile) return res.status(404).json({ error: 'Member not found.' });
+      if (!profile) {
+        if (discordNicknameUpdated) {
+          return res.status(503).json({
+            error: 'Discord nickname was updated, but the member profile could not be reloaded from MongoDB.'
+          });
+        }
+        return res.status(404).json({ error: 'Member not found.' });
+      }
       res.set('Cache-Control', 'private, no-store');
-      return res.status(200).json({ member: serializeMember(profile) });
+      return res.status(200).json({
+        member: serializeMember(profile),
+        discordNicknameUpdated
+      });
     } catch (error) {
+      if (discordNicknameUpdated) {
+        console.error('Member profile save failed after Discord nickname was updated:', error);
+        return res.status(503).json({
+          error: 'Discord nickname was updated, but the member profile could not be saved to MongoDB. Please retry the update.'
+        });
+      }
       return sendError(res, error, 'Member update failed:');
     }
   });
@@ -848,7 +903,7 @@ function createApp({ users, devices, audit, members, jwtSecret, adminApiKey, dum
   return app;
 }
 
-async function createRuntime() {
+async function createRuntime({ discordClient, discordGuildId = process.env.GUILD_ID } = {}) {
   const { MONGO_URI, MONGODB_ADMIN, MONGODB_HOEDOWNINFO, JWT_SECRET, ADMIN_API_KEY } = process.env;
   if (!MONGO_URI || !MONGODB_ADMIN || !JWT_SECRET || JWT_SECRET.length < 32) {
     throw new Error('Set MONGO_URI, MONGODB_ADMIN, and a JWT_SECRET of at least 32 characters.');
@@ -882,7 +937,18 @@ async function createRuntime() {
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,
-      updateFeed: createUpdateFeed()
+      updateFeed: createUpdateFeed(),
+      updateDiscordNickname: discordClient && discordGuildId
+        ? async (discordId, nickname) => {
+          if (!discordClient.isReady()) {
+            throw new Error('The Discord bot is not ready to update nicknames.');
+          }
+          const guild = discordClient.guilds.cache.get(discordGuildId)
+            || await discordClient.guilds.fetch(discordGuildId);
+          const member = await guild.members.fetch(discordId);
+          await member.setNickname(nickname || null, 'Updated through the Hoedown desktop app');
+        }
+        : null
     });
     return {
       app,

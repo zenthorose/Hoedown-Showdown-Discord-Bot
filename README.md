@@ -20,6 +20,8 @@ The permission-restricted `/member-update` syncs each current Discord server mem
 
 The desktop Members directory receives live updates from MongoDB change streams. The MongoDB deployment must support change streams. If another user changes a profile while it is being edited, the open draft is preserved, conflicting fields are identified, and saving only submits fields changed in that draft.
 
+Saving a nickname from the desktop app also updates the member's nickname on Discord before saving the MongoDB profile. The bot must be online, `GUILD_ID` must identify the server, and the bot needs Manage Nicknames permission with a role above the member. Discord nicknames are limited to 32 characters.
+
 `/avoid` continues writing to Google Sheets and also upserts its directional relationships into `HoedownInfo.Avoids`, keyed by the first selected player's Discord ID. MongoDB stores each avoided player's Discord ID and username and avoids adding duplicate IDs. `/unavoid` removes only the selected direction from the same MongoDB document after Google Sheets confirms the removal; the reverse direction, if present, is kept.
 
 - `Members`: export the `Discord Member List` tab from Google Sheets using **File → Download → Comma Separated Values (.csv)**. Profiles are stored in the `Members` collection with Discord ID as `_id`; reimporting updates matching profiles and preserves other profiles.

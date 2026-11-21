@@ -61,7 +61,9 @@ const deviceInfo = (deviceId, launchId) => ({
   platform: 'win32'
 });
 
-async function withServer(run, { memberChangeStream } = {}) {
+async function withServer(run, options = {}) {
+  const { memberChangeStream } = options;
+  const discordNicknameUpdates = [];
   const username = 'cowboy';
   const password = 'InitialPassword!123';
   const user = {
@@ -86,6 +88,9 @@ async function withServer(run, { memberChangeStream } = {}) {
     gender: 'not exposed'
   }]);
   if (memberChangeStream) members.watch = () => memberChangeStream;
+  const updateDiscordNickname = options.updateDiscordNickname || (async (discordId, nickname) => {
+    discordNicknameUpdates.push({ discordId, nickname });
+  });
   const jwtSecret = 'test-secret-that-is-long-enough-to-sign-test-tokens';
   const app = createApp({
     users,
@@ -94,7 +99,8 @@ async function withServer(run, { memberChangeStream } = {}) {
     members,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
-    dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4)
+    dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
+    updateDiscordNickname
   });
   const server = await new Promise((resolve) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
@@ -106,6 +112,7 @@ async function withServer(run, { memberChangeStream } = {}) {
       users,
       devices,
       members,
+      discordNicknameUpdates,
       password,
       jwtSecret,
       app
@@ -161,7 +168,7 @@ test('a later login invalidates the previously active session', async () => {
 });
 
 test('member directory requires a session and returns only approved profile fields', async () => {
-  await withServer(async ({ baseUrl, password, members }) => {
+  await withServer(async ({ baseUrl, password, members, discordNicknameUpdates }) => {
     const unauthorized = await fetch(`${baseUrl}/api/members`);
     assert.equal(unauthorized.status, 401);
 
@@ -222,6 +229,10 @@ test('member directory requires a session and returns only approved profile fiel
       steamId: 'steam-updated',
       streamLink: 'https://example.test/edited'
     });
+    assert.deepEqual(discordNicknameUpdates, [{
+      discordId: '123456789012345678',
+      nickname: 'Edited Player'
+    }]);
     assert.equal(members.items[0].gender, 'not exposed');
 
     const usernameEdit = await fetch(`${baseUrl}/api/members/123456789012345678`, {
@@ -245,6 +256,39 @@ test('member directory requires a session and returns only approved profile fiel
     });
     assert.equal(invalidEdit.status, 400);
     assert.equal(members.items[0].streamLink, 'https://example.test/edited');
+  });
+});
+
+test('a Discord nickname failure prevents the MongoDB profile update', async () => {
+  const failure = Object.assign(new Error('Missing Permissions'), { code: 50013 });
+  await withServer(async ({ baseUrl, password, members }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(`${baseUrl}/api/members/123456789012345678`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ nickname: 'New Nickname' })
+    });
+    const result = await response.json();
+
+    assert.equal(response.status, 502);
+    assert.match(result.error, /Manage Nicknames permission/);
+    assert.equal(members.items[0].nickname, 'Test Player');
+  }, {
+    updateDiscordNickname: async () => {
+      throw failure;
+    }
   });
 });
 

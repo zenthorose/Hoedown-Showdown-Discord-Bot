@@ -345,7 +345,7 @@ async function startWebService() {
   const authConfigured = authEnvironment.some((name) => Boolean(process.env[name]));
   if (authConfigured) {
     const { createRuntime } = require('./electron-app/auth-service/server.cjs');
-    const authRuntime = await createRuntime();
+    const authRuntime = await createRuntime({ discordClient: client });
     app.use(authRuntime.app);
     console.log('🔐 Authentication API mounted on the bot service.');
   } else {
