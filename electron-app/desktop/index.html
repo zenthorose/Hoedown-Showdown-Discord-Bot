@@ -86,6 +86,23 @@
               <div id="members-list" class="members-list" role="list" aria-label="Member records"></div>
               <p id="members-state" class="members-state" role="status" aria-live="polite">Loading members…</p>
             </section>
+            <section id="avoids-view" class="members-view" aria-label="Avoid relationships" hidden>
+              <header class="members-toolbar">
+                <div>
+                  <h2>Avoid relationships</h2>
+                  <p id="avoids-summary" class="muted">Sign in to load avoid relationships.</p>
+                </div>
+                <div class="members-actions">
+                  <label class="search-field">
+                    <span class="visually-hidden">Search avoid relationships</span>
+                    <input id="avoids-search" type="search" placeholder="Search avoids…" autocomplete="off">
+                  </label>
+                  <button id="refresh-avoids" class="secondary refresh-button" type="button">↻ Refresh</button>
+                </div>
+              </header>
+              <div id="avoids-list" class="avoids-list" role="list" aria-label="Directional avoid relationships"></div>
+              <p id="avoids-state" class="members-state" role="status" aria-live="polite">Avoid relationships are not loaded.</p>
+            </section>
             <form id="self-password-form" class="password-card" hidden>
               <h2>Change password</h2>
               <label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label>

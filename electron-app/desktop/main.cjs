@@ -495,6 +495,27 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('avoids:list', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted avoid list request.');
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi('/api/avoids', { token: sessionToken });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not load Avoids.' };
+      if (!Array.isArray(data.pairs)) throw new Error('The service returned an invalid Avoids list.');
+      return { ok: true, pairs: data.pairs };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the avoid service.' };
+    }
+  });
+
   ipcMain.handle('app:install-update', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted update install request.');
     if (!updateProvider || !updateDownloaded) throw new Error('There is no downloaded update ready to install.');

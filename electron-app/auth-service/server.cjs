@@ -160,6 +160,7 @@ function createApp({
   devices,
   audit,
   members,
+  avoids,
   jwtSecret,
   adminApiKey,
   dummyPasswordHash,
@@ -603,6 +604,61 @@ function createApp({
     }
   });
 
+  app.get('/api/avoids', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!avoids || !members) {
+        return res.status(503).json({ error: 'Avoid data is not configured.' });
+      }
+
+      const [documents, profiles] = await Promise.all([
+        avoids.find({}, { projection: { _id: 1, name: 1, avoids: 1 } }).toArray(),
+        members.find({}, {
+          projection: { _id: 1, discordId: 1, username: 1, nickname: 1 }
+        }).toArray()
+      ]);
+      const profilesById = new Map(profiles.map((profile) => [
+        String(profile.discordId || profile._id || ''),
+        profile
+      ]));
+      const pairs = [];
+      for (const document of documents) {
+        const avoiderDiscordId = String(document._id || document.discordId || '');
+        if (!avoiderDiscordId || !Array.isArray(document.avoids)) continue;
+        const avoiderProfile = profilesById.get(avoiderDiscordId);
+        const avoiderName = avoiderProfile?.nickname || avoiderProfile?.username ||
+          document.name || avoiderDiscordId;
+
+        for (const avoided of document.avoids) {
+          const avoidedDiscordId = typeof avoided === 'string'
+            ? avoided
+            : String(avoided?.discordId || '');
+          if (!avoidedDiscordId) continue;
+          const avoidedProfile = profilesById.get(avoidedDiscordId);
+          pairs.push({
+            avoiderDiscordId,
+            avoiderName,
+            avoidedDiscordId,
+            avoidedName: avoidedProfile?.nickname || avoidedProfile?.username ||
+              (typeof avoided === 'object' && avoided ? avoided.name : '') ||
+              avoidedDiscordId
+          });
+        }
+      }
+      pairs.sort((left, right) =>
+        left.avoiderName.localeCompare(right.avoiderName, 'en', { sensitivity: 'base' }) ||
+        left.avoidedName.localeCompare(right.avoidedName, 'en', { sensitivity: 'base' }) ||
+        left.avoiderDiscordId.localeCompare(right.avoiderDiscordId) ||
+        left.avoidedDiscordId.localeCompare(right.avoidedDiscordId)
+      );
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({ pairs });
+    } catch (error) {
+      return sendError(res, error, 'Avoid list lookup failed:');
+    }
+  });
+
   app.patch('/api/members/:discordId', limited(30), async (req, res) => {
     let discordNicknameUpdated = false;
     try {
@@ -924,6 +980,9 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     const members = hoedownDatabaseName
       ? client.db(hoedownDatabaseName).collection('Members')
       : null;
+    const avoids = hoedownDatabaseName
+      ? client.db(hoedownDatabaseName).collection('Avoids')
+      : null;
     await users.createIndex({ username: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
@@ -934,6 +993,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       devices,
       audit,
       members,
+      avoids,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,

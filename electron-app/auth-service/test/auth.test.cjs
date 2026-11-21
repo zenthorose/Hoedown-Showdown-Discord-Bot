@@ -87,6 +87,7 @@ async function withServer(run, options = {}) {
     streamLink: 'https://example.test/player',
     gender: 'not exposed'
   }]);
+  const avoids = new MemoryCollection(options.avoidDocuments || []);
   if (memberChangeStream) members.watch = () => memberChangeStream;
   const updateDiscordNickname = options.updateDiscordNickname || (async (discordId, nickname) => {
     discordNicknameUpdates.push({ discordId, nickname });
@@ -97,6 +98,7 @@ async function withServer(run, options = {}) {
     devices,
     audit,
     members,
+    avoids,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
@@ -112,6 +114,7 @@ async function withServer(run, options = {}) {
       users,
       devices,
       members,
+      avoids,
       discordNicknameUpdates,
       password,
       jwtSecret,
@@ -256,6 +259,43 @@ test('member directory requires a session and returns only approved profile fiel
     });
     assert.equal(invalidEdit.status, 400);
     assert.equal(members.items[0].streamLink, 'https://example.test/edited');
+  });
+});
+
+test('avoid directory requires a session and returns directional pairs with name fallbacks', async () => {
+  await withServer(async ({ baseUrl, password }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/avoids`);
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(`${baseUrl}/api/avoids`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const result = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(result.pairs, [{
+      avoiderDiscordId: '123456789012345678',
+      avoiderName: 'Test Player',
+      avoidedDiscordId: '234567890123456789',
+      avoidedName: 'target.player'
+    }]);
+  }, {
+    avoidDocuments: [{
+      _id: '123456789012345678',
+      name: 'stale.avoider',
+      avoids: [{ discordId: '234567890123456789', name: 'target.player' }]
+    }]
   });
 });
 

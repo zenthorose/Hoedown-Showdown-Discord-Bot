@@ -10,6 +10,9 @@ let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
 let memberResyncPending = false;
+let avoidRecords = [];
+let avoidsLoaded = false;
+let avoidsLoading = false;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
 
@@ -22,7 +25,7 @@ const pages = {
   avoids: {
     title: 'Avoids',
     icon: '🚫',
-    description: 'Review and manage player avoid pairings here.'
+    description: 'Search directional player avoid relationships.'
   },
   rounds: {
     title: 'Rounds',
@@ -62,6 +65,11 @@ function showSignedOut() {
   document.getElementById('members-summary').textContent = 'Sign in to load member records.';
   document.getElementById('members-state').textContent = 'Member records are not loaded.';
   document.getElementById('members-live-status').textContent = '';
+  avoidRecords = [];
+  avoidsLoaded = false;
+  document.getElementById('avoids-list').replaceChildren();
+  document.getElementById('avoids-summary').textContent = 'Sign in to load avoid relationships.';
+  document.getElementById('avoids-state').textContent = 'Avoid relationships are not loaded.';
   resetToken = null;
 }
 
@@ -77,6 +85,8 @@ function applyAuthState(state) {
     connection.hidden = true;
     showStatus('');
     if (!membersLoaded && !membersLoading) void loadMembers();
+    if (document.querySelector('.nav-item.active')?.dataset.tab === 'avoids' &&
+        !avoidsLoaded && !avoidsLoading) void loadAvoids();
   } else {
     showSignedOut();
     if (state && state.error) {
@@ -102,11 +112,14 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   document.getElementById('page-icon').textContent = page.icon;
   document.getElementById('page-description').textContent = page.description;
   const isMembers = button.dataset.tab === 'members';
+  const isAvoids = button.dataset.tab === 'avoids';
   document.getElementById('members-view').hidden = !isMembers;
-  document.getElementById('page-card').hidden = isMembers;
+  document.getElementById('avoids-view').hidden = !isAvoids;
+  document.getElementById('page-card').hidden = isMembers || isAvoids;
   selfPasswordForm.hidden = true;
   showStatus('');
   if (isMembers && !membersLoaded && !membersLoading) void loadMembers();
+  if (isAvoids && !avoidsLoaded && !avoidsLoading) void loadAvoids();
 });
 
 function createMemberDetail(fieldName, label, value) {
@@ -452,10 +465,94 @@ async function resyncMembers() {
   }
 }
 
+function renderAvoids() {
+  const list = document.getElementById('avoids-list');
+  const state = document.getElementById('avoids-state');
+  const query = document.getElementById('avoids-search').value.trim().toLowerCase();
+  const matches = avoidRecords.filter((pair) => [
+    pair.avoiderName,
+    pair.avoiderDiscordId,
+    pair.avoidedName,
+    pair.avoidedDiscordId
+  ].join(' ').toLowerCase().includes(query));
+  list.replaceChildren();
+
+  for (const pair of matches) {
+    const row = document.createElement('article');
+    row.className = 'avoid-row';
+    row.setAttribute('role', 'listitem');
+    const avoider = document.createElement('div');
+    avoider.className = 'avoid-player';
+    const avoiderLabel = document.createElement('span');
+    avoiderLabel.className = 'avoid-player-label';
+    avoiderLabel.textContent = 'Avoider';
+    const avoiderName = document.createElement('strong');
+    avoiderName.textContent = pair.avoiderName || pair.avoiderDiscordId || 'Unknown member';
+    const avoiderId = document.createElement('small');
+    avoiderId.textContent = pair.avoiderDiscordId || '';
+    avoider.append(avoiderLabel, avoiderName, avoiderId);
+
+    const direction = document.createElement('span');
+    direction.className = 'avoid-direction';
+    direction.textContent = 'avoids';
+
+    const avoided = document.createElement('div');
+    avoided.className = 'avoid-player';
+    const avoidedLabel = document.createElement('span');
+    avoidedLabel.className = 'avoid-player-label';
+    avoidedLabel.textContent = 'Avoided player';
+    const avoidedName = document.createElement('strong');
+    avoidedName.textContent = pair.avoidedName || pair.avoidedDiscordId || 'Unknown member';
+    const avoidedId = document.createElement('small');
+    avoidedId.textContent = pair.avoidedDiscordId || '';
+    avoided.append(avoidedLabel, avoidedName, avoidedId);
+    row.append(avoider, direction, avoided);
+    list.append(row);
+  }
+
+  state.hidden = matches.length > 0;
+  if (avoidRecords.length === 0) state.textContent = 'No avoid relationships were found.';
+  else if (matches.length === 0 && query) state.textContent = 'No avoid relationships match your search.';
+  document.getElementById('avoids-summary').textContent = query
+    ? `Showing ${matches.length} of ${avoidRecords.length} directional relationship(s).`
+    : `${avoidRecords.length} directional relationship${avoidRecords.length === 1 ? '' : 's'}.`;
+}
+
+async function loadAvoids() {
+  if (avoidsLoading) return;
+  avoidsLoading = true;
+  const refreshButton = document.getElementById('refresh-avoids');
+  const state = document.getElementById('avoids-state');
+  refreshButton.disabled = true;
+  state.hidden = false;
+  state.textContent = 'Loading avoid relationships…';
+  document.getElementById('avoids-summary').textContent = 'Loading avoid relationships…';
+  try {
+    const result = await window.hoedown.getAvoids();
+    if (!result.ok) throw new Error(result.error || 'Could not load Avoids.');
+    avoidRecords = result.pairs;
+    avoidsLoaded = true;
+    renderAvoids();
+  } catch (error) {
+    avoidsLoaded = false;
+    state.hidden = false;
+    state.textContent = error.message || 'Could not load avoid relationships.';
+    document.getElementById('avoids-summary').textContent = 'Avoid relationships could not be loaded.';
+  } finally {
+    avoidsLoading = false;
+    refreshButton.disabled = false;
+  }
+}
+
 document.getElementById('member-search').addEventListener('input', renderMembers);
 document.getElementById('refresh-members').addEventListener('click', () => {
   membersLoaded = false;
   void loadMembers({ preserveEdits: true });
+});
+document.getElementById('avoids-search').addEventListener('input', renderAvoids);
+document.getElementById('refresh-avoids').addEventListener('click', () => {
+  avoidsLoaded = false;
+  void loadAvoids();
 });
 
 loginForm.addEventListener('submit', async (event) => {
