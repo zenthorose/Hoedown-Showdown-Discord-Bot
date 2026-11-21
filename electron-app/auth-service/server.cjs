@@ -14,7 +14,6 @@ const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBER_ID_PATTERN = /^\d{17,20}$/;
-const TICKET_COLLECTION_PATTERN = /^[A-Za-z0-9._-]{1,64}_Tickets$/;
 const TICKET_PAGE_SIZE = 50;
 const MEMBER_FIELD_LIMITS = {
   nickname: 32,
@@ -162,6 +161,15 @@ function validDateFilter(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function isTicketCollectionName(value) {
+  return typeof value === 'string' &&
+    value.endsWith('_Tickets') &&
+    Buffer.byteLength(value, 'utf8') <= 120 &&
+    !value.includes('\0') &&
+    !value.includes('$') &&
+    !value.startsWith('system.');
 }
 
 function ticketDateKey(value) {
@@ -810,13 +818,12 @@ function createApp({
         return res.status(400).json({ error: 'Ticket page must be between 1 and 10,000.' });
       }
 
-      const collectionInfos = await ticketDatabase.listCollections({
-        name: { $regex: '_Tickets$' }
-      }, { nameOnly: true }).toArray();
+      const collectionInfos = await ticketDatabase.listCollections({}, { nameOnly: true }).toArray();
+      const ticketCollections = collectionInfos
+        .filter(({ name }) => isTicketCollectionName(name));
       const tickets = [];
       const normalizedSearch = search.toLocaleLowerCase('en');
-      for (const { name: collectionName } of collectionInfos) {
-        if (typeof collectionName !== 'string' || !TICKET_COLLECTION_PATTERN.test(collectionName)) continue;
+      for (const { name: collectionName } of ticketCollections) {
         const collectionTickets = await ticketDatabase.collection(collectionName).find({}, {
           projection: {
             _id: 1,
@@ -857,6 +864,7 @@ function createApp({
       return res.status(200).json({
         tickets: tickets.slice(start, start + TICKET_PAGE_SIZE),
         total,
+        collectionCount: ticketCollections.length,
         page: Number(pageValue),
         pageSize: TICKET_PAGE_SIZE
       });
@@ -872,7 +880,7 @@ function createApp({
       if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
 
       const { collectionName, ticketId } = req.params;
-      if (!TICKET_COLLECTION_PATTERN.test(collectionName) || !/^[a-f\d]{24}$/i.test(ticketId)) {
+      if (!isTicketCollectionName(collectionName) || !/^[a-f\d]{24}$/i.test(ticketId)) {
         return res.status(400).json({ error: 'A valid ticket reference is required.' });
       }
       const collections = await ticketDatabase.listCollections({ name: collectionName }, {

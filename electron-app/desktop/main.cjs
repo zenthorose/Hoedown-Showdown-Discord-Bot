@@ -585,6 +585,7 @@ app.whenReady().then(async () => {
         ok: true,
         tickets: data.tickets,
         total: data.total,
+        collectionCount: Number.isSafeInteger(data.collectionCount) ? data.collectionCount : null,
         page: data.page,
         pageSize: data.pageSize
       };
@@ -598,7 +599,11 @@ app.whenReady().then(async () => {
       throw new Error('Untrusted ticket transcript request.');
     }
     if (!input || typeof input.collectionName !== 'string' ||
-        !/^[A-Za-z0-9._-]{1,64}_Tickets$/.test(input.collectionName) ||
+        !input.collectionName.endsWith('_Tickets') ||
+        Buffer.byteLength(input.collectionName, 'utf8') > 120 ||
+        input.collectionName.includes('\0') ||
+        input.collectionName.includes('$') ||
+        input.collectionName.startsWith('system.') ||
         typeof input.ticketId !== 'string' || !/^[a-f\d]{24}$/i.test(input.ticketId)) {
       return { ok: false, error: 'Enter a valid ticket reference.' };
     }

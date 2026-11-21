@@ -23,6 +23,7 @@ let ticketLoadGeneration = 0;
 let ticketPage = 1;
 let ticketPageSize = 50;
 let ticketTotal = 0;
+let ticketCollectionCount = null;
 let ticketDetailGeneration = 0;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
@@ -114,6 +115,7 @@ function showSignedOut() {
   ticketDetailGeneration += 1;
   ticketPage = 1;
   ticketTotal = 0;
+  ticketCollectionCount = null;
   ticketRecords = [];
   document.getElementById('tickets-list').replaceChildren();
   document.getElementById('tickets-summary').textContent = 'Sign in to load archived tickets.';
@@ -701,9 +703,18 @@ function renderTickets() {
   document.getElementById('tickets-next').disabled = ticketsLoading || ticketPage >= totalPages;
   document.getElementById('refresh-tickets').disabled = ticketsLoading;
   state.hidden = ticketRecords.length > 0 && !ticketsLoading && !ticketLoadError;
+  const hasFilters = Boolean(
+    document.getElementById('ticket-search').value.trim() ||
+    document.getElementById('ticket-from').value ||
+    document.getElementById('ticket-to').value
+  );
   if (ticketsLoading) state.textContent = 'Loading tickets…';
   else if (ticketLoadError) state.textContent = ticketLoadError;
-  else if (ticketTotal === 0) state.textContent = 'No tickets match your search and date filters.';
+  else if (ticketCollectionCount === 0) state.textContent = 'No ticket archive collections were found.';
+  else if (ticketTotal === 0 && hasFilters) state.textContent = 'No tickets match your search and date filters.';
+  else if (ticketTotal === 0 && ticketCollectionCount !== null) {
+    state.textContent = `No tickets are stored across ${ticketCollectionCount} ticket archive(s).`;
+  } else if (ticketTotal === 0) state.textContent = 'No tickets were found in the archive.';
   else if (ticketRecords.length === 0) state.textContent = 'There are no tickets on this page.';
   const start = ticketTotal ? (ticketPage - 1) * ticketPageSize + 1 : 0;
   const end = Math.min(ticketPage * ticketPageSize, ticketTotal);
@@ -711,9 +722,13 @@ function renderTickets() {
     ? 'Loading ticket archive…'
     : ticketLoadError
       ? 'Ticket archive could not be loaded.'
-      : ticketTotal
+    : ticketTotal
     ? `Showing ${start}–${end} of ${ticketTotal} ticket${ticketTotal === 1 ? '' : 's'}.`
-    : `${ticketTotal} tickets.`;
+    : ticketCollectionCount !== null
+      ? hasFilters
+        ? `No matches across ${ticketCollectionCount} ticket archive(s).`
+        : `0 tickets across ${ticketCollectionCount} ticket archive(s).`
+      : '0 tickets found.';
 }
 
 async function loadTickets(page = ticketPage) {
@@ -737,6 +752,9 @@ async function loadTickets(page = ticketPage) {
     if (!result.ok) throw new Error(result.error || 'Could not load Tickets.');
     ticketRecords = result.tickets;
     ticketTotal = result.total;
+    ticketCollectionCount = Number.isSafeInteger(result.collectionCount)
+      ? result.collectionCount
+      : null;
     ticketPage = result.page;
     ticketPageSize = result.pageSize;
     ticketsLoaded = true;

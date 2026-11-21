@@ -402,6 +402,15 @@ test('ticket archive requires a session, filters summaries, and returns selected
       createdAt: '11/20/2026, 10:00 AM',
       status: 'Closed',
       staffIDs: []
+    }],
+    'josé_Tickets': [{
+      _id: new ObjectId('676767676767676767676767'),
+      ticketID: 'unrelated archived ticket',
+      username: 'josé',
+      userID: '345678901234567890',
+      createdAt: '11/21/2026, 01:00 PM',
+      status: 'Closed',
+      staffIDs: []
     }]
   });
   await withServer(async ({ baseUrl, password }) => {
@@ -428,6 +437,7 @@ test('ticket archive requires a session, filters summaries, and returns selected
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
     assert.equal(result.total, 1);
+    assert.equal(result.collectionCount, 3);
     assert.deepEqual(result.tickets, [{
       collectionName: 'cowboy_Tickets',
       ticketId: firstTicketId.toHexString(),
