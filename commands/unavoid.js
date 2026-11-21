@@ -2,6 +2,8 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
+const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
+const { removeAvoidRelationship } = require('../database/pairingImport');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -73,9 +75,28 @@ module.exports = {
 
       const { success, removedPairs, skippedPairs } = response.data;
 
-      let displayMessage = success
-        ? `✅ Avoid list updated. Removed: ${removedPairs}, Skipped (not found): ${skippedPairs}`
-        : `❌ Failed to update avoid list.`;
+      if (!success) {
+        const errorMessage = response.data.error || 'Google Sheets rejected the avoid update.';
+        await interaction.editReply(`❌ Failed to update avoid list: ${errorMessage}`);
+        await logUsage(`❌ Google Sheets update failed: ${errorMessage}`);
+        return;
+      }
+
+      let displayMessage =
+        `✅ Google Sheets updated. Removed: ${removedPairs}, skipped (not found): ${skippedPairs}.`;
+      try {
+        const database = await connectHoedownInfoDatabase();
+        const mongoResult = await removeAvoidRelationship(database, users[0], users[1]);
+        const mongoStatus = mongoResult.removed
+          ? 'relationship removed'
+          : mongoResult.foundDocument
+            ? 'relationship was already absent'
+            : 'requesting player had no Avoids document';
+        displayMessage += `\n✅ MongoDB (${mongoResult.collectionName}): ${mongoStatus}.`;
+      } catch (error) {
+        console.error('❌ MongoDB Avoids removal failed:', error);
+        displayMessage += `\n⚠️ MongoDB (HoedownInfo.Avoids) removal failed: ${error.message}`;
+      }
 
       // --- Edit deferred reply with result ---
       await interaction.editReply(displayMessage);

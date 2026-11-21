@@ -4,7 +4,8 @@ const {
   addAvoidRelationships,
   importPairingRows,
   parseAvoidsCsv,
-  parsePreviousPairingsCsv
+  parsePreviousPairingsCsv,
+  removeAvoidRelationship
 } = require('./pairingImport');
 
 function csvBuffer(rows) {
@@ -180,6 +181,56 @@ test('rejects self-only avoid requests before accessing the database', async () 
       { id: '431892857453019148', username: 'player' }
     ]),
     /at least one player other than/
+  );
+  assert.equal(databaseAccessed, false);
+});
+
+test('removes only the selected directional avoid from the source player document', async () => {
+  let writeCollection;
+  let filter;
+  let update;
+  const database = {
+    collection(name) {
+      return {
+        async updateOne(query, pipeline) {
+          writeCollection = name;
+          filter = query;
+          update = pipeline;
+          return { matchedCount: 1, modifiedCount: 1 };
+        }
+      };
+    }
+  };
+
+  const result = await removeAvoidRelationship(
+    database,
+    { id: '431892857453019148', username: 'zachary_zlt' },
+    { id: '507683691586387979', username: 'heavymetalqueenie' }
+  );
+  assert.equal(writeCollection, 'Avoids');
+  assert.deepEqual(filter, {
+    _id: '431892857453019148',
+    'avoids.discordId': '507683691586387979'
+  });
+  assert.deepEqual(update, { $pull: { avoids: { discordId: '507683691586387979' } } });
+  assert.equal(result.removed, true);
+});
+
+test('rejects self-unavoid requests before database access', async () => {
+  let databaseAccessed = false;
+  const database = {
+    collection() {
+      databaseAccessed = true;
+      throw new Error('Should not access the database.');
+    }
+  };
+  await assert.rejects(
+    removeAvoidRelationship(
+      database,
+      { id: '431892857453019148' },
+      { id: '431892857453019148' }
+    ),
+    /cannot remove an avoid relationship with themselves/
   );
   assert.equal(databaseAccessed, false);
 });

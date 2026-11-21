@@ -198,9 +198,31 @@ async function addAvoidRelationships(database, users) {
   };
 }
 
+async function removeAvoidRelationship(database, source, target) {
+  const sourceId = String(source?.id || '');
+  const targetId = String(target?.id || '');
+  if (!/^\d{17,20}$/.test(sourceId) || !/^\d{17,20}$/.test(targetId)) {
+    throw new TypeError('Both players must have valid Discord IDs.');
+  }
+  if (sourceId === targetId) {
+    throw new TypeError('A player cannot remove an avoid relationship with themselves.');
+  }
+
+  const result = await database.collection('Avoids').updateOne(
+    { _id: sourceId, 'avoids.discordId': targetId },
+    { $pull: { avoids: { discordId: targetId } } }
+  );
+  return {
+    collectionName: 'Avoids',
+    foundDocument: result.matchedCount > 0,
+    removed: result.matchedCount > 0 && result.modifiedCount > 0
+  };
+}
+
 module.exports = {
   addAvoidRelationships,
   importPairingRows,
   parseAvoidsCsv,
-  parsePreviousPairingsCsv
+  parsePreviousPairingsCsv,
+  removeAvoidRelationship
 };
