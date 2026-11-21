@@ -13,6 +13,7 @@ class MemoryCollection {
   matches(item, filter) {
     return Object.entries(filter).every(([key, value]) => {
       if (value && typeof value === 'object' && '$ne' in value) return item[key] !== value.$ne;
+      if (value && typeof value === 'object' && '$in' in value) return value.$in.includes(item[key]);
       if (value instanceof ObjectId) return String(item[key]) === String(value);
       return item[key] === value;
     });
@@ -77,7 +78,7 @@ async function withServer(run, options = {}) {
   const users = new MemoryCollection([user]);
   const devices = new MemoryCollection();
   const audit = new MemoryCollection();
-  const members = new MemoryCollection([{
+  const members = new MemoryCollection(options.memberRecords || [{
     _id: '123456789012345678',
     discordId: '123456789012345678',
     username: 'test.player',
@@ -88,6 +89,19 @@ async function withServer(run, options = {}) {
     gender: 'not exposed'
   }]);
   const avoids = new MemoryCollection(options.avoidDocuments || []);
+  const googleSheetsAvoidUpdates = [];
+  const mongoAvoidUpdates = [];
+  const avoidUpdateOrder = [];
+  const updateAvoidsInGoogleSheets = options.updateAvoidsInGoogleSheets || (async (users) => {
+    googleSheetsAvoidUpdates.push(users);
+    avoidUpdateOrder.push('google-sheets');
+    return { success: true, addedPairs: users.length - 1, skippedPairs: 0 };
+  });
+  const saveAvoidRelationships = options.saveAvoidRelationships || (async (users) => {
+    mongoAvoidUpdates.push(users);
+    avoidUpdateOrder.push('mongodb');
+    return { collectionName: 'Avoids', relationshipCount: users.length - 1 };
+  });
   if (memberChangeStream) members.watch = () => memberChangeStream;
   const updateDiscordNickname = options.updateDiscordNickname || (async (discordId, nickname) => {
     discordNicknameUpdates.push({ discordId, nickname });
@@ -102,7 +116,9 @@ async function withServer(run, options = {}) {
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
-    updateDiscordNickname
+    updateDiscordNickname,
+    updateAvoidsInGoogleSheets,
+    saveAvoidRelationships
   });
   const server = await new Promise((resolve) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
@@ -115,6 +131,9 @@ async function withServer(run, options = {}) {
       devices,
       members,
       avoids,
+      googleSheetsAvoidUpdates,
+      mongoAvoidUpdates,
+      avoidUpdateOrder,
       discordNicknameUpdates,
       password,
       jwtSecret,
@@ -286,16 +305,234 @@ test('avoid directory requires a session and returns directional pairs with name
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
     assert.deepEqual(result.pairs, [{
       avoiderDiscordId: '123456789012345678',
+      avoiderNickname: 'Test Player',
+      avoiderUsername: 'test.player',
+      avoiderName: 'Test Player',
+      avoidedDiscordId: '345678901234567890',
+      avoidedNickname: '',
+      avoidedUsername: 'fallback.player',
+      avoidedName: 'fallback.player'
+    }, {
+      avoiderDiscordId: '123456789012345678',
+      avoiderNickname: 'Test Player',
+      avoiderUsername: 'test.player',
       avoiderName: 'Test Player',
       avoidedDiscordId: '234567890123456789',
-      avoidedName: 'target.player'
+      avoidedNickname: 'Target Nick',
+      avoidedUsername: 'target.player',
+      avoidedName: 'Target Nick'
     }]);
   }, {
     avoidDocuments: [{
       _id: '123456789012345678',
       name: 'stale.avoider',
-      avoids: [{ discordId: '234567890123456789', name: 'target.player' }]
+      avoids: [
+        { discordId: '234567890123456789', name: 'old-target-name' },
+        { discordId: '345678901234567890', name: 'fallback.player' }
+      ]
+    }],
+    memberRecords: [{
+      _id: '123456789012345678',
+      discordId: '123456789012345678',
+      username: 'test.player',
+      nickname: 'Test Player'
+    }, {
+      _id: '234567890123456789',
+      discordId: '234567890123456789',
+      username: 'target.player',
+      nickname: 'Target Nick'
     }]
+  });
+});
+
+test('avoid pairing creation updates Google Sheets before MongoDB using selected member usernames', async () => {
+  await withServer(async ({
+    baseUrl,
+    password,
+    googleSheetsAvoidUpdates,
+    mongoAvoidUpdates,
+    avoidUpdateOrder
+  }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordIds: ['234567890123456789']
+      })
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordIds: ['234567890123456789']
+      })
+    });
+    const result = await response.json();
+    const selectedUsers = [
+      { id: '123456789012345678', username: 'test.player' },
+      { id: '234567890123456789', username: 'target.player' }
+    ];
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(result, {
+      success: true,
+      googleSheets: { addedPairs: 1, skippedPairs: 0 },
+      mongodb: { relationshipCount: 1 }
+    });
+    assert.deepEqual(googleSheetsAvoidUpdates, [selectedUsers]);
+    assert.deepEqual(mongoAvoidUpdates, [selectedUsers]);
+    assert.deepEqual(avoidUpdateOrder, ['google-sheets', 'mongodb']);
+  }, {
+    memberRecords: [{
+      _id: '123456789012345678',
+      discordId: '123456789012345678',
+      username: 'test.player',
+      nickname: 'Test Player'
+    }, {
+      _id: '234567890123456789',
+      discordId: '234567890123456789',
+      username: 'target.player',
+      nickname: 'Target Player'
+    }]
+  });
+});
+
+test('avoid pairing rejects self-avoid requests before either write', async () => {
+  await withServer(async ({ baseUrl, password, googleSheetsAvoidUpdates, mongoAvoidUpdates }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordIds: ['123456789012345678']
+      })
+    });
+
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /cannot also be selected/);
+    assert.deepEqual(googleSheetsAvoidUpdates, []);
+    assert.deepEqual(mongoAvoidUpdates, []);
+  });
+});
+
+test('avoid pairing reports a partial Google Sheets update if MongoDB sync fails', async () => {
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordIds: ['234567890123456789']
+      })
+    });
+    const result = await response.json();
+
+    assert.equal(response.status, 502);
+    assert.match(result.error, /Google Sheets updated, but MongoDB Avoids sync failed/);
+  }, {
+    memberRecords: [{
+      _id: '123456789012345678',
+      discordId: '123456789012345678',
+      username: 'test.player'
+    }, {
+      _id: '234567890123456789',
+      discordId: '234567890123456789',
+      username: 'target.player'
+    }],
+    saveAvoidRelationships: async () => {
+      throw new Error('test MongoDB failure');
+    }
+  });
+});
+
+test('avoid pairing does not update MongoDB when Google Sheets rejects the write', async () => {
+  let mongoWriteAttempted = false;
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordIds: ['234567890123456789']
+      })
+    });
+
+    assert.equal(response.status, 502);
+    assert.match((await response.json()).error, /Google Sheets update failed/);
+    assert.equal(mongoWriteAttempted, false);
+  }, {
+    memberRecords: [{
+      _id: '123456789012345678',
+      discordId: '123456789012345678',
+      username: 'test.player'
+    }, {
+      _id: '234567890123456789',
+      discordId: '234567890123456789',
+      username: 'target.player'
+    }],
+    updateAvoidsInGoogleSheets: async () => {
+      throw new Error('test Google Sheets failure');
+    },
+    saveAvoidRelationships: async () => {
+      mongoWriteAttempted = true;
+      return { collectionName: 'Avoids', relationshipCount: 1 };
+    }
   });
 });
 

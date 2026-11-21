@@ -173,11 +173,45 @@ footer { margin-top: 20px; font-size: 12px; }
 }
 .members-toolbar h2 { margin: 0 0 5px; font-size: 20px; }
 .members-toolbar p { margin: 0; font-size: 13px; }
-.members-toolbar .members-live-status { margin-top: 4px; color: #86c28b; font-size: 11px; }
+.member-directory-title { display: flex; align-items: center; gap: 9px; }
+.members-live-status {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+}
+.members-live-status.connected { background: #68d481; box-shadow: 0 0 8px #68d48188; }
+.members-live-status.disconnected { background: #ec655f; box-shadow: 0 0 8px #ec655f66; }
 .members-actions { display: flex; align-items: center; gap: 9px; }
 .search-field { display: block; min-width: min(250px, 40vw); }
 .search-field input { padding: 9px 11px; }
 .refresh-button { white-space: nowrap; padding: 10px 12px; }
+.icon-button { width: 36px; min-width: 36px; height: 36px; padding: 0; font-size: 22px; line-height: 1; }
+.avoid-pairing-form {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #536449;
+  border-radius: 10px;
+  background: #1a211c;
+}
+.avoid-form-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.avoid-form-header h3 { margin: 0; color: #f0d58f; font-size: 16px; }
+.avoid-member-field { display: grid; min-width: 0; gap: 6px; color: #a5aea6; font-size: 12px; }
+.avoid-member-field input { min-width: 0; }
+.avoid-target-fields { display: grid; gap: 12px; }
+.avoid-target-row { display: grid; min-width: 0; gap: 6px; }
+.avoid-target-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #a5aea6; font-size: 12px; }
+.avoid-target-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 8px; }
+.avoid-target-input-row.single { grid-template-columns: minmax(0, 1fr); }
+.avoid-target-input-row input { min-width: 0; }
+.avoid-form-add, .avoid-target-remove { width: 36px; min-width: 36px; height: 36px; padding: 0; font-size: 20px; line-height: 1; }
+.avoid-target-remove { background: #3a4840; }
+.avoid-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.avoids-feedback { margin: 0 0 12px; color: #86c28b; font-size: 12px; }
+.avoids-feedback.error { color: #ff9a8b; }
 .members-list {
   display: grid;
   gap: 9px;
@@ -243,8 +277,7 @@ footer { margin-top: 20px; font-size: 12px; }
 }
 .avoid-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 13px;
   align-items: center;
   padding: 14px 16px;
   border: 1px solid #354239;
@@ -255,7 +288,27 @@ footer { margin-top: 20px; font-size: 12px; }
 .avoid-player-label { color: #879389; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 .avoid-player strong { overflow-wrap: anywhere; color: #f0d58f; font-size: 14px; }
 .avoid-player small { overflow-wrap: anywhere; color: #9faa9f; font-size: 11px; }
-.avoid-direction { color: #a5aea6; font-size: 12px; }
+.avoid-targets { display: grid; gap: 8px; padding-top: 11px; border-top: 1px solid #303a33; }
+.avoid-targets h4 { margin: 0; }
+.avoid-target-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.avoid-target-item {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 9px 11px;
+  border: 1px solid #354239;
+  border-radius: 7px;
+  background: #202a23;
+}
+.avoid-target-item strong { overflow-wrap: anywhere; color: #d3dbd3; font-size: 12px; }
+.avoid-target-item small { overflow-wrap: anywhere; color: #9faa9f; font-size: 10px; }
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -293,11 +346,11 @@ footer { margin-top: 20px; font-size: 12px; }
   .members-toolbar { align-items: stretch; flex-direction: column; }
   .members-actions { width: 100%; }
   .search-field { flex: 1; min-width: 0; }
+  .avoid-pairing-form { padding: 13px; }
   .members-list { max-height: calc(100vh - 300px); }
   .avoids-list { max-height: calc(100vh - 300px); }
-  .avoid-row { gap: 8px; padding: 12px; }
+  .avoid-row { gap: 10px; padding: 12px; }
   .avoid-player strong { font-size: 12px; }
-  .avoid-direction { font-size: 10px; }
   .member-row { grid-template-columns: minmax(0, 1fr) auto; gap: 13px; }
   .member-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .member-actions { justify-content: flex-end; }

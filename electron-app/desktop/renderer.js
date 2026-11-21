@@ -13,6 +13,7 @@ let memberResyncPending = false;
 let avoidRecords = [];
 let avoidsLoaded = false;
 let avoidsLoading = false;
+let avoidTargetFieldId = 0;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
 
@@ -25,7 +26,7 @@ const pages = {
   avoids: {
     title: 'Avoids',
     icon: '🚫',
-    description: 'Search directional player avoid relationships.'
+    description: 'Search and add directional Avoid Pairings.'
   },
   rounds: {
     title: 'Rounds',
@@ -49,6 +50,29 @@ function showStatus(message) {
   status.textContent = message || '';
 }
 
+function setMembersLiveStatus(liveStatus = {}) {
+  const indicator = document.getElementById('members-live-status');
+  const connected = liveStatus.connected === true;
+  const label = connected
+    ? 'Live updates connected'
+    : liveStatus.reconnecting
+      ? 'Live updates reconnecting'
+      : liveStatus.connecting
+        ? 'Connecting live updates'
+        : 'Live updates disconnected';
+  indicator.classList.toggle('connected', connected);
+  indicator.classList.toggle('disconnected', !connected);
+  indicator.setAttribute('aria-label', label);
+  indicator.title = label;
+}
+
+function setAvoidsFeedback(message, isError = false) {
+  const feedback = document.getElementById('avoids-feedback');
+  feedback.textContent = message || '';
+  feedback.classList.toggle('error', isError);
+  feedback.hidden = !message;
+}
+
 function showSignedOut() {
   loginForm.hidden = false;
   passwordForm.hidden = true;
@@ -64,12 +88,14 @@ function showSignedOut() {
   document.getElementById('members-list').replaceChildren();
   document.getElementById('members-summary').textContent = 'Sign in to load member records.';
   document.getElementById('members-state').textContent = 'Member records are not loaded.';
-  document.getElementById('members-live-status').textContent = '';
+  setMembersLiveStatus();
+  document.getElementById('add-avoid-pairing').disabled = true;
   avoidRecords = [];
   avoidsLoaded = false;
   document.getElementById('avoids-list').replaceChildren();
   document.getElementById('avoids-summary').textContent = 'Sign in to load avoid relationships.';
   document.getElementById('avoids-state').textContent = 'Avoid relationships are not loaded.';
+  resetAvoidPairingForm();
   resetToken = null;
 }
 
@@ -251,6 +277,7 @@ function applyMemberChange(change) {
     } else {
       memberRecords = memberRecords.filter((member) => member.discordId !== change.discordId);
     }
+    updateAvoidMemberOptions();
     renderMembers();
     return;
   }
@@ -274,6 +301,7 @@ function applyMemberChange(change) {
     );
     memberRecords[index] = updatedMember;
   }
+  updateAvoidMemberOptions();
   renderMembers();
 }
 
@@ -422,6 +450,7 @@ function renderMembers() {
 async function loadMembers(options = {}) {
   if (membersLoading) return;
   membersLoading = true;
+  document.getElementById('add-avoid-pairing').disabled = true;
   const refreshButton = document.getElementById('refresh-members');
   const state = document.getElementById('members-state');
   refreshButton.disabled = true;
@@ -434,6 +463,7 @@ async function loadMembers(options = {}) {
     if (options.preserveEdits) mergeMemberList(result.members);
     else memberRecords = result.members;
     membersLoaded = true;
+    updateAvoidMemberOptions();
     renderMembers();
     if (result.truncated) {
       document.getElementById('members-summary').textContent += ' Only the first 5,000 records are shown.';
@@ -446,6 +476,8 @@ async function loadMembers(options = {}) {
   } finally {
     membersLoading = false;
     refreshButton.disabled = false;
+    document.getElementById('add-avoid-pairing').disabled =
+      !membersLoaded || !memberRecords.some((member) => member.username);
     if (memberResyncPending) {
       memberResyncPending = false;
       void loadMembers({ preserveEdits: true });
@@ -469,15 +501,42 @@ function renderAvoids() {
   const list = document.getElementById('avoids-list');
   const state = document.getElementById('avoids-state');
   const query = document.getElementById('avoids-search').value.trim().toLowerCase();
-  const matches = avoidRecords.filter((pair) => [
-    pair.avoiderName,
-    pair.avoiderDiscordId,
-    pair.avoidedName,
-    pair.avoidedDiscordId
+  const groupedByAvoider = new Map();
+  for (const pair of avoidRecords) {
+    let group = groupedByAvoider.get(pair.avoiderDiscordId);
+    if (!group) {
+      group = {
+        avoiderDiscordId: pair.avoiderDiscordId,
+        avoiderNickname: pair.avoiderNickname || '',
+        avoiderUsername: pair.avoiderUsername || '',
+        avoiderName: pair.avoiderName,
+        avoidedMembers: []
+      };
+      groupedByAvoider.set(pair.avoiderDiscordId, group);
+    }
+    group.avoidedMembers.push({
+      discordId: pair.avoidedDiscordId,
+      nickname: pair.avoidedNickname || '',
+      username: pair.avoidedUsername || '',
+      name: pair.avoidedName
+    });
+  }
+  const avoiders = [...groupedByAvoider.values()];
+  const matches = avoiders.filter((group) => [
+    group.avoiderName,
+    group.avoiderNickname,
+    group.avoiderUsername,
+    group.avoiderDiscordId,
+    ...group.avoidedMembers.flatMap((member) => [
+      member.nickname,
+      member.username,
+      member.name,
+      member.discordId
+    ])
   ].join(' ').toLowerCase().includes(query));
   list.replaceChildren();
 
-  for (const pair of matches) {
+  for (const group of matches) {
     const row = document.createElement('article');
     row.className = 'avoid-row';
     row.setAttribute('role', 'listitem');
@@ -487,35 +546,44 @@ function renderAvoids() {
     avoiderLabel.className = 'avoid-player-label';
     avoiderLabel.textContent = 'Avoider';
     const avoiderName = document.createElement('strong');
-    avoiderName.textContent = pair.avoiderName || pair.avoiderDiscordId || 'Unknown member';
+    avoiderName.textContent = group.avoiderNickname || 'No nickname set';
+    const avoiderUsername = document.createElement('small');
+    avoiderUsername.textContent = group.avoiderUsername ? `@${group.avoiderUsername}` : 'No username listed';
     const avoiderId = document.createElement('small');
-    avoiderId.textContent = pair.avoiderDiscordId || '';
-    avoider.append(avoiderLabel, avoiderName, avoiderId);
+    avoiderId.textContent = group.avoiderDiscordId || '';
+    avoider.append(avoiderLabel, avoiderName, avoiderUsername, avoiderId);
 
-    const direction = document.createElement('span');
-    direction.className = 'avoid-direction';
-    direction.textContent = 'avoids';
-
-    const avoided = document.createElement('div');
-    avoided.className = 'avoid-player';
-    const avoidedLabel = document.createElement('span');
+    const avoided = document.createElement('section');
+    avoided.className = 'avoid-targets';
+    const avoidedLabel = document.createElement('h4');
     avoidedLabel.className = 'avoid-player-label';
-    avoidedLabel.textContent = 'Avoided player';
-    const avoidedName = document.createElement('strong');
-    avoidedName.textContent = pair.avoidedName || pair.avoidedDiscordId || 'Unknown member';
-    const avoidedId = document.createElement('small');
-    avoidedId.textContent = pair.avoidedDiscordId || '';
-    avoided.append(avoidedLabel, avoidedName, avoidedId);
-    row.append(avoider, direction, avoided);
+    avoidedLabel.textContent = 'Avoiding';
+    const avoidedList = document.createElement('ul');
+    avoidedList.className = 'avoid-target-list';
+    for (const member of group.avoidedMembers) {
+      const item = document.createElement('li');
+      item.className = 'avoid-target-item';
+      const name = document.createElement('strong');
+      name.textContent = member.nickname || 'No nickname set';
+      const username = document.createElement('small');
+      username.textContent = member.username ? `@${member.username}` : 'No username listed';
+      const discordId = document.createElement('small');
+      discordId.textContent = member.discordId || '';
+      item.append(name, username, discordId);
+      avoidedList.append(item);
+    }
+    avoided.append(avoidedLabel, avoidedList);
+    row.append(avoider, avoided);
     list.append(row);
   }
 
   state.hidden = matches.length > 0;
-  if (avoidRecords.length === 0) state.textContent = 'No avoid relationships were found.';
-  else if (matches.length === 0 && query) state.textContent = 'No avoid relationships match your search.';
+  if (avoiders.length === 0) state.textContent = 'No Avoid Pairings were found.';
+  else if (matches.length === 0 && query) state.textContent = 'No Avoid Pairings match your search.';
+  const pairCount = avoidRecords.length;
   document.getElementById('avoids-summary').textContent = query
-    ? `Showing ${matches.length} of ${avoidRecords.length} directional relationship(s).`
-    : `${avoidRecords.length} directional relationship${avoidRecords.length === 1 ? '' : 's'}.`;
+    ? `Showing ${matches.length} of ${avoiders.length} avoider(s) (${pairCount} pairing(s)).`
+    : `${avoiders.length} avoider${avoiders.length === 1 ? '' : 's'}, ${pairCount} pairing${pairCount === 1 ? '' : 's'}.`;
 }
 
 async function loadAvoids() {
@@ -543,6 +611,138 @@ async function loadAvoids() {
     refreshButton.disabled = false;
   }
 }
+
+function memberPickerLabel(member) {
+  const name = member.nickname || member.username || member.discordId || 'Unknown member';
+  const account = member.username ? `@${member.username}` : member.discordId;
+  return `${name} — ${account}`;
+}
+
+function updateAvoidMemberOptions() {
+  const datalist = document.getElementById('avoid-member-options');
+  if (!datalist) return;
+  const options = memberRecords
+    .filter((member) => member.username)
+    .map((member) => {
+      const option = document.createElement('option');
+      option.value = memberPickerLabel(member);
+      return option;
+    });
+  datalist.replaceChildren(...options);
+    const addButton = document.getElementById('add-avoid-pairing');
+    if (addButton) addButton.disabled = !membersLoaded || options.length === 0;
+}
+
+function createAvoidTargetField(index) {
+  const row = document.createElement('div');
+  row.className = 'avoid-target-row';
+  const label = document.createElement('label');
+  label.className = 'avoid-target-label';
+  label.htmlFor = `avoid-target-${index}`;
+  label.textContent = 'Avoiding';
+  const inputRow = document.createElement('div');
+  inputRow.className = 'avoid-target-input-row';
+  if (index === 0) inputRow.classList.add('single');
+  const input = document.createElement('input');
+  input.id = `avoid-target-${index}`;
+  input.className = 'avoid-member-input';
+  input.type = 'text';
+  input.setAttribute('list', 'avoid-member-options');
+  input.placeholder = 'Search Members…';
+  input.autocomplete = 'off';
+  input.addEventListener('input', () => setAvoidsFeedback(''));
+
+  if (index > 0) {
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'secondary avoid-target-remove';
+    action.textContent = '−';
+    action.setAttribute('aria-label', 'Remove this Avoiding member');
+    action.title = 'Remove this Avoiding member';
+    action.addEventListener('click', () => row.remove());
+    inputRow.append(input, action);
+  } else {
+    inputRow.append(input);
+  }
+  row.append(label, inputRow);
+  return row;
+}
+
+function addAvoidTargetField() {
+  const index = avoidTargetFieldId++;
+  document.getElementById('avoid-target-fields').append(createAvoidTargetField(index));
+}
+
+function resetAvoidPairingForm() {
+  const form = document.getElementById('avoid-pairing-form');
+  if (!form) return;
+  form.hidden = true;
+  document.getElementById('avoid-avoider').value = '';
+  document.getElementById('avoid-target-fields').replaceChildren();
+  avoidTargetFieldId = 0;
+  addAvoidTargetField();
+  setAvoidsFeedback('');
+}
+
+function resolveMemberPicker(value) {
+  const normalizedValue = value.trim();
+  return memberRecords.find((member) => memberPickerLabel(member) === normalizedValue);
+}
+
+document.getElementById('add-avoid-pairing').addEventListener('click', () => {
+  if (!membersLoaded || !memberRecords.some((member) => member.username)) {
+    setAvoidsFeedback('Load registered Members before creating an Avoid Pairing.', true);
+    return;
+  }
+  resetAvoidPairingForm();
+  document.getElementById('avoid-pairing-form').hidden = false;
+  document.getElementById('avoid-avoider').focus();
+});
+
+document.getElementById('cancel-avoid-pairing').addEventListener('click', resetAvoidPairingForm);
+document.getElementById('add-avoid-target').addEventListener('click', addAvoidTargetField);
+document.getElementById('avoid-avoider').addEventListener('input', () => setAvoidsFeedback(''));
+document.getElementById('avoid-pairing-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const avoider = resolveMemberPicker(document.getElementById('avoid-avoider').value);
+  const targetInputs = [...document.querySelectorAll('#avoid-target-fields .avoid-member-input')];
+  const targets = targetInputs.map((input) => resolveMemberPicker(input.value));
+  if (!avoider || targets.some((member) => !member)) {
+    setAvoidsFeedback('Choose each member from the search suggestions.', true);
+    return;
+  }
+  const targetIds = targets.map((member) => member.discordId);
+  if (targetIds.includes(avoider.discordId)) {
+    setAvoidsFeedback('The Avoider cannot also be selected as an Avoiding member.', true);
+    return;
+  }
+  if (new Set(targetIds).size !== targetIds.length) {
+    setAvoidsFeedback('Each Avoiding member can be selected only once.', true);
+    return;
+  }
+
+  const saveButton = document.getElementById('save-avoid-pairing');
+  saveButton.disabled = true;
+  setAvoidsFeedback('Saving Avoid Pairing…');
+  try {
+    const result = await window.hoedown.createAvoids({
+      avoiderDiscordId: avoider.discordId,
+      avoidedDiscordIds: targetIds
+    });
+    if (!result.ok) throw new Error(result.error || 'Could not save the Avoid Pairing.');
+    resetAvoidPairingForm();
+    const { addedPairs, skippedPairs } = result.googleSheets;
+    setAvoidsFeedback(
+      `Saved to MongoDB. Google Sheets added ${addedPairs} and skipped ${skippedPairs} existing pairing(s).`
+    );
+    avoidsLoaded = false;
+    await loadAvoids();
+  } catch (error) {
+    setAvoidsFeedback(error.message || 'Could not save the Avoid Pairing.', true);
+  } finally {
+    saveButton.disabled = false;
+  }
+});
 
 document.getElementById('member-search').addEventListener('input', renderMembers);
 document.getElementById('refresh-members').addEventListener('click', () => {
@@ -675,11 +875,7 @@ window.hoedown.onUpdateStatus((update) => {
 window.hoedown.onMemberChange(applyMemberChange);
 window.hoedown.onMembersResync(() => { void resyncMembers(); });
 window.hoedown.onMembersLiveStatus((liveStatus) => {
-  const indicator = document.getElementById('members-live-status');
-  if (liveStatus.connected) indicator.textContent = 'Live updates connected';
-  else if (liveStatus.reconnecting) indicator.textContent = 'Live updates reconnecting…';
-  else if (liveStatus.connecting) indicator.textContent = 'Connecting live updates…';
-  else indicator.textContent = '';
+  setMembersLiveStatus(liveStatus);
 });
 window.hoedown.onStatus(applyAuthState);
 window.hoedown.getStatus()

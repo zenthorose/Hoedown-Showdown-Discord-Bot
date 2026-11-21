@@ -6,6 +6,7 @@ const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
+const { addAvoidRelationships } = require('../../database/pairingImport');
 
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESET_TTL_SECONDS = 15 * 60;
@@ -155,6 +156,27 @@ function validPassword(value) {
   return typeof value === 'string' && value.length >= 12 && Buffer.byteLength(value, 'utf8') <= 72;
 }
 
+async function updateAvoidsInGoogleSheets(users) {
+  const triggerUrl = process.env.Google_Apps_Script_URL;
+  if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
+
+  const response = await fetch(triggerUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'avoid', users })
+  });
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error('Google Apps Script returned an invalid response.');
+  }
+  if (!response.ok || !result || result.success !== true) {
+    throw new Error(result?.error || `Google Apps Script returned HTTP ${response.status}.`);
+  }
+  return result;
+}
+
 function createApp({
   users,
   devices,
@@ -165,7 +187,9 @@ function createApp({
   adminApiKey,
   dummyPasswordHash,
   updateFeed,
-  updateDiscordNickname
+  updateDiscordNickname,
+  updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
+  saveAvoidRelationships
 }) {
   const app = express();
   app.disable('x-powered-by');
@@ -627,8 +651,13 @@ function createApp({
         const avoiderDiscordId = String(document._id || document.discordId || '');
         if (!avoiderDiscordId || !Array.isArray(document.avoids)) continue;
         const avoiderProfile = profilesById.get(avoiderDiscordId);
-        const avoiderName = avoiderProfile?.nickname || avoiderProfile?.username ||
-          document.name || avoiderDiscordId;
+        const avoiderNickname = typeof avoiderProfile?.nickname === 'string'
+          ? avoiderProfile.nickname
+          : '';
+        const avoiderUsername = typeof avoiderProfile?.username === 'string' && avoiderProfile.username
+          ? avoiderProfile.username
+          : typeof document.name === 'string' ? document.name : '';
+        const avoiderName = avoiderNickname || avoiderUsername || avoiderDiscordId;
 
         for (const avoided of document.avoids) {
           const avoidedDiscordId = typeof avoided === 'string'
@@ -636,13 +665,23 @@ function createApp({
             : String(avoided?.discordId || '');
           if (!avoidedDiscordId) continue;
           const avoidedProfile = profilesById.get(avoidedDiscordId);
+          const avoidedNickname = typeof avoidedProfile?.nickname === 'string'
+            ? avoidedProfile.nickname
+            : '';
+          const storedAvoidedUsername = typeof avoided === 'object' && avoided &&
+            typeof avoided.name === 'string' ? avoided.name : '';
+          const avoidedUsername = typeof avoidedProfile?.username === 'string' && avoidedProfile.username
+            ? avoidedProfile.username
+            : storedAvoidedUsername;
           pairs.push({
             avoiderDiscordId,
+            avoiderNickname,
+            avoiderUsername,
             avoiderName,
             avoidedDiscordId,
-            avoidedName: avoidedProfile?.nickname || avoidedProfile?.username ||
-              (typeof avoided === 'object' && avoided ? avoided.name : '') ||
-              avoidedDiscordId
+            avoidedNickname,
+            avoidedUsername,
+            avoidedName: avoidedNickname || avoidedUsername || avoidedDiscordId
           });
         }
       }
@@ -656,6 +695,94 @@ function createApp({
       return res.status(200).json({ pairs });
     } catch (error) {
       return sendError(res, error, 'Avoid list lookup failed:');
+    }
+  });
+
+  app.post('/api/avoids', limited(10), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!avoids || !members ||
+          typeof updateAvoidsInGoogleSheetsCallback !== 'function' ||
+          typeof saveAvoidRelationships !== 'function') {
+        return res.status(503).json({ error: 'Avoid updates are not configured.' });
+      }
+
+      const avoiderDiscordId = req.body && req.body.avoiderDiscordId;
+      const avoidedDiscordIds = req.body && req.body.avoidedDiscordIds;
+      if (typeof avoiderDiscordId !== 'string' || !MEMBER_ID_PATTERN.test(avoiderDiscordId) ||
+          !Array.isArray(avoidedDiscordIds) || avoidedDiscordIds.length === 0 ||
+          avoidedDiscordIds.some((discordId) =>
+            typeof discordId !== 'string' || !MEMBER_ID_PATTERN.test(discordId))) {
+        return res.status(400).json({ error: 'Select an avoider and at least one valid Avoiding member.' });
+      }
+      if (new Set(avoidedDiscordIds).size !== avoidedDiscordIds.length) {
+        return res.status(400).json({ error: 'Each Avoiding member can be selected only once.' });
+      }
+      if (avoidedDiscordIds.includes(avoiderDiscordId)) {
+        return res.status(400).json({ error: 'The avoider cannot also be selected as an Avoiding member.' });
+      }
+
+      const discordIds = [avoiderDiscordId, ...avoidedDiscordIds];
+      const profiles = await members.find(
+        { _id: { $in: discordIds } },
+        { projection: { _id: 1, discordId: 1, username: 1 } }
+      ).toArray();
+      const profilesById = new Map(profiles.map((profile) => [
+        String(profile.discordId || profile._id || ''),
+        profile
+      ]));
+      const users = [];
+      for (const id of discordIds) {
+        const profile = profilesById.get(id);
+        if (!profile || typeof profile.username !== 'string' || !profile.username.trim()) {
+          return res.status(400).json({ error: 'Every selected member must have a registered Discord username.' });
+        }
+        users.push({ id, username: profile.username.trim() });
+      }
+
+      let sheetsResult;
+      try {
+        sheetsResult = await updateAvoidsInGoogleSheetsCallback(users);
+      } catch (error) {
+        console.error('Avoid Google Sheets update failed:', error);
+        return res.status(502).json({ error: `Google Sheets update failed: ${error.message}` });
+      }
+      if (!sheetsResult || sheetsResult.success !== true ||
+          !Number.isSafeInteger(sheetsResult.addedPairs) || sheetsResult.addedPairs < 0 ||
+          !Number.isSafeInteger(sheetsResult.skippedPairs) || sheetsResult.skippedPairs < 0) {
+        return res.status(502).json({
+          error: sheetsResult?.error || 'Google Apps Script returned an invalid Avoids update result.'
+        });
+      }
+
+      let mongoResult;
+      try {
+        mongoResult = await saveAvoidRelationships(users);
+      } catch (error) {
+        console.error('Avoid MongoDB update failed after Google Sheets succeeded:', error);
+        return res.status(502).json({
+          error: `Google Sheets updated, but MongoDB Avoids sync failed: ${error.message}`
+        });
+      }
+      if (!mongoResult || mongoResult.collectionName !== 'Avoids' ||
+          !Number.isSafeInteger(mongoResult.relationshipCount)) {
+        console.error('Avoid MongoDB update returned an invalid result after Google Sheets succeeded.');
+        return res.status(502).json({
+          error: 'Google Sheets updated, but MongoDB Avoids sync returned an invalid result.'
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        googleSheets: {
+          addedPairs: sheetsResult.addedPairs,
+          skippedPairs: sheetsResult.skippedPairs
+        },
+        mongodb: { relationshipCount: mongoResult.relationshipCount }
+      });
+    } catch (error) {
+      return sendError(res, error, 'Avoid update failed:');
     }
   });
 
@@ -977,12 +1104,11 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     const hoedownDatabaseName = typeof MONGODB_HOEDOWNINFO === 'string'
       ? MONGODB_HOEDOWNINFO.trim()
       : '';
-    const members = hoedownDatabaseName
-      ? client.db(hoedownDatabaseName).collection('Members')
+    const hoedownDatabase = hoedownDatabaseName
+      ? client.db(hoedownDatabaseName)
       : null;
-    const avoids = hoedownDatabaseName
-      ? client.db(hoedownDatabaseName).collection('Avoids')
-      : null;
+    const members = hoedownDatabase ? hoedownDatabase.collection('Members') : null;
+    const avoids = hoedownDatabase ? hoedownDatabase.collection('Avoids') : null;
     await users.createIndex({ username: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
@@ -994,6 +1120,10 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       audit,
       members,
       avoids,
+      updateAvoidsInGoogleSheets,
+      saveAvoidRelationships: hoedownDatabase
+        ? (users) => addAvoidRelationships(hoedownDatabase, users)
+        : null,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,

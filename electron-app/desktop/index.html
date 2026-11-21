@@ -71,9 +71,11 @@
             <section id="members-view" class="members-view" aria-label="Members directory">
               <header class="members-toolbar">
                 <div>
-                  <h2>Member directory</h2>
+                  <h2 class="member-directory-title">Member directory
+                    <span id="members-live-status" class="members-live-status disconnected" role="img"
+                      aria-label="Live updates disconnected" title="Live updates disconnected"></span>
+                  </h2>
                   <p id="members-summary" class="muted">Loading member records…</p>
-                  <p id="members-live-status" class="members-live-status" role="status" aria-live="polite"></p>
                 </div>
                 <div class="members-actions">
                   <label class="search-field">
@@ -89,10 +91,12 @@
             <section id="avoids-view" class="members-view" aria-label="Avoid relationships" hidden>
               <header class="members-toolbar">
                 <div>
-                  <h2>Avoid relationships</h2>
+                  <h2>Avoid Pairings</h2>
                   <p id="avoids-summary" class="muted">Sign in to load avoid relationships.</p>
                 </div>
                 <div class="members-actions">
+                  <button id="add-avoid-pairing" class="secondary icon-button" type="button"
+                    aria-label="Add an Avoid Pairing" title="Add an Avoid Pairing" disabled>+</button>
                   <label class="search-field">
                     <span class="visually-hidden">Search avoid relationships</span>
                     <input id="avoids-search" type="search" placeholder="Search avoids…" autocomplete="off">
@@ -100,6 +104,25 @@
                   <button id="refresh-avoids" class="secondary refresh-button" type="button">↻ Refresh</button>
                 </div>
               </header>
+              <form id="avoid-pairing-form" class="avoid-pairing-form" hidden>
+                <header class="avoid-form-header">
+                  <h3>New Avoid Pairing</h3>
+                  <button id="cancel-avoid-pairing" class="secondary" type="button">Cancel</button>
+                </header>
+                <label class="avoid-member-field">
+                  <span>Avoider</span>
+                  <input id="avoid-avoider" type="text" list="avoid-member-options"
+                    placeholder="Search Members…" autocomplete="off">
+                </label>
+                <div id="avoid-target-fields" class="avoid-target-fields"></div>
+                <div class="avoid-form-actions">
+                  <button id="add-avoid-target" class="secondary avoid-form-add" type="button"
+                    aria-label="Add another Avoiding member" title="Add another Avoiding member">+</button>
+                  <button id="save-avoid-pairing" type="submit">Save Pairing</button>
+                </div>
+              </form>
+              <datalist id="avoid-member-options"></datalist>
+              <p id="avoids-feedback" class="avoids-feedback" role="status" aria-live="polite" hidden></p>
               <div id="avoids-list" class="avoids-list" role="list" aria-label="Directional avoid relationships"></div>
               <p id="avoids-state" class="members-state" role="status" aria-live="polite">Avoid relationships are not loaded.</p>
             </section>

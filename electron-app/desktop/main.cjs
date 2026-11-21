@@ -516,6 +516,47 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('avoids:create', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted avoid pairing request.');
+    }
+    if (!input || typeof input.avoiderDiscordId !== 'string' ||
+        !/^\d{17,20}$/.test(input.avoiderDiscordId) ||
+        !Array.isArray(input.avoidedDiscordIds) || input.avoidedDiscordIds.length === 0 ||
+        input.avoidedDiscordIds.some((discordId) =>
+          typeof discordId !== 'string' || !/^\d{17,20}$/.test(discordId))) {
+      return { ok: false, error: 'Select an avoider and at least one valid Avoiding member.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi('/api/avoids', {
+        method: 'POST',
+        token: sessionToken,
+        body: input
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not save the Avoid Pairing.' };
+      if (data.success !== true ||
+          !Number.isSafeInteger(data.googleSheets?.addedPairs) ||
+          !Number.isSafeInteger(data.googleSheets?.skippedPairs) ||
+          !Number.isSafeInteger(data.mongodb?.relationshipCount)) {
+        throw new Error('The service returned an invalid Avoid Pairing result.');
+      }
+      return {
+        ok: true,
+        googleSheets: data.googleSheets,
+        mongodb: data.mongodb
+      };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the avoid service.' };
+    }
+  });
+
   ipcMain.handle('app:install-update', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted update install request.');
     if (!updateProvider || !updateDownloaded) throw new Error('There is no downloaded update ready to install.');
