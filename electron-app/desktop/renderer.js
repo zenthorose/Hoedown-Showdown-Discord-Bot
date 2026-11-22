@@ -35,6 +35,7 @@ let personTicketsError = '';
 let selectedPersonSummary = null;
 let selectedTicketSummary = null;
 let ticketActionInProgress = false;
+let ticketCloseConfirmationResolver = null;
 let memberReplyConfirmationResolver = null;
 let memberReplyConfirmationPromise = null;
 const memberEdits = new Map();
@@ -1460,12 +1461,41 @@ document.getElementById('close-ticket-button').addEventListener('click', () => {
 document.getElementById('cancel-ticket-close').addEventListener('click', () => {
   document.getElementById('ticket-close-options').close();
 });
+function confirmTicketClose(mode) {
+  const modeLabel = mode === 'normal' ? 'normally' : 'silently';
+  const dialog = document.getElementById('ticket-close-confirmation');
+  document.getElementById('ticket-close-confirmation-message').textContent =
+    `Are you sure you want to close this ticket ${modeLabel}?`;
+  document.getElementById('confirm-ticket-close').textContent =
+    mode === 'normal' ? 'Close Normally' : 'Close Silently';
+  dialog.showModal();
+  return new Promise((resolve) => {
+    ticketCloseConfirmationResolver = resolve;
+  });
+}
+function finishTicketCloseConfirmation(confirmed) {
+  const resolve = ticketCloseConfirmationResolver;
+  ticketCloseConfirmationResolver = null;
+  const dialog = document.getElementById('ticket-close-confirmation');
+  if (dialog.open) dialog.close();
+  if (resolve) resolve(confirmed);
+}
+document.getElementById('confirm-ticket-close').addEventListener('click', () => {
+  finishTicketCloseConfirmation(true);
+});
+document.getElementById('cancel-ticket-close-confirmation').addEventListener('click', () => {
+  finishTicketCloseConfirmation(false);
+});
+document.getElementById('ticket-close-confirmation').addEventListener('cancel', (event) => {
+  event.preventDefault();
+  finishTicketCloseConfirmation(false);
+});
 document.querySelectorAll('[data-close-mode]').forEach((button) => {
   button.addEventListener('click', async () => {
     const mode = button.dataset.closeMode;
     const modeLabel = mode === 'normal' ? 'normally' : 'silently';
     document.getElementById('ticket-close-options').close();
-    if (!window.confirm(`Are you sure you want to close this ticket ${modeLabel}?`)) return;
+    if (!await confirmTicketClose(mode)) return;
 
     const ticket = selectedTicketSummary;
     const status = document.getElementById('ticket-close-status');

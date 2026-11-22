@@ -49,7 +49,7 @@ button {
 }
 button:disabled { opacity: .55; cursor: wait; }
 button.secondary { background: #3a4840; }
-.ticket-reply-buttons .danger, .ticket-close-options .danger { background: #8d3936; }
+.ticket-reply-buttons .danger, .ticket-close-options .danger, .ticket-dialog-actions .danger { background: #8d3936; }
 .notice { margin: 0 0 16px; color: #edcc7c; }
 .status { min-height: 1.4em; color: #edcc7c; }
 .muted, footer { color: #a5aea6; }
