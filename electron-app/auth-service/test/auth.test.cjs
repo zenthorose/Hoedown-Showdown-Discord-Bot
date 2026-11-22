@@ -604,7 +604,7 @@ test('ticket replies require a session, use the app username, and reject closed 
     );
     const openResult = await openResponse.json();
     assert.equal(openResponse.status, 200);
-    assert.deepEqual(openResult, { authorName: 'cowboy' });
+    assert.deepEqual(openResult, { authorName: 'linked#0001' });
     assert.equal(replies.length, 1);
     assert.equal(replies[0].collectionName, 'player_Tickets');
     assert.equal(replies[0].appUsername, 'cowboy');
@@ -622,7 +622,7 @@ test('ticket replies require a session, use the app username, and reject closed 
     discordId: '123456789012345678',
     sendTicketReply: async (reply) => {
       replies.push(reply);
-      return { ok: true };
+      return { ok: true, authorName: 'linked#0001' };
     }
   });
 

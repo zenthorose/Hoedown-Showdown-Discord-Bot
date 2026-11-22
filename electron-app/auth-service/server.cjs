@@ -1225,7 +1225,11 @@ function createApp({
           partial: result?.partial === true
         });
       }
-      return res.status(200).json({ authorName: session.user.username });
+      return res.status(200).json({
+        authorName: typeof result.authorName === 'string' && result.authorName
+          ? result.authorName
+          : session.user.username
+      });
     } catch (error) {
       return sendError(res, error, 'Ticket reply delivery failed:');
     }
@@ -1796,9 +1800,10 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
           ? dmMessage.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' })
           : new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
         const staffAvatarUrl = staffProfile.displayAvatarURL({ extension: 'png', size: 64 });
+        const staffName = staffProfile.tag;
         const mirrorEmbed = {
           color: 0x3498db,
-          author: { name: appUsername, icon_url: staffAvatarUrl },
+          author: { name: staffName, icon_url: staffAvatarUrl },
           description: replyText,
           footer: { text: `Sent DM Message ID: ${dmMessage.id} | Staff ID: ${staffDiscordId} | App Username: ${appUsername}` },
           timestamp: dmMessage.createdAt instanceof Date
@@ -1826,7 +1831,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
                   sourceMessageID: dmMessage.id,
                   mirrorMessageID: mirroredMessage.id,
                   authorID: staffDiscordId,
-                  authorName: appUsername,
+                  authorName: staffName,
                   authorAvatarUrl: staffAvatarUrl,
                   content: replyText,
                   timestamp
@@ -1850,7 +1855,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
             error: 'The DM and channel mirror were sent, but the transcript could not be saved.'
           };
         }
-        return { ok: true };
+        return { ok: true, authorName: staffName };
       }
       : null;
     await users.createIndex({ username: 1 }, { unique: true });
