@@ -35,11 +35,33 @@ let personTicketsError = '';
 let selectedPersonSummary = null;
 let selectedTicketSummary = null;
 let ticketActionInProgress = false;
+let settingsLoaded = false;
+let settingsLoading = false;
+let settingsBusy = false;
+let settingsGeneration = 0;
 let ticketCloseConfirmationResolver = null;
 let memberReplyConfirmationResolver = null;
 let memberReplyConfirmationPromise = null;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
+const DEFAULT_THEME_COLORS = {
+  background: '#101413',
+  surface: '#171d19',
+  accent: '#a8863b',
+  accentText: '#f0d58f',
+  text: '#f2f5ef',
+  muted: '#a5aea6',
+  border: '#536044'
+};
+const THEME_COLOR_VARIABLES = {
+  background: '--theme-background',
+  surface: '--theme-surface',
+  accent: '--theme-accent',
+  accentText: '--theme-accent-text',
+  text: '--theme-text',
+  muted: '--theme-muted',
+  border: '--theme-border'
+};
 
 const pages = {
   members: {
@@ -61,6 +83,11 @@ const pages = {
     title: 'Tickets',
     icon: '🎟️',
     description: 'Browse people with ticket history and review open or closed tickets.'
+  },
+  settings: {
+    title: 'Settings',
+    icon: '⚙️',
+    description: 'Customize your app appearance and preferences.'
   }
 };
 const editableMemberFields = [
@@ -97,6 +124,123 @@ function setAvoidsFeedback(message, isError = false) {
   feedback.hidden = !message;
 }
 
+function normalizeThemeColors(colors = {}) {
+  return Object.fromEntries(Object.entries(DEFAULT_THEME_COLORS).map(([key, fallback]) => {
+    const value = colors && colors[key];
+    return [key, typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
+      ? value.toLowerCase()
+      : fallback];
+  }));
+}
+
+function applyThemeColors(colors) {
+  const themeColors = normalizeThemeColors(colors);
+  for (const [key, variable] of Object.entries(THEME_COLOR_VARIABLES)) {
+    document.documentElement.style.setProperty(variable, themeColors[key]);
+  }
+  document.querySelectorAll('[data-theme-color]').forEach((input) => {
+    if (Object.hasOwn(themeColors, input.dataset.themeColor)) {
+      input.value = themeColors[input.dataset.themeColor];
+    }
+  });
+  return themeColors;
+}
+
+function readThemeColorsFromInputs() {
+  return Object.fromEntries([...document.querySelectorAll('[data-theme-color]')].map((input) => [
+    input.dataset.themeColor,
+    input.value
+  ]));
+}
+
+function setSettingsFeedback(message, isError = false) {
+  const feedback = document.getElementById('settings-feedback');
+  feedback.textContent = message || '';
+  feedback.dataset.error = String(isError);
+}
+
+function setSettingsControlsDisabled(disabled) {
+  document.querySelectorAll('[data-theme-color]').forEach((input) => { input.disabled = disabled; });
+  document.getElementById('save-theme-colors').disabled = disabled;
+  document.getElementById('reset-theme-colors').disabled = disabled;
+}
+
+async function loadSettings() {
+  if (settingsLoaded || settingsLoading || signedInPanel.hidden) return;
+  settingsLoading = true;
+  const generation = settingsGeneration;
+  setSettingsControlsDisabled(true);
+  setSettingsFeedback('Loading your settings…');
+  try {
+    const result = await window.hoedown.getSettings();
+    if (generation !== settingsGeneration || signedInPanel.hidden) return;
+    if (!result.ok) throw new Error(result.error || 'Could not load your settings.');
+    applyThemeColors(result.themeColors);
+    settingsLoaded = true;
+    setSettingsFeedback('');
+  } catch (error) {
+    if (generation === settingsGeneration) {
+      setSettingsFeedback(error.message || 'Could not load your settings.', true);
+    }
+  } finally {
+    if (generation === settingsGeneration) {
+      settingsLoading = false;
+      setSettingsControlsDisabled(false);
+    }
+  }
+}
+
+async function saveThemeColors() {
+  if (settingsBusy || signedInPanel.hidden) return;
+  settingsBusy = true;
+  const generation = settingsGeneration;
+  const colors = readThemeColorsFromInputs();
+  setSettingsControlsDisabled(true);
+  setSettingsFeedback('Saving your colors…');
+  try {
+    const result = await window.hoedown.saveThemeColors(colors);
+    if (generation !== settingsGeneration || signedInPanel.hidden) return;
+    if (!result.ok) throw new Error(result.error || 'Could not save your colors.');
+    applyThemeColors(result.themeColors);
+    settingsLoaded = true;
+    setSettingsFeedback('Colors saved to your account.');
+  } catch (error) {
+    if (generation === settingsGeneration) {
+      setSettingsFeedback(error.message || 'Could not save your colors.', true);
+    }
+  } finally {
+    if (generation === settingsGeneration) {
+      settingsBusy = false;
+      setSettingsControlsDisabled(false);
+    }
+  }
+}
+
+async function resetThemeColors() {
+  if (settingsBusy || signedInPanel.hidden) return;
+  settingsBusy = true;
+  const generation = settingsGeneration;
+  setSettingsControlsDisabled(true);
+  setSettingsFeedback('Resetting your colors…');
+  try {
+    const result = await window.hoedown.resetThemeColors();
+    if (generation !== settingsGeneration || signedInPanel.hidden) return;
+    if (!result.ok) throw new Error(result.error || 'Could not reset your colors.');
+    applyThemeColors(DEFAULT_THEME_COLORS);
+    settingsLoaded = true;
+    setSettingsFeedback('Colors reset to defaults and saved to your account.');
+  } catch (error) {
+    if (generation === settingsGeneration) {
+      setSettingsFeedback(error.message || 'Could not reset your colors.', true);
+    }
+  } finally {
+    if (generation === settingsGeneration) {
+      settingsBusy = false;
+      setSettingsControlsDisabled(false);
+    }
+  }
+}
+
 function showSignedOut() {
   loginForm.hidden = false;
   passwordForm.hidden = true;
@@ -127,6 +271,13 @@ function showSignedOut() {
   ticketLoadGeneration += 1;
   ticketDetailGeneration += 1;
   personTicketLoadGeneration += 1;
+  settingsGeneration += 1;
+  settingsLoaded = false;
+  settingsLoading = false;
+  settingsBusy = false;
+  applyThemeColors(DEFAULT_THEME_COLORS);
+  setSettingsFeedback('');
+  setSettingsControlsDisabled(false);
   if (ticketResyncTimer) clearTimeout(ticketResyncTimer);
   ticketResyncTimer = null;
   if (ticketMessageResyncTimer) clearTimeout(ticketMessageResyncTimer);
@@ -170,6 +321,7 @@ function applyAuthState(state) {
     if (!membersLoaded && !membersLoading) void loadMembers();
     if (!avoidsLoaded && !avoidsLoading) void loadAvoids();
     if (!ticketsLoaded && !ticketsLoading) void loadTickets(1);
+    if (!settingsLoaded && !settingsLoading) void loadSettings();
   } else {
     showSignedOut();
     if (state && state.error) {
@@ -197,14 +349,17 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   const isMembers = button.dataset.tab === 'members';
   const isAvoids = button.dataset.tab === 'avoids';
   const isTickets = button.dataset.tab === 'tickets';
+  const isSettings = button.dataset.tab === 'settings';
   document.getElementById('members-view').hidden = !isMembers;
   document.getElementById('avoids-view').hidden = !isAvoids;
   document.getElementById('tickets-view').hidden = !isTickets;
-  document.getElementById('page-card').hidden = isMembers || isAvoids || isTickets;
+  document.getElementById('settings-view').hidden = !isSettings;
+  document.getElementById('page-card').hidden = isMembers || isAvoids || isTickets || isSettings;
   selfPasswordForm.hidden = true;
   showStatus('');
   if (isMembers && !membersLoaded && !membersLoading) void loadMembers();
   if (isAvoids && !avoidsLoaded && !avoidsLoading) void loadAvoids();
+  if (isSettings && !settingsLoaded && !settingsLoading) void loadSettings();
   if (isTickets && !ticketsLoaded && !ticketsLoading) void loadTickets(1);
   else if (isTickets && selectedPersonSummary) {
     if (selectedTicketSummary && !document.getElementById('ticket-detail-view').hidden) {
@@ -213,6 +368,19 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
       void loadPersonTickets(selectedPersonSummary);
     }
   }
+});
+
+document.querySelectorAll('[data-theme-color]').forEach((input) => {
+  input.addEventListener('input', () => {
+    applyThemeColors(readThemeColorsFromInputs());
+    setSettingsFeedback('Previewing changes. Save colors to keep them on your account.');
+  });
+});
+document.getElementById('save-theme-colors').addEventListener('click', () => {
+  void saveThemeColors();
+});
+document.getElementById('reset-theme-colors').addEventListener('click', () => {
+  void resetThemeColors();
 });
 
 function createMemberDetail(fieldName, label, value) {

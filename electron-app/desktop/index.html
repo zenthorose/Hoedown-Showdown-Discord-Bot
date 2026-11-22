@@ -46,6 +46,9 @@
             <button class="nav-item" type="button" data-tab="tickets">
               <span class="nav-icon" aria-hidden="true">🎟️</span><span>Tickets</span>
             </button>
+            <button class="nav-item" type="button" data-tab="settings">
+              <span class="nav-icon" aria-hidden="true">⚙️</span><span>Settings</span>
+            </button>
           </nav>
           <div class="sidebar-account">
             <p class="account-label">SIGNED IN AS</p>
@@ -235,6 +238,59 @@
                     <button id="cancel-member-reply" class="secondary" type="button" autofocus>Cancel</button>
                   </div>
                 </dialog>
+              </section>
+            </section>
+            <section id="settings-view" class="settings-view" aria-label="App settings" hidden>
+              <section class="settings-section" aria-labelledby="appearance-settings-title">
+                <header class="settings-section-header">
+                  <div>
+                    <h2 id="appearance-settings-title">Appearance</h2>
+                    <p class="muted">Choose colors for your account. They’ll follow you when you sign in elsewhere.</p>
+                  </div>
+                </header>
+                <div class="theme-color-grid">
+                  <label class="theme-color-control">App background
+                    <input type="color" data-theme-color="background" value="#101413">
+                  </label>
+                  <label class="theme-color-control">Panels and surfaces
+                    <input type="color" data-theme-color="surface" value="#171d19">
+                  </label>
+                  <label class="theme-color-control">Primary buttons
+                    <input type="color" data-theme-color="accent" value="#a8863b">
+                  </label>
+                  <label class="theme-color-control">Highlighted text
+                    <input type="color" data-theme-color="accentText" value="#f0d58f">
+                  </label>
+                  <label class="theme-color-control">Main text
+                    <input type="color" data-theme-color="text" value="#f2f5ef">
+                  </label>
+                  <label class="theme-color-control">Muted text
+                    <input type="color" data-theme-color="muted" value="#a5aea6">
+                  </label>
+                  <label class="theme-color-control">Borders
+                    <input type="color" data-theme-color="border" value="#536044">
+                  </label>
+                </div>
+                <div class="settings-actions">
+                  <p id="settings-feedback" class="settings-feedback" role="status" aria-live="polite"></p>
+                  <div>
+                    <button id="reset-theme-colors" class="secondary" type="button">Reset to defaults</button>
+                    <button id="save-theme-colors" type="button">Save colors</button>
+                  </div>
+                </div>
+              </section>
+              <section class="settings-section" aria-labelledby="notification-settings-title">
+                <header class="settings-section-header">
+                  <div>
+                    <h2 id="notification-settings-title">Notifications</h2>
+                    <p class="muted">Notification sound choices are planned for a future update.</p>
+                  </div>
+                </header>
+                <label class="settings-select-control">Notification sound
+                  <select disabled aria-label="Notification sound selection coming soon">
+                    <option>Sound selection coming soon</option>
+                  </select>
+                </label>
               </section>
             </section>
             <form id="self-password-form" class="password-card" hidden>

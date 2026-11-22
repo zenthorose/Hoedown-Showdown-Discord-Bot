@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('hoedown', {
     ipcRenderer.invoke('auth:change-password', { token, password }),
   updatePassword: (currentPassword, password) =>
     ipcRenderer.invoke('auth:update-password', { currentPassword, password }),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveThemeColors: (colors) => ipcRenderer.invoke('settings:save-theme-colors', colors),
+  resetThemeColors: () => ipcRenderer.invoke('settings:reset-theme-colors'),
   getMembers: () => ipcRenderer.invoke('members:list'),
   getAvoids: () => ipcRenderer.invoke('avoids:list'),
   getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),

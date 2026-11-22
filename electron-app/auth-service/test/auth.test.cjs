@@ -52,11 +52,25 @@ class MemoryCollection {
           modifiedCount += 1;
         }
       } else {
-        if (item[key] !== value) modifiedCount += 1;
-        item[key] = value;
+        const path = key.split('.');
+        let target = item;
+        for (const field of path.slice(0, -1)) {
+          if (!target[field] || typeof target[field] !== 'object') target[field] = {};
+          target = target[field];
+        }
+        if (target[path[path.length - 1]] !== value) modifiedCount += 1;
+        target[path[path.length - 1]] = value;
       }
     }
-    for (const key of Object.keys(update.$unset || {})) delete item[key];
+    for (const key of Object.keys(update.$unset || {})) {
+      const path = key.split('.');
+      let target = item;
+      for (const field of path.slice(0, -1)) {
+        target = target[field];
+        if (!target || typeof target !== 'object') break;
+      }
+      if (target) delete target[path[path.length - 1]];
+    }
     for (const [key, value] of Object.entries(update.$inc || {})) {
       item[key] = (item[key] || 0) + value;
       modifiedCount += 1;
@@ -242,6 +256,65 @@ test('a later login invalidates the previously active session', async () => {
       }
     });
     assert.equal(response.status, 401);
+  });
+});
+
+test('theme colors are authenticated account settings and can be reset', async () => {
+  await withServer(async ({ baseUrl, password, user }) => {
+    const colors = {
+      background: '#101413',
+      surface: '#171d19',
+      accent: '#a8863b',
+      accentText: '#f0d58f',
+      text: '#f2f5ef',
+      muted: '#a5aea6',
+      border: '#536044'
+    };
+    const unauthorized = await fetch(`${baseUrl}/api/settings`);
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}` };
+
+    const defaults = await fetch(`${baseUrl}/api/settings`, { headers });
+    assert.equal(defaults.status, 200);
+    assert.equal((await defaults.json()).themeColors, null);
+
+    const saved = await fetch(`${baseUrl}/api/settings/theme-colors`, {
+      method: 'PUT',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ colors })
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual((await saved.json()).themeColors, colors);
+    assert.deepEqual(user.settings.themeColors, colors);
+
+    const invalid = await fetch(`${baseUrl}/api/settings/theme-colors`, {
+      method: 'PUT',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ colors: { ...colors, accent: 'gold' } })
+    });
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(user.settings.themeColors, colors);
+
+    user.settings.notificationSound = 'future-preference';
+    const reset = await fetch(`${baseUrl}/api/settings/theme-colors`, {
+      method: 'DELETE',
+      headers
+    });
+    assert.equal(reset.status, 200);
+    assert.equal((await reset.json()).themeColors, null);
+    assert.equal(user.settings.themeColors, undefined);
+    assert.equal(user.settings.notificationSound, 'future-preference');
   });
 });
 

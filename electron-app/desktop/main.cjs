@@ -15,6 +15,24 @@ let memberLiveController;
 let memberLiveGeneration = 0;
 let updateProvider;
 let updateDownloaded = false;
+const THEME_COLOR_FIELDS = [
+  'background',
+  'surface',
+  'accent',
+  'accentText',
+  'text',
+  'muted',
+  'border'
+];
+
+function isThemeColorSet(colors) {
+  return colors && typeof colors === 'object' && !Array.isArray(colors) &&
+    Object.keys(colors).length === THEME_COLOR_FIELDS.length &&
+    Object.keys(colors).every((field) => THEME_COLOR_FIELDS.includes(field)) &&
+    THEME_COLOR_FIELDS.every((field) =>
+      typeof colors[field] === 'string' && /^#[0-9a-f]{6}$/i.test(colors[field])
+    );
+}
 
 function serviceUrl() {
   if (typeof authConfig.apiBaseUrl !== 'string' || !authConfig.apiBaseUrl.trim()) {
@@ -242,6 +260,29 @@ async function requestApi(route, { method = 'GET', token, body, headers = {} } =
   }
 }
 
+async function requestSettingsApi(event, route, options = {}) {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('Untrusted app settings request.');
+  }
+  try {
+    if (!sessionToken) sessionToken = await readToken();
+    if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+    const { response, data } = await requestApi(route, { ...options, token: sessionToken });
+    if (response.status === 401) {
+      await clearToken();
+      sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+      return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+    }
+    if (!response.ok) return { ok: false, error: data.error || 'Could not save app settings.' };
+    if (data.themeColors !== null && !isThemeColorSet(data.themeColors)) {
+      throw new Error('The service returned invalid app color settings.');
+    }
+    return { ok: true, themeColors: data.themeColors };
+  } catch (error) {
+    return { ok: false, error: error.message || 'Could not reach the settings service.' };
+  }
+}
+
 function sendStatus(state) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('auth:status', state);
 }
@@ -449,6 +490,20 @@ app.whenReady().then(async () => {
     await clearToken();
     return { warning };
   });
+
+  ipcMain.handle('settings:get', (event) =>
+    requestSettingsApi(event, '/api/settings'));
+  ipcMain.handle('settings:save-theme-colors', (event, colors) => {
+    if (!isThemeColorSet(colors)) {
+      return { ok: false, error: 'Enter valid app colors before saving.' };
+    }
+    return requestSettingsApi(event, '/api/settings/theme-colors', {
+      method: 'PUT',
+      body: { colors }
+    });
+  });
+  ipcMain.handle('settings:reset-theme-colors', (event) =>
+    requestSettingsApi(event, '/api/settings/theme-colors', { method: 'DELETE' }));
 
   ipcMain.handle('members:list', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) {

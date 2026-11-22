@@ -22,6 +22,39 @@ const MEMBER_FIELD_LIMITS = {
   steamId: 128,
   streamLink: 2048
 };
+const THEME_COLOR_FIELDS = [
+  'background',
+  'surface',
+  'accent',
+  'accentText',
+  'text',
+  'muted',
+  'border'
+];
+
+function normalizeThemeColors(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) ||
+      Object.keys(input).length !== THEME_COLOR_FIELDS.length ||
+      Object.keys(input).some((field) => !THEME_COLOR_FIELDS.includes(field))) {
+    throw new TypeError('Provide all supported theme colors.');
+  }
+  const colors = {};
+  for (const field of THEME_COLOR_FIELDS) {
+    if (typeof input[field] !== 'string' || !/^#[0-9a-f]{6}$/i.test(input[field])) {
+      throw new TypeError(`Enter a valid hex color for ${field}.`);
+    }
+    colors[field] = input[field].toLowerCase();
+  }
+  return colors;
+}
+
+function readStoredThemeColors(input) {
+  try {
+    return normalizeThemeColors(input);
+  } catch {
+    return null;
+  }
+}
 
 function serializeMember(profile) {
   return {
@@ -767,6 +800,61 @@ function createApp({
       });
     } catch (error) {
       return sendError(res, error, 'Session check failed:');
+    }
+  });
+
+  app.get('/api/settings', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        themeColors: readStoredThemeColors(session.user.settings?.themeColors)
+      });
+    } catch (error) {
+      return sendError(res, error, 'App settings lookup failed:');
+    }
+  });
+
+  app.put('/api/settings/theme-colors', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      let colors;
+      try {
+        colors = normalizeThemeColors(req.body?.colors);
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+      const result = await users.updateOne(
+        { _id: session.user._id, tokenVersion: session.payload.ver, active: { $ne: false } },
+        { $set: { 'settings.themeColors': colors } }
+      );
+      if (!result.matchedCount) {
+        return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+      }
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({ themeColors: colors });
+    } catch (error) {
+      return sendError(res, error, 'App theme save failed:');
+    }
+  });
+
+  app.delete('/api/settings/theme-colors', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      const result = await users.updateOne(
+        { _id: session.user._id, tokenVersion: session.payload.ver, active: { $ne: false } },
+        { $unset: { 'settings.themeColors': '' } }
+      );
+      if (!result.matchedCount) {
+        return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+      }
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({ themeColors: null });
+    } catch (error) {
+      return sendError(res, error, 'App theme reset failed:');
     }
   });
 
