@@ -322,6 +322,7 @@ function createApp({
   };
   const broadcastAvoidsResync = () => broadcastMemberEvent('avoids-resync', {});
   const broadcastTicketsResync = () => broadcastMemberEvent('tickets-resync', {});
+  // The driver can emit close for an internal cursor cleanup while a change stream is resuming.
   const scheduleMemberChangeStreamRestart = (error) => {
     if (memberChangeStreamStopped || memberChangeStreamRetry) return;
     console.error('Members change stream failed; reconnecting:', error);
@@ -350,11 +351,6 @@ function createApp({
           console.error('Could not close the failed Members change stream:', closeError);
         });
         scheduleMemberChangeStreamRestart(error);
-      });
-      stream.on('close', () => {
-        if (memberChangeStream !== stream || memberChangeStreamStopped) return;
-        memberChangeStream = null;
-        scheduleMemberChangeStreamRestart(new Error('Members change stream closed unexpectedly.'));
       });
     } catch (error) {
       scheduleMemberChangeStreamRestart(error);
@@ -389,11 +385,6 @@ function createApp({
           console.error('Could not close the failed Avoids change stream:', closeError);
         });
         scheduleAvoidsChangeStreamRestart(error);
-      });
-      stream.on('close', () => {
-        if (avoidsChangeStream !== stream || memberChangeStreamStopped) return;
-        avoidsChangeStream = null;
-        scheduleAvoidsChangeStreamRestart(new Error('Avoids change stream closed unexpectedly.'));
       });
     } catch (error) {
       scheduleAvoidsChangeStreamRestart(error);
@@ -442,11 +433,6 @@ function createApp({
           console.error('Could not close the failed Tickets change stream:', closeError);
         });
         scheduleTicketChangeStreamRestart(error);
-      });
-      stream.on('close', () => {
-        if (ticketChangeStream !== stream || memberChangeStreamStopped) return;
-        ticketChangeStream = null;
-        scheduleTicketChangeStreamRestart('MongoDB closed the ticket change stream without an error event.');
       });
     } catch (error) {
       scheduleTicketChangeStreamRestart(error);

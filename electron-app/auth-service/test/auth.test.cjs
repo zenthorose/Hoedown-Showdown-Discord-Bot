@@ -772,7 +772,9 @@ test('authenticated event stream publishes member changes and Avoids and Tickets
   ticketChangeStream.close = async () => ticketChangeStream.emit('close');
   const ticketDatabase = new MemoryTicketDatabase();
   let ticketWatchPipeline;
+  let ticketWatchCount = 0;
   ticketDatabase.watch = (pipeline) => {
+    ticketWatchCount += 1;
     ticketWatchPipeline = pipeline;
     return ticketChangeStream;
   };
@@ -845,8 +847,12 @@ test('authenticated event stream publishes member changes and Avoids and Tickets
     assert.match(messageUpdate, /"collectionName":"player_Tickets"/);
 
     ticketChangeStream.emit('close');
-    const closedStreamResync = await readUntil(/event: tickets-resync/);
-    assert.match(closedStreamResync, /event: tickets-resync/);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.equal(ticketWatchCount, 1);
+
+    ticketChangeStream.emit('error', new Error('simulated ticket stream failure'));
+    const failedStreamResync = await readUntil(/event: tickets-resync/);
+    assert.match(failedStreamResync, /event: tickets-resync/);
     await reader.cancel();
   }, { memberChangeStream, avoidsChangeStream, ticketDatabase });
 });
