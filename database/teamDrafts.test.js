@@ -147,7 +147,7 @@ test('a new generation replaces current snapshots and uses the next sequential r
   await collections.teamCheck.updateOne({ _id: 'current' }, {
     $set: { status: 'approved' }
   });
-  await collections.roundsDatabase.collection('Round 1').insertOne({
+  await collections.roundsDatabase.collection('Round#1').insertOne({
     _id: 'current',
     generationId: firstDraft.generationId,
     status: 'approved',
@@ -165,8 +165,8 @@ test('a new generation replaces current snapshots and uses the next sequential r
 
 test('a new generation uses the round after the highest populated collection when there is a gap', async () => {
   const collections = createCollections();
-  await collections.roundsDatabase.collection('Round 1').insertOne({ _id: 'current', status: 'approved' });
-  await collections.roundsDatabase.collection('Round 3').insertOne({ _id: 'current', status: 'approved' });
+  await collections.roundsDatabase.collection('Round#1').insertOne({ _id: 'current', status: 'approved' });
+  await collections.roundsDatabase.collection('Round#3').insertOne({ _id: 'current', status: 'approved' });
 
   const draft = await createDraft(collections);
 

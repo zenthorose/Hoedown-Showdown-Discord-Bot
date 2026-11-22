@@ -97,6 +97,10 @@ function labelIndex(label) {
   return (length === 1 ? 0 : length === 2 ? 26 : 52) + code;
 }
 
+function roundCollectionName(round) {
+  return `Round#${round}`;
+}
+
 function inspectTeams(teams, previousPairings, avoids) {
   const previousConflicts = [];
   const avoidConflicts = [];
@@ -279,7 +283,7 @@ async function loadPairingKeys(collection, field) {
 async function findNextRound(roundsDatabase) {
   let highestPopulatedRound = 0;
   for (let round = 1; round <= ROUND_COUNT; round += 1) {
-    const existing = await roundsDatabase.collection(`Round ${round}`).findOne({});
+    const existing = await roundsDatabase.collection(roundCollectionName(round)).findOne({});
     if (existing) highestPopulatedRound = round;
   }
   if (highestPopulatedRound === ROUND_COUNT) {
@@ -290,7 +294,8 @@ async function findNextRound(roundsDatabase) {
 
 async function getNextTeamLabelIndex(roundsDatabase, round) {
   if (round <= 1) return 0;
-  const previousRound = await roundsDatabase.collection(`Round ${round - 1}`).findOne({ _id: CURRENT_SNAPSHOT_ID });
+  const previousRound = await roundsDatabase.collection(roundCollectionName(round - 1))
+    .findOne({ _id: CURRENT_SNAPSHOT_ID });
   if (Number.isSafeInteger(previousRound?.nextTeamIndex)) return previousRound.nextTeamIndex;
   const previousTeams = Array.isArray(previousRound?.teams) ? previousRound.teams : [];
   const lastTeam = previousTeams[previousTeams.length - 1];
@@ -494,7 +499,7 @@ async function beginCurrentDraftApproval({ teamCheckCollection, roundsDatabase, 
     throw new Error(`No pending Team Check draft exists for Round #${round}.`);
   }
 
-  const roundCollection = roundsDatabase.collection(`Round ${round}`);
+  const roundCollection = roundsDatabase.collection(roundCollectionName(round));
   const existingRound = await roundCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
   if (existingRound && existingRound.generationId !== draft.generationId) {
     throw new Error(`Round #${round} already contains different approved data.`);
