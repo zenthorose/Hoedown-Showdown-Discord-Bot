@@ -28,7 +28,8 @@ function grabReactions(discordPlayers) {
   // Validate required sheets
   if (!sheet || !discordMemberSheet || !pairingsSheet || !avoidPairingsSheet) {
     safeLog("Required sheets not found.");
-    return ContentService.createTextOutput(JSON.stringify({ error: "Required sheets not found." }));
+    return ContentService.createTextOutput(JSON.stringify({ error: "Required sheets not found." }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 
   // Clear the previous reacted-player list.
@@ -68,7 +69,8 @@ function grabReactions(discordPlayers) {
     if (!teams || teams.length === 0) throw new Error("No teams generated");
   } catch (e) {
     safeLog(`Team generation failed: ${e.message}`);
-    return ContentService.createTextOutput(JSON.stringify({ error: "Team generation failed." }));
+    return ContentService.createTextOutput(JSON.stringify({ error: "Team generation failed." }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 
   // Run teamCheck
@@ -92,5 +94,6 @@ function grabReactions(discordPlayers) {
   safeLog(`Extracted newPairings raw: ${JSON.stringify(Array.from(newPairings))}`);
 
   safeLog("grabReactions completed successfully");
-  return ContentService.createTextOutput(JSON.stringify({ success: true }));
+  return ContentService.createTextOutput(JSON.stringify({ success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
 }

@@ -239,8 +239,15 @@ test('admin bot settings require authorization and return the built-in defaults'
 test('admin bot settings save complete boolean values and record an audit event', async () => {
   await withServer(async ({ baseUrl, audit, botSettings }) => {
     const settings = {
+      grabReactions: { ...DEFAULT_BOT_SETTINGS.grabReactions, ENABLE_TEAM_CHECK_POSTING: false },
       approveRound: { ...DEFAULT_BOT_SETTINGS.approveRound, ENABLE_DISCORD_POSTING: false },
-      hoedownReset: { ...DEFAULT_BOT_SETTINGS.hoedownReset, ENABLE_LOGGING: true }
+      hoedownReset: { ...DEFAULT_BOT_SETTINGS.hoedownReset, ENABLE_LOGGING: true },
+      channels: {
+        ...DEFAULT_BOT_SETTINGS.channels,
+        LOG_CHANNEL_ID: '12345678901234567',
+        roundChannels: { '1': '12345678901234568' },
+        teamChannels: { 'Team A': '12345678901234569' }
+      }
     };
     const response = await fetch(`${baseUrl}/api/admin/bot-settings`, {
       method: 'PUT',
@@ -276,6 +283,7 @@ test('admin bot settings reject incomplete and non-boolean updates without savin
       },
       body: JSON.stringify({
         settings: {
+          grabReactions: DEFAULT_BOT_SETTINGS.grabReactions,
           approveRound: { ...DEFAULT_BOT_SETTINGS.approveRound, ENABLE_DISCORD_POSTING: 'false' },
           hoedownReset: DEFAULT_BOT_SETTINGS.hoedownReset
         }

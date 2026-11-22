@@ -10,6 +10,7 @@ const databaseConfig = {
     env: 'MONGODB_ROUNDS',
     collections: {
       playersThatReacted: 'PlayersThatReacted',
+      teamCheck: 'TeamCheck',
       ...Object.fromEntries(
         Array.from({ length: 16 }, (_, index) => [`round${index + 1}`, `Round ${index + 1}`])
       )
@@ -21,7 +22,7 @@ const databaseConfig = {
   },
   discordMemberList: {
     env: 'MONGODB_HOEDOWNINFO',
-    collections: {}
+    collections: { members: 'Members' }
   },
   previousPairings: {
     env: 'MONGODB_HOEDOWNINFO',

@@ -124,6 +124,14 @@ function applyBotSettings(result) {
     if (typeof value !== 'boolean') throw new Error('Render returned incomplete bot settings.');
     input.checked = value;
   }
+  const channels = result.settings.channels;
+  if (!channels || typeof channels !== 'object') throw new Error('Render returned incomplete bot channel settings.');
+  byId('bot-status-channel').value = channels.STATUS_CHANNEL_ID;
+  byId('bot-log-channel').value = channels.LOG_CHANNEL_ID;
+  byId('bot-optin-channel').value = channels.OptInChannelID;
+  byId('bot-team-check-channel').value = channels.TeamCheckChannelID;
+  byId('bot-round-channels').value = JSON.stringify(channels.roundChannels, null, 2);
+  byId('bot-team-channels').value = JSON.stringify(channels.teamChannels, null, 2);
   byId('bot-settings-updated').textContent = result.updatedAt
     ? `Last updated ${displayDate(result.updatedAt)}${result.updatedBy ? ` by ${result.updatedBy}` : ''}.`
     : 'No saved changes. The bot is using its built-in defaults.';
@@ -157,10 +165,18 @@ byId('bot-settings-form').addEventListener('submit', async (event) => {
   submitButton.disabled = true;
   refreshButton.disabled = true;
   try {
-    const settings = { approveRound: {}, hoedownReset: {} };
+    const settings = { grabReactions: {}, approveRound: {}, hoedownReset: {} };
     for (const input of document.querySelectorAll('[data-bot-settings-group][data-bot-settings-field]')) {
       settings[input.dataset.botSettingsGroup][input.dataset.botSettingsField] = input.checked;
     }
+    settings.channels = {
+      STATUS_CHANNEL_ID: byId('bot-status-channel').value.trim(),
+      LOG_CHANNEL_ID: byId('bot-log-channel').value.trim(),
+      OptInChannelID: byId('bot-optin-channel').value.trim(),
+      TeamCheckChannelID: byId('bot-team-check-channel').value.trim(),
+      roundChannels: JSON.parse(byId('bot-round-channels').value),
+      teamChannels: JSON.parse(byId('bot-team-channels').value)
+    };
     const result = await window.admin.saveBotSettings(settings);
     applyBotSettings(result);
     showStatus('bot-settings-status', result.auditLogged

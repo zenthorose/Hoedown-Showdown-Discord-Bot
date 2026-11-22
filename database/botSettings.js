@@ -3,6 +3,9 @@ const { connectAdminDatabase } = require('./hoedownInfo');
 const BOT_SETTINGS_COLLECTION = 'botSettings';
 const BOT_SETTINGS_ID = 'global';
 const DEFAULT_BOT_SETTINGS = {
+  grabReactions: {
+    ENABLE_TEAM_CHECK_POSTING: true
+  },
   approveRound: {
     ENABLE_ROUND_CHANNEL_PERMS: true,
     ENABLE_TEAM_CLEANUP: true,
@@ -19,14 +22,42 @@ const DEFAULT_BOT_SETTINGS = {
     ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS: true,
     ENABLE_REMOVE_MEMBER_OVERWRITES: true,
     ENABLE_LOGGING: false
+  },
+  channels: {
+    STATUS_CHANNEL_ID: '',
+    LOG_CHANNEL_ID: '',
+    OptInChannelID: '',
+    TeamCheckChannelID: '',
+    roundChannels: {},
+    teamChannels: {}
   }
 };
 
 function copyDefaultBotSettings() {
   return {
+    grabReactions: { ...DEFAULT_BOT_SETTINGS.grabReactions },
     approveRound: { ...DEFAULT_BOT_SETTINGS.approveRound },
-    hoedownReset: { ...DEFAULT_BOT_SETTINGS.hoedownReset }
+    hoedownReset: { ...DEFAULT_BOT_SETTINGS.hoedownReset },
+    channels: {
+      ...DEFAULT_BOT_SETTINGS.channels,
+      roundChannels: {},
+      teamChannels: {}
+    }
   };
+}
+
+function isManagedGasPostPurpose(purpose) {
+  return purpose === 'team-check-preview' || purpose === 'approved-round';
+}
+
+function isGasPostEnabled(purpose, settings) {
+  if (purpose === 'team-check-preview') {
+    return settings.grabReactions.ENABLE_TEAM_CHECK_POSTING;
+  }
+  if (purpose === 'approved-round') {
+    return settings.approveRound.ENABLE_DISCORD_POSTING;
+  }
+  return true;
 }
 
 function validateBotSettings(input) {
@@ -39,6 +70,10 @@ function validateBotSettings(input) {
   const settings = {};
   for (const [group, defaults] of Object.entries(DEFAULT_BOT_SETTINGS)) {
     const values = input[group];
+    if (group === 'channels') {
+      settings[group] = validateChannels(values);
+      continue;
+    }
     const fields = Object.keys(defaults);
     if (!values || typeof values !== 'object' || Array.isArray(values) ||
         Object.keys(values).length !== fields.length ||
@@ -56,6 +91,41 @@ function validateBotSettings(input) {
   return settings;
 }
 
+function validateChannelId(value, label) {
+  if (typeof value !== 'string' || (value !== '' && !/^\d{17,20}$/.test(value))) {
+    throw new TypeError(`${label} must be a Discord channel ID or an empty string.`);
+  }
+  return value;
+}
+
+function validateChannelMap(input, label, keyPattern) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new TypeError(`${label} must be an object.`);
+  }
+  const result = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!keyPattern.test(key)) throw new TypeError(`${label} contains an invalid key: ${key}.`);
+    result[key] = validateChannelId(value, `${label}.${key}`);
+  }
+  return result;
+}
+
+function validateChannels(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) ||
+      Object.keys(input).length !== Object.keys(DEFAULT_BOT_SETTINGS.channels).length ||
+      Object.keys(input).some((field) => !Object.hasOwn(DEFAULT_BOT_SETTINGS.channels, field))) {
+    throw new TypeError('Provide all bot channel settings.');
+  }
+  return {
+    STATUS_CHANNEL_ID: validateChannelId(input.STATUS_CHANNEL_ID, 'STATUS_CHANNEL_ID'),
+    LOG_CHANNEL_ID: validateChannelId(input.LOG_CHANNEL_ID, 'LOG_CHANNEL_ID'),
+    OptInChannelID: validateChannelId(input.OptInChannelID, 'OptInChannelID'),
+    TeamCheckChannelID: validateChannelId(input.TeamCheckChannelID, 'TeamCheckChannelID'),
+    roundChannels: validateChannelMap(input.roundChannels, 'roundChannels', /^(?:[1-9]|1[0-6])$/),
+    teamChannels: validateChannelMap(input.teamChannels, 'teamChannels', /^Team [A-Z]{1,3}$/)
+  };
+}
+
 function normalizeStoredBotSettings(input) {
   const settings = copyDefaultBotSettings();
   if (input === undefined || input === null) return settings;
@@ -68,6 +138,24 @@ function normalizeStoredBotSettings(input) {
     if (values === undefined) continue;
     if (!values || typeof values !== 'object' || Array.isArray(values)) {
       throw new TypeError(`Stored ${group} settings must be an object.`);
+    }
+    if (group === 'channels') {
+      for (const field of Object.keys(defaults)) {
+        if (values[field] === undefined) continue;
+        if (field === 'roundChannels' || field === 'teamChannels') {
+          settings.channels[field] = {
+            ...settings.channels[field],
+            ...validateChannelMap(
+              values[field],
+              field,
+              field === 'roundChannels' ? /^(?:[1-9]|1[0-6])$/ : /^Team [A-Z]{1,3}$/
+            )
+          };
+        } else {
+          settings.channels[field] = validateChannelId(values[field], field);
+        }
+      }
+      continue;
     }
     for (const [field, value] of Object.entries(values)) {
       if (!Object.hasOwn(defaults, field)) continue;
@@ -97,7 +185,10 @@ module.exports = {
   BOT_SETTINGS_ID,
   DEFAULT_BOT_SETTINGS,
   getBotSettings,
+  isGasPostEnabled,
+  isManagedGasPostPurpose,
   normalizeStoredBotSettings,
   readBotSettings,
-  validateBotSettings
+  validateBotSettings,
+  validateChannels
 };

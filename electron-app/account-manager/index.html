@@ -97,6 +97,13 @@
           <form id="bot-settings-form">
             <div class="bot-settings-groups">
               <fieldset class="bot-settings-group">
+                <legend>/grab-reactions</legend>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="grabReactions" data-bot-settings-field="ENABLE_TEAM_CHECK_POSTING">
+                  <span><strong>Post generated teams to Team Check</strong><small>Allow the bot to post the draft preview after teams are generated and saved to MongoDB. Disabling this keeps team generation and draft storage active.</small></span>
+                </label>
+              </fieldset>
+              <fieldset class="bot-settings-group">
                 <legend>/approve-round</legend>
                 <label class="bot-setting">
                   <input type="checkbox" data-bot-settings-group="approveRound" data-bot-settings-field="ENABLE_ROUND_CHANNEL_PERMS">
@@ -116,7 +123,7 @@
                 </label>
                 <label class="bot-setting">
                   <input type="checkbox" data-bot-settings-group="approveRound" data-bot-settings-field="ENABLE_DISCORD_POSTING">
-                  <span><strong>Post approved teams in Discord</strong><small>Send team lists to their configured team channels.</small></span>
+                  <span><strong>Post approved teams and round output in Discord</strong><small>Send team lists to their configured team channels and allow final round posts in the configured Round channel.</small></span>
                 </label>
               </fieldset>
               <fieldset class="bot-settings-group">
@@ -155,6 +162,18 @@
                 </label>
               </fieldset>
             </div>
+            <fieldset class="bot-settings-group">
+              <legend>Discord channel destinations</legend>
+              <div class="form-grid">
+                <label>Status channel ID<input id="bot-status-channel" type="text" inputmode="numeric" maxlength="20"></label>
+                <label>Log channel ID<input id="bot-log-channel" type="text" inputmode="numeric" maxlength="20"></label>
+                <label>Opt-In channel ID<input id="bot-optin-channel" type="text" inputmode="numeric" maxlength="20"></label>
+                <label>Team Check channel ID<input id="bot-team-check-channel" type="text" inputmode="numeric" maxlength="20"></label>
+                <label>Round channel IDs (JSON object)<textarea id="bot-round-channels" rows="6" spellcheck="false"></textarea></label>
+                <label>Team channel IDs (JSON object)<textarea id="bot-team-channels" rows="8" spellcheck="false"></textarea></label>
+              </div>
+              <p class="muted">Use numeric Discord channel IDs. Round keys are 1–16 and team keys use names such as "Team A".</p>
+            </fieldset>
             <div class="actions">
               <button type="submit" disabled>Save bot settings</button>
             </div>

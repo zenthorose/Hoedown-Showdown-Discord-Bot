@@ -6,6 +6,11 @@ const fs = require('fs');
 const axios = require('axios');
 const express = require('express');
 const { updateBotStatus } = require('./events/swampmail');
+const {
+  getBotSettings,
+  isGasPostEnabled,
+  isManagedGasPostPurpose
+} = require('./database/botSettings');
 
 // --- Global error & health handlers ---
 function safeAppend(path, text) {
@@ -289,7 +294,7 @@ app.use(express.json());
 app.get('/ping', (req, res) => res.send('Pong!'));
 
 app.post('/sendmessage', async (req, res) => {
-  const { channelId, message, source } = req.body;
+  const { channelId, message, source, purpose } = req.body;
   if (!channelId || !message) return res.status(400).json({ error: 'Missing required fields: channelId and message' });
 
   // Blocking controls: prefer environment variable, fallback to hard-coded toggle in code
@@ -326,6 +331,20 @@ app.post('/sendmessage', async (req, res) => {
     return res.status(200).json({ skipped: 'blocked_source', reason: 'identified_as_gas' });
   } else {
     console.log(`ℹ️ /sendmessage will proceed: blockGas=${blockGas}, isFromGAS=${isFromGAS}`);
+  }
+
+  if (isFromGAS && isManagedGasPostPurpose(purpose)) {
+    let settings;
+    try {
+      settings = await getBotSettings();
+    } catch (error) {
+      console.error(`Could not load settings for GAS ${purpose} post:`, error);
+      return res.status(503).json({ error: 'Bot posting settings are unavailable.' });
+    }
+    if (!isGasPostEnabled(purpose, settings)) {
+      console.log(`ℹ️ Skipped GAS ${purpose} post to ${channelId} because its Account Manager toggle is disabled.`);
+      return res.status(200).json({ skipped: 'disabled', purpose });
+    }
   }
 
   // Note: phrase-based blocking removed — use BLOCK_GAS_POSTS and explicit source/header detection instead

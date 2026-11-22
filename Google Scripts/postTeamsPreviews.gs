@@ -1,7 +1,7 @@
 /**
  * Posts a message via the Render-hosted bot endpoint.
  */
-function postToDiscord(channelId, message, safeLog) {
+function postToDiscord(channelId, message, safeLog, purpose) {
   const SCRIPT_VERSION = "postToDiscord v3.0.0";
   const LOG_ENABLED = false; // set to false to disable logs
 
@@ -21,6 +21,7 @@ function postToDiscord(channelId, message, safeLog) {
 
   // Mark this payload as originating from Google Apps Script so the bot can detect and optionally block it
   const payload = { channelId, message, source: 'GAS' };
+  if (purpose) payload.purpose = purpose;
 
   try {
     const response = UrlFetchApp.fetch(renderUrl, {
@@ -32,9 +33,15 @@ function postToDiscord(channelId, message, safeLog) {
         'x-from-gas': 'true'
       }
     });
+    const status = response.getResponseCode();
+    if (status < 200 || status >= 300) {
+      throw new Error(`Discord bot endpoint returned HTTP ${status}: ${response.getContentText()}`);
+    }
     log(`✅ Post status: ${response.getResponseCode()}, body: ${response.getContentText()}`);
+    return response;
   } catch (e) {
     log(`❌ Error posting to Discord via Render: ${e.message}`);
+    throw e;
   }
 }
 
@@ -118,7 +125,7 @@ function postTeamsPreview(teams, teamLetters, round, safeLog) {
 
     // Post each chunk
     chunks.forEach((chunk, idx) => {
-      postToDiscord(channelId, chunk, safeLog);
+      postToDiscord(channelId, chunk, safeLog, 'team-check-preview');
       Utilities.sleep(500); // delay to prevent rate limiting
       log(`Posted chunk ${idx + 1}/${chunks.length} (${chunk.length} chars)`);
     });
@@ -126,6 +133,7 @@ function postTeamsPreview(teams, teamLetters, round, safeLog) {
     log(`✅ postTeamsPreview completed successfully (${chunks.length} chunk${chunks.length > 1 ? "s" : ""})`);
   } catch (e) {
     log(`❌ Error posting to Discord: ${e.message}`);
+    throw e;
   }
 }
 
@@ -223,7 +231,7 @@ function repostTeamsPreview(round, safeLog) {
     const trimmedMessage = message.trim();
 
     if (trimmedMessage.length <= MAX_LENGTH) {
-      postToDiscord(channelId, trimmedMessage, safeLog);
+      postToDiscord(channelId, trimmedMessage, safeLog, 'team-check-preview');
     } else {
       log(`Message length ${trimmedMessage.length} exceeds ${MAX_LENGTH}. Splitting into chunks...`);
       const lines = trimmedMessage.split("\n");
@@ -240,7 +248,7 @@ function repostTeamsPreview(round, safeLog) {
       if (currentChunk) chunks.push(currentChunk.trim());
 
       chunks.forEach((chunk, idx) => {
-        postToDiscord(channelId, chunk, safeLog);
+        postToDiscord(channelId, chunk, safeLog, 'team-check-preview');
         Utilities.sleep(500); // small delay between posts
         log(`Posted chunk ${idx + 1}/${chunks.length} (${chunk.length} chars)`);
       });
@@ -249,6 +257,7 @@ function repostTeamsPreview(round, safeLog) {
     log("✅ repostTeamsPreview completed successfully");
   } catch (e) {
     log(`❌ Error posting to Discord: ${e.message}`);
+    throw e;
   }
 }
 
@@ -599,7 +608,7 @@ function postRoundFinal({ round }) {
     if (currentMsg) messages.push(currentMsg);
 
     for (let i = 0; i < messages.length; i++) {
-      postToDiscord(channelId, messages[i], safeLog);
+      postToDiscord(channelId, messages[i], safeLog, 'approved-round');
       Utilities.sleep(1000); // avoid rate limit
     }
 
