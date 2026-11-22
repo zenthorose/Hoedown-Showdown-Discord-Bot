@@ -168,6 +168,8 @@ async function withServer(run, options = {}) {
     updateDiscordNickname,
     getDiscordProfile: options.getDiscordProfile,
     sendTicketReply: options.sendTicketReply,
+    sendTicketStaffMessage: options.sendTicketStaffMessage,
+    syncTicketStaffChat: options.syncTicketStaffChat,
     editTicketReply: options.editTicketReply,
     closeTicket: options.closeTicket,
     updateAvoidsInGoogleSheets,
@@ -700,6 +702,108 @@ test('ticket replies require an administrator-linked Discord account', async () 
     ticketDatabase,
     sendTicketReply: async () => {
       sendCalls += 1;
+      return { ok: true };
+    }
+  });
+});
+
+test('staff chat is stored as internal channel content without invoking customer replies', async () => {
+  const ticketId = new ObjectId();
+  const staffId = '987654321098765432';
+  const ticket = {
+    _id: ticketId,
+    ticketID: 'player ticket',
+    username: 'player',
+    userID: '123456789012345678',
+    ticketChannelID: '234567890123456789',
+    status: 'Open',
+    staffIDs: [staffId],
+    messages: []
+  };
+  const ticketDatabase = new MemoryTicketDatabase({ player_Tickets: [ticket] });
+  const staffMessages = [];
+  let replyCalls = 0;
+  let syncCalls = 0;
+  await withServer(async ({ baseUrl, password, user }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const sent = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}/staff-chat`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ messageText: 'I will check this with the team.' })
+      }
+    );
+    assert.equal(sent.status, 200);
+    assert.deepEqual(await sent.json(), { authorName: 'linked#0001' });
+    assert.equal(staffMessages.length, 1);
+    assert.equal(staffMessages[0].staffDiscordId, staffId);
+    assert.equal(staffMessages[0].messageText, 'I will check this with the team.');
+    assert.equal(replyCalls, 0);
+
+    const detailResponse = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}?syncStaffChat=true`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+    const detail = await detailResponse.json();
+    assert.equal(detailResponse.status, 200);
+    assert.equal(syncCalls, 1);
+    assert.equal(detail.ticket.messages.length, 2);
+    assert.ok(detail.ticket.messages.every((message) =>
+      message.messageType === 'staff-chat' && message.canEdit === false));
+    delete user.discordId;
+    const unlinked = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}/staff-chat`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ messageText: 'This should not be sent.' })
+      }
+    );
+    assert.equal(unlinked.status, 409);
+    assert.equal(staffMessages.length, 1);
+    assert.equal(replyCalls, 0);
+  }, {
+    ticketDatabase,
+    discordId: staffId,
+    sendTicketReply: async () => {
+      replyCalls += 1;
+      return { ok: true, authorName: 'linked#0001' };
+    },
+    sendTicketStaffMessage: async ({ ticket: currentTicket, ...input }) => {
+      staffMessages.push(input);
+      currentTicket.messages.push({
+        sourceMessageID: '456789012345678901',
+        mirrorMessageID: '456789012345678901',
+        authorID: input.staffDiscordId,
+        authorName: 'linked#0001',
+        messageType: 'staff-chat',
+        content: input.messageText,
+        timestamp: '11/22/2026, 12:00 AM'
+      });
+      return { ok: true, authorName: 'linked#0001' };
+    },
+    syncTicketStaffChat: async ({ ticket: currentTicket }) => {
+      syncCalls += 1;
+      currentTicket.messages.push({
+        sourceMessageID: '345678901234567890',
+        mirrorMessageID: '345678901234567890',
+        authorID: staffId,
+        authorName: 'linked#0001',
+        messageType: 'staff-chat',
+        content: 'Earlier internal message.',
+        timestamp: '11/21/2026, 11:00 PM'
+      });
       return { ok: true };
     }
   });

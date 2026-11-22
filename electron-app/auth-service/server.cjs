@@ -249,6 +249,8 @@ function createApp({
   updateDiscordNickname,
   getDiscordProfile,
   sendTicketReply: sendTicketReplyCallback,
+  sendTicketStaffMessage: sendTicketStaffMessageCallback,
+  syncTicketStaffChat: syncTicketStaffChatCallback,
   editTicketReply: editTicketReplyCallback,
   closeTicket: closeTicketCallback,
   updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
@@ -1143,7 +1145,7 @@ function createApp({
       }).toArray();
       if (!collections.length) return res.status(404).json({ error: 'Ticket not found.' });
 
-      const ticket = await ticketDatabase.collection(collectionName).findOne({
+      let ticket = await ticketDatabase.collection(collectionName).findOne({
         _id: new ObjectId(ticketId)
       }, {
         projection: {
@@ -1160,11 +1162,45 @@ function createApp({
       });
       if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
 
+      let syncWarning = '';
+      if (req.query.syncStaffChat === 'true' &&
+          typeof ticket.status === 'string' &&
+          ticket.status.toLocaleLowerCase('en') === 'open') {
+        if (typeof syncTicketStaffChatCallback !== 'function') {
+          syncWarning = 'Live staff chat history could not be synchronized.';
+        } else {
+          const syncResult = await syncTicketStaffChatCallback({ ticket, collectionName });
+          if (!syncResult || syncResult.ok !== true) {
+            syncWarning = syncResult?.error || 'Live staff chat history could not be synchronized.';
+          } else {
+            ticket = await ticketDatabase.collection(collectionName).findOne({
+              _id: new ObjectId(ticketId)
+            }, {
+              projection: {
+                _id: 1,
+                ticketID: 1,
+                username: 1,
+                userID: 1,
+                createdAt: 1,
+                closedAt: 1,
+                status: 1,
+                staffIDs: 1,
+                messages: 1
+              }
+            });
+          }
+        }
+      }
+
       const ticketIsOpen = typeof ticket.status === 'string' &&
         ticket.status.toLocaleLowerCase('en') === 'open';
       const staffIDs = Array.isArray(ticket.staffIDs) ? ticket.staffIDs : [];
       const messages = Array.isArray(ticket.messages) ? ticket.messages.map((message) => {
         const authorID = typeof message.authorID === 'string' ? message.authorID : '';
+        const isStaffChat = message.messageType === 'staff-chat' ||
+          (authorID !== ticket.userID &&
+            MEMBER_ID_PATTERN.test(authorID) &&
+            message.sourceMessageID === message.mirrorMessageID);
         const isStaffReply = authorID !== ticket.userID &&
           (staffIDs.includes(authorID) || authorID.startsWith('app:'));
         return {
@@ -1179,18 +1215,27 @@ function createApp({
           editedByID: typeof message.editedByID === 'string' ? message.editedByID : '',
           editedByName: typeof message.editedByName === 'string' ? message.editedByName : '',
           editedAt: typeof message.editedAt === 'string' ? message.editedAt : '',
-          canEdit: ticketIsOpen && isStaffReply &&
+          ...(isStaffChat ? { messageType: 'staff-chat' } : {}),
+          canEdit: ticketIsOpen && !isStaffChat && isStaffReply &&
             MEMBER_ID_PATTERN.test(message.sourceMessageID || '') &&
             MEMBER_ID_PATTERN.test(message.mirrorMessageID || '')
         };
       }) : [];
+      if (messages.every((message) => /^\d{17,20}$/.test(message.mirrorMessageID))) {
+        messages.sort((left, right) => {
+          const leftId = BigInt(left.mirrorMessageID);
+          const rightId = BigInt(right.mirrorMessageID);
+          return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+        });
+      }
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
         ticket: {
           ...serializeTicketSummary(ticket, collectionName),
           messages
         },
-        canReply: MEMBER_ID_PATTERN.test(session.user.discordId || '')
+        canReply: MEMBER_ID_PATTERN.test(session.user.discordId || ''),
+        ...(syncWarning ? { syncWarning } : {})
       });
     } catch (error) {
       return sendError(res, error, 'Ticket transcript lookup failed:');
@@ -1250,6 +1295,63 @@ function createApp({
       });
     } catch (error) {
       return sendError(res, error, 'Ticket reply delivery failed:');
+    }
+  });
+
+  app.post('/api/tickets/:collectionName/:ticketId/staff-chat', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+      if (typeof sendTicketStaffMessageCallback !== 'function') {
+        return res.status(503).json({ error: 'Staff chat is not available.' });
+      }
+
+      const { collectionName, ticketId } = req.params;
+      if (!isTicketCollectionName(collectionName) || !/^[a-f\d]{24}$/i.test(ticketId)) {
+        return res.status(400).json({ error: 'A valid ticket reference is required.' });
+      }
+      const messageText = typeof req.body?.messageText === 'string' ? req.body.messageText.trim() : '';
+      if (!messageText || messageText.length > 1800) {
+        return res.status(400).json({ error: 'Staff messages must contain 1–1800 characters.' });
+      }
+      if (!MEMBER_ID_PATTERN.test(session.user.discordId || '')) {
+        return res.status(409).json({ error: 'An administrator must link a Discord account before you can use staff chat.' });
+      }
+
+      const ticket = await ticketDatabase.collection(collectionName).findOne({
+        _id: new ObjectId(ticketId)
+      });
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+      if (typeof ticket.status !== 'string' || ticket.status.toLocaleLowerCase('en') !== 'open') {
+        return res.status(409).json({ error: 'Staff chat is only available on open tickets.' });
+      }
+      if (!MEMBER_ID_PATTERN.test(ticket.userID || '') ||
+          !MEMBER_ID_PATTERN.test(ticket.ticketChannelID || '')) {
+        return res.status(409).json({ error: 'This ticket is missing its Discord recipient or channel.' });
+      }
+
+      const result = await sendTicketStaffMessageCallback({
+        ticket,
+        collectionName,
+        staffDiscordId: session.user.discordId,
+        messageText
+      });
+      if (!result || result.ok !== true) {
+        return res.status(result?.partial ? 502 : 503).json({
+          error: result?.error || 'The staff message could not be sent.',
+          partial: result?.partial === true
+        });
+      }
+      if (typeof result.authorName !== 'string' || !result.authorName) {
+        return res.status(502).json({
+          error: 'The staff message was sent, but its attribution could not be verified.',
+          partial: true
+        });
+      }
+      return res.status(200).json({ authorName: result.authorName });
+    } catch (error) {
+      return sendError(res, error, 'Ticket staff chat delivery failed:');
     }
   });
 
@@ -2133,8 +2235,166 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         };
       }
       : null;
-    const closeTicketAndSave = discordClient && ticketDatabase
-      ? require('../../database/ticketManager').closeTicketAndSave
+    const ticketManager = discordClient && ticketDatabase
+      ? require('../../database/ticketManager')
+      : null;
+    const closeTicketAndSave = ticketManager && ticketManager.closeTicketAndSave;
+    const recordTicketMessage = ticketManager && ticketManager.recordTicketMessage;
+    const staffChatSyncs = new Map();
+    const syncTicketStaffChat = typeof recordTicketMessage === 'function'
+      ? async ({ ticket, collectionName }) => {
+        if (!discordClient.isReady()) {
+          return { ok: false, error: 'The Discord bot is not ready to load staff chat history.' };
+        }
+        if (staffChatSyncs.has(ticket.ticketChannelID)) {
+          return staffChatSyncs.get(ticket.ticketChannelID);
+        }
+
+        const sync = (async () => {
+          const channel = await discordClient.channels.fetch(ticket.ticketChannelID);
+          if (!channel || !channel.messages?.fetch) {
+            throw new Error('The ticket text channel is unavailable.');
+          }
+
+          const channelMessages = [];
+          let lastID = null;
+          while (true) {
+            const options = { limit: 100 };
+            if (lastID) options.before = lastID;
+            const fetched = await channel.messages.fetch(options);
+            if (fetched.size === 0) break;
+            channelMessages.push(...fetched.values());
+            lastID = fetched.last().id;
+          }
+
+          const knownMessageIDs = new Set(
+            (Array.isArray(ticket.messages) ? ticket.messages : [])
+              .flatMap((message) => [message.sourceMessageID, message.mirrorMessageID])
+              .filter(Boolean)
+          );
+          const username = typeof ticket.username === 'string' && ticket.username
+            ? ticket.username
+            : collectionName.slice(0, -'_Tickets'.length);
+          const user = { id: ticket.userID, username };
+          for (const message of channelMessages.reverse()) {
+            const footer = message.embeds.map((embed) => embed.footer?.text || '').join(' ');
+            const isAppStaffChat = /Message Type:\s*Staff Chat/i.test(footer);
+            const isHumanStaffChat = message.author.bot === false &&
+              message.author.id !== ticket.userID &&
+              !message.content?.trim().startsWith('!');
+            if ((!isAppStaffChat && !isHumanStaffChat) || knownMessageIDs.has(message.id)) continue;
+
+            const staffId = /Staff ID:\s*(\d+)/.exec(footer)?.[1] || message.author.id;
+            const embedAuthor = message.embeds.find((embed) => embed.author?.name)?.author;
+            const attachments = [...message.attachments.values()]
+              .map((attachment) => `[Attachment: ${attachment.url}]`)
+              .join('\n');
+            await recordTicketMessage(channel, user, {
+              sourceMessageID: message.id,
+              mirrorMessageID: message.id,
+              authorID: staffId,
+              authorName: embedAuthor?.name || message.author.tag || message.author.username,
+              authorAvatarUrl: embedAuthor?.iconURL ||
+                message.author.displayAvatarURL({ extension: 'png', size: 64 }),
+              content: isAppStaffChat
+                ? message.embeds.find((embed) => embed.description)?.description || '*No text content*'
+                : message.content?.trim() || attachments || '*No text content*',
+              timestamp: message.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
+              messageType: 'staff-chat',
+              staffID: staffId
+            });
+            knownMessageIDs.add(message.id);
+          }
+          return { ok: true };
+        })();
+        staffChatSyncs.set(ticket.ticketChannelID, sync);
+        try {
+          return await sync;
+        } catch (error) {
+          staffChatSyncs.delete(ticket.ticketChannelID);
+          console.error('Could not synchronize existing Discord staff chat messages:', error);
+          return { ok: false, error: 'Could not load existing staff chat from the ticket channel.' };
+        }
+      }
+      : null;
+    const sendTicketStaffMessage = discordClient && ticketDatabase
+      ? async ({ ticket, collectionName, staffDiscordId, messageText }) => {
+        if (!discordClient.isReady()) {
+          return { ok: false, error: 'The Discord bot is not ready to send staff chat messages.' };
+        }
+
+        let channel;
+        let staffProfile;
+        try {
+          [channel, staffProfile] = await Promise.all([
+            discordClient.channels.fetch(ticket.ticketChannelID),
+            discordClient.users.fetch(staffDiscordId)
+          ]);
+        } catch (error) {
+          console.error('Could not load a Discord channel or staff profile for staff chat:', error);
+          return { ok: false, error: 'Could not access the linked Discord account or ticket channel.' };
+        }
+        if (!channel || typeof channel.send !== 'function' ||
+            typeof channel.isTextBased !== 'function' || !channel.isTextBased() ||
+            !staffProfile || typeof staffProfile.displayAvatarURL !== 'function' ||
+            typeof staffProfile.tag !== 'string' || !staffProfile.tag) {
+          return { ok: false, error: 'The linked Discord account or ticket channel is unavailable.' };
+        }
+
+        const authorAvatarUrl = staffProfile.displayAvatarURL({ extension: 'png', size: 64 });
+        const timestamp = new Date();
+        let channelMessage;
+        try {
+          channelMessage = await channel.send({
+            embeds: [{
+              color: 0x5865f2,
+              author: { name: staffProfile.tag, icon_url: authorAvatarUrl },
+              description: messageText,
+              footer: { text: `Message Type: Staff Chat | Staff ID: ${staffDiscordId}` },
+              timestamp: timestamp.toISOString()
+            }]
+          });
+        } catch (error) {
+          console.error('Could not post a staff chat message in the ticket channel:', error);
+          return { ok: false, error: 'Could not post the staff message in the ticket channel.' };
+        }
+
+        try {
+          const result = await ticketDatabase.collection(collectionName).updateOne(
+            { _id: ticket._id, status: ticket.status },
+            {
+              $addToSet: {
+                messages: {
+                  sourceMessageID: channelMessage.id,
+                  mirrorMessageID: channelMessage.id,
+                  authorID: staffDiscordId,
+                  authorName: staffProfile.tag,
+                  authorAvatarUrl,
+                  messageType: 'staff-chat',
+                  content: messageText,
+                  timestamp: timestamp.toLocaleString('en-US', { timeZone: 'America/New_York' })
+                },
+                staffIDs: staffDiscordId
+              }
+            }
+          );
+          if (result.matchedCount !== 1) {
+            return {
+              ok: false,
+              partial: true,
+              error: 'The staff message was posted, but the ticket changed before it could be saved. Do not resend it.'
+            };
+          }
+        } catch (error) {
+          console.error('Staff chat message was posted but could not be saved to the transcript:', error);
+          return {
+            ok: false,
+            partial: true,
+            error: 'The staff message was posted, but could not be saved to the transcript. Do not resend it.'
+          };
+        }
+        return { ok: true, authorName: staffProfile.tag };
+      }
       : null;
     const closeTicket = typeof closeTicketAndSave === 'function'
       ? async ({ ticket, collectionName, mode, closedByID }) => {
@@ -2212,6 +2472,8 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         ? (users) => addAvoidRelationships(hoedownDatabase, users)
         : null,
       sendTicketReply,
+      sendTicketStaffMessage,
+      syncTicketStaffChat,
       editTicketReply,
       closeTicket,
       jwtSecret: JWT_SECRET,

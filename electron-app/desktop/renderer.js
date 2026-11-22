@@ -34,6 +34,7 @@ let personTicketsLoading = false;
 let personTicketsError = '';
 let selectedPersonSummary = null;
 let selectedTicketSummary = null;
+let ticketActionInProgress = false;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
 
@@ -983,6 +984,7 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
   const detailView = document.getElementById('ticket-detail-view');
   const content = document.getElementById('ticket-detail-content');
   const state = document.getElementById('ticket-detail-state');
+  const chatSyncWarning = document.getElementById('ticket-chat-sync-warning');
   const replyForm = document.getElementById('ticket-reply-form');
   const replyUnavailable = document.getElementById('ticket-reply-unavailable');
   const replyStatus = document.getElementById('ticket-reply-status');
@@ -996,9 +998,13 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     content.replaceChildren();
     replyForm.hidden = true;
     replyUnavailable.hidden = true;
+    document.getElementById('ticket-message-mode').value = 'reply';
+    updateTicketMessageMode();
     document.getElementById('ticket-reply-input').value = '';
     replyStatus.textContent = '';
     replyStatus.dataset.error = 'false';
+    chatSyncWarning.hidden = true;
+    chatSyncWarning.textContent = '';
     closeStatus.hidden = true;
     closeStatus.textContent = '';
     closeStatus.dataset.error = 'false';
@@ -1009,7 +1015,8 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
   try {
     const result = await window.hoedown.getTicket(
       ticketSummary.collectionName,
-      ticketSummary.ticketId
+      ticketSummary.ticketId,
+      { syncStaffChat: !preserveScroll }
     );
     if (generation !== ticketDetailGeneration) return;
     if (!result.ok) throw new Error(result.error || 'Could not load the ticket transcript.');
@@ -1064,7 +1071,10 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     const canReply = result.canReply === true;
     for (const message of ticket.messages) {
       const item = document.createElement('li');
-      item.className = 'ticket-message';
+      const isStaffChat = message.messageType === 'staff-chat';
+      item.className = isStaffChat
+        ? 'ticket-message ticket-message-staff-chat'
+        : 'ticket-message';
       const messageHeader = document.createElement('header');
       const author = document.createElement('strong');
       author.textContent = message.authorName || message.authorID || 'Unknown author';
@@ -1087,10 +1097,18 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
       authorId.textContent = message.authorID?.startsWith('app:')
         ? 'App account'
         : message.authorID ? `Discord ID: ${message.authorID}` : '';
+      if (isStaffChat) {
+        const messageType = document.createElement('small');
+        messageType.className = 'ticket-message-type';
+        messageType.textContent = 'Staff chat · not sent to the customer';
+        item.append(messageHeader, authorId, messageType);
+      } else {
+        item.append(messageHeader, authorId);
+      }
       const body = document.createElement('p');
       body.className = 'ticket-message-content';
       body.textContent = message.content || '[No message content]';
-      item.append(messageHeader, authorId, body);
+      item.append(body);
       if (message.editedByName) {
         const editNote = document.createElement('small');
         editNote.className = 'ticket-message-edit-note';
@@ -1195,6 +1213,8 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     state.hidden = true;
     replyForm.hidden = !ticketIsOpen || !canReply;
     replyUnavailable.hidden = !ticketIsOpen || canReply;
+    chatSyncWarning.hidden = !result.syncWarning;
+    chatSyncWarning.textContent = result.syncWarning || '';
     content.replaceChildren(heading, summary, metadata, staffHeading, staffList, transcriptHeading, transcript);
     if (preserveScroll) {
       const maxScrollTop = Math.max(0, detailView.scrollHeight - detailView.clientHeight);
@@ -1379,9 +1399,30 @@ document.getElementById('refresh-person-tickets').addEventListener('click', () =
 document.getElementById('back-to-people').addEventListener('click', showTicketPeople);
 document.getElementById('back-to-tickets').addEventListener('click', showPersonTickets);
 
+function updateTicketMessageMode() {
+  const mode = document.getElementById('ticket-message-mode').value;
+  const internal = mode === 'staff-chat';
+  document.getElementById('ticket-message-input-label').textContent = internal
+    ? 'Staff chat message'
+    : 'Reply to customer';
+  document.getElementById('ticket-message-mode-help').textContent = internal
+    ? 'This is posted only in the private staff ticket channel. It will not be sent to the customer.'
+    : 'This will be sent to the customer’s DMs and mirrored in the ticket channel.';
+  document.getElementById('ticket-message-submit').textContent = internal
+    ? 'Send staff message'
+    : 'Send reply';
+}
+
+document.getElementById('ticket-message-mode').addEventListener('change', () => {
+  updateTicketMessageMode();
+  const status = document.getElementById('ticket-reply-status');
+  status.textContent = '';
+  status.dataset.error = 'false';
+});
+
 document.getElementById('close-ticket-button').addEventListener('click', () => {
   const dialog = document.getElementById('ticket-close-options');
-  if (selectedTicketSummary && !dialog.open) dialog.showModal();
+  if (selectedTicketSummary && !ticketActionInProgress && !dialog.open) dialog.showModal();
 });
 document.getElementById('cancel-ticket-close').addEventListener('click', () => {
   document.getElementById('ticket-close-options').close();
@@ -1396,8 +1437,15 @@ document.querySelectorAll('[data-close-mode]').forEach((button) => {
     const ticket = selectedTicketSummary;
     const status = document.getElementById('ticket-close-status');
     const closeButton = document.getElementById('close-ticket-button');
-    if (!ticket) return;
+    const input = document.getElementById('ticket-reply-input');
+    const modeSelect = document.getElementById('ticket-message-mode');
+    const submitButton = document.getElementById('ticket-message-submit');
+    if (!ticket || ticketActionInProgress) return;
+    ticketActionInProgress = true;
     closeButton.disabled = true;
+    submitButton.disabled = true;
+    input.disabled = true;
+    modeSelect.disabled = true;
     document.querySelectorAll('[data-close-mode]').forEach((option) => { option.disabled = true; });
     status.hidden = false;
     status.dataset.error = 'false';
@@ -1430,7 +1478,11 @@ document.querySelectorAll('[data-close-mode]').forEach((button) => {
       status.dataset.error = 'true';
       status.textContent = error.message || 'Could not close this ticket.';
     } finally {
+      ticketActionInProgress = false;
       closeButton.disabled = false;
+      submitButton.disabled = false;
+      input.disabled = false;
+      modeSelect.disabled = false;
       document.querySelectorAll('[data-close-mode]').forEach((option) => { option.disabled = false; });
     }
   });
@@ -1442,29 +1494,41 @@ document.getElementById('ticket-reply-form').addEventListener('submit', async (e
   const input = document.getElementById('ticket-reply-input');
   const status = document.getElementById('ticket-reply-status');
   const button = form.querySelector('button[type="submit"]');
+  const closeButton = document.getElementById('close-ticket-button');
+  const modeSelect = document.getElementById('ticket-message-mode');
   const ticket = selectedTicketSummary;
   const replyText = input.value.trim();
-  if (!ticket || !replyText) return;
+  const mode = modeSelect.value;
+  if (!ticket || !replyText || ticketActionInProgress) return;
 
+  ticketActionInProgress = true;
   button.disabled = true;
+  closeButton.disabled = true;
+  modeSelect.disabled = true;
   input.disabled = true;
   status.dataset.error = 'false';
-  status.textContent = 'Sending reply…';
+  status.textContent = mode === 'staff-chat' ? 'Sending staff message…' : 'Sending reply…';
   try {
-    const result = await window.hoedown.sendTicketReply({
+    const request = mode === 'staff-chat'
+      ? window.hoedown.sendTicketStaffMessage
+      : window.hoedown.sendTicketReply;
+    const result = await request({
       collectionName: ticket.collectionName,
       ticketId: ticket.ticketId,
-      replyText
+      ...(mode === 'staff-chat' ? { messageText: replyText } : { replyText })
     });
     if (!result.ok) {
       status.dataset.error = 'true';
-      status.textContent = result.error || 'Could not send this reply.';
+      status.textContent = result.error ||
+        (mode === 'staff-chat' ? 'Could not send this staff message.' : 'Could not send this reply.');
       if (result.partial) input.value = '';
       return;
     }
 
     input.value = '';
-    status.textContent = `Reply sent as ${result.authorName}.`;
+    status.textContent = mode === 'staff-chat'
+      ? `Staff message sent as ${result.authorName}.`
+      : `Reply sent as ${result.authorName}.`;
     if (selectedTicketSummary?.collectionName === ticket.collectionName &&
         selectedTicketSummary?.ticketId === ticket.ticketId &&
         !document.getElementById('ticket-detail-view').hidden) {
@@ -1472,9 +1536,13 @@ document.getElementById('ticket-reply-form').addEventListener('submit', async (e
     }
   } catch (error) {
     status.dataset.error = 'true';
-    status.textContent = error.message || 'Could not send this reply.';
+    status.textContent = error.message ||
+      (mode === 'staff-chat' ? 'Could not send this staff message.' : 'Could not send this reply.');
   } finally {
+    ticketActionInProgress = false;
     button.disabled = false;
+    closeButton.disabled = false;
+    modeSelect.disabled = false;
     input.disabled = false;
   }
 });

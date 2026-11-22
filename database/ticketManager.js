@@ -39,6 +39,7 @@ function getCollectionForUser(username) {
     editedByID: String,
     editedByName: String,
     editedAt: String,
+    messageType: String,
     content: String,
     timestamp: String,
   }, { _id: false });
@@ -104,6 +105,7 @@ async function recordTicketMessage(channel, user, message) {
     editedByID: message.editedByID,
     editedByName: message.editedByName,
     editedAt: message.editedAt,
+    ...(message.messageType ? { messageType: message.messageType } : {}),
     content: message.content,
     timestamp: message.timestamp,
   };
@@ -147,17 +149,25 @@ function getEmbedAttribution(message, user) {
   const isUserDM = /DM Message ID:\s*\d+/.test(footer);
   const embedAuthor = message.embeds.find(embed => embed.author?.name)?.author?.name;
   const authorAvatarUrl = message.embeds.find(embed => embed.author?.iconURL)?.author?.iconURL || '';
+  const isRawStaffChat = message.author.bot === false &&
+    message.author.id !== user.id &&
+    !message.content?.trim().startsWith('!');
+  const isStaffChat = /Message Type:\s*Staff Chat/i.test(footer) || isRawStaffChat;
 
   return {
     authorID: authorIDMatch?.[1] ||
       (appUsernameMatch ? `app:${appUsernameMatch[1]}` : isUserDM ? user.id : message.author.id),
-    authorName: embedAuthor || message.author.username,
-    authorAvatarUrl,
+    authorName: embedAuthor || message.author.tag || message.author.username,
+    authorAvatarUrl: authorAvatarUrl ||
+      (typeof message.author.displayAvatarURL === 'function'
+        ? message.author.displayAvatarURL({ extension: 'png', size: 64 })
+        : ''),
     editedByID: editedByIDMatch?.[1] || '',
     editedByName: editedByNameMatch?.[1]?.trim() || '',
     editedAt,
     sourceMessageID: sourceMessageIDMatch?.[1] || message.id,
-    staffID: staffIDMatch?.[1] || '',
+    staffID: staffIDMatch?.[1] || (isRawStaffChat ? message.author.id : ''),
+    ...(isStaffChat ? { messageType: 'staff-chat' } : {}),
   };
 }
 
@@ -177,7 +187,7 @@ function formatTicketMessage(message, user) {
         }
         if (embed.footer?.text) {
           const visibleFooter = embed.footer.text.replace(
-            /\s*\|\s*(?:(?:Author|Staff|Edited by) ID:\s*\d+|App Username:\s*[A-Za-z0-9._-]{1,64}|Edited by:\s*[^|]+|Edited at(?: ISO)?:\s*[^|]+)/g,
+            /(?:^\s*|\s*\|\s*)(?:(?:Author|Staff|Edited by) ID:\s*\d+|App Username:\s*[A-Za-z0-9._-]{1,64}|Edited by:\s*[^|]+|Edited at(?: ISO)?:\s*[^|]+|Message Type:\s*Staff Chat)/g,
             ''
           );
           if (visibleFooter) embedParts.push(`_Footer: ${visibleFooter}_`);
@@ -201,6 +211,7 @@ function formatTicketMessage(message, user) {
     mirrorMessageID: message.id,
     content: parts.join('\n\n'),
     timestamp: formatMessageTime(message.createdAt),
+    ...(attribution.messageType ? { messageType: attribution.messageType } : {}),
   };
 }
 
@@ -233,7 +244,7 @@ async function closeTicketAndSave(channel, user, closedByID) {
     $set: {
       status: 'Closed',
       closedAt,
-      messages: formattedMessages.map(({ sourceMessageID, mirrorMessageID, authorID, authorName, authorAvatarUrl, editedByID, editedByName, editedAt, content, timestamp }) => ({
+      messages: formattedMessages.map(({ sourceMessageID, mirrorMessageID, authorID, authorName, authorAvatarUrl, editedByID, editedByName, editedAt, messageType, content, timestamp }) => ({
         sourceMessageID,
         mirrorMessageID,
         authorID,
@@ -242,6 +253,7 @@ async function closeTicketAndSave(channel, user, closedByID) {
         editedByID,
         editedByName,
         editedAt,
+        ...(messageType ? { messageType } : {}),
         content,
         timestamp,
       })),

@@ -692,13 +692,15 @@ app.whenReady().then(async () => {
         input.collectionName.includes('\0') ||
         input.collectionName.includes('$') ||
         input.collectionName.startsWith('system.') ||
-        typeof input.ticketId !== 'string' || !/^[a-f\d]{24}$/i.test(input.ticketId)) {
+        typeof input.ticketId !== 'string' || !/^[a-f\d]{24}$/i.test(input.ticketId) ||
+        (input.syncStaffChat !== undefined && typeof input.syncStaffChat !== 'boolean')) {
       return { ok: false, error: 'Enter a valid ticket reference.' };
     }
     try {
       if (!sessionToken) sessionToken = await readToken();
       if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
-      const route = `/api/tickets/${encodeURIComponent(input.collectionName)}/${encodeURIComponent(input.ticketId)}`;
+      const syncQuery = input.syncStaffChat ? '?syncStaffChat=true' : '';
+      const route = `/api/tickets/${encodeURIComponent(input.collectionName)}/${encodeURIComponent(input.ticketId)}${syncQuery}`;
       const { response, data } = await requestApi(route, { token: sessionToken });
       if (response.status === 401) {
         await clearToken();
@@ -709,7 +711,12 @@ app.whenReady().then(async () => {
       if (!data.ticket || !Array.isArray(data.ticket.messages) || typeof data.canReply !== 'boolean') {
         throw new Error('The service returned an invalid ticket transcript.');
       }
-      return { ok: true, ticket: data.ticket, canReply: data.canReply };
+      return {
+        ok: true,
+        ticket: data.ticket,
+        canReply: data.canReply,
+        syncWarning: typeof data.syncWarning === 'string' ? data.syncWarning : ''
+      };
     } catch (error) {
       return { ok: false, error: error.message || 'Could not reach the ticket service.' };
     }
@@ -753,6 +760,51 @@ app.whenReady().then(async () => {
       }
       if (typeof data.authorName !== 'string') {
         throw new Error('The service returned an invalid ticket reply result.');
+      }
+      return { ok: true, authorName: data.authorName };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the ticket service.' };
+    }
+  });
+
+  ipcMain.handle('tickets:staff-chat', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted ticket staff chat request.');
+    }
+    if (!input || typeof input.collectionName !== 'string' ||
+        !input.collectionName.endsWith('_Tickets') ||
+        Buffer.byteLength(input.collectionName, 'utf8') > 120 ||
+        input.collectionName.includes('\0') ||
+        input.collectionName.includes('$') ||
+        input.collectionName.startsWith('system.') ||
+        typeof input.ticketId !== 'string' || !/^[a-f\d]{24}$/i.test(input.ticketId) ||
+        typeof input.messageText !== 'string' || !input.messageText.trim() ||
+        input.messageText.trim().length > 1800) {
+      return { ok: false, error: 'Enter a valid staff chat message.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const route = `/api/tickets/${encodeURIComponent(input.collectionName)}/${encodeURIComponent(input.ticketId)}/staff-chat`;
+      const { response, data } = await requestApi(route, {
+        method: 'POST',
+        token: sessionToken,
+        body: { messageText: input.messageText.trim() }
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: data.error || 'Could not send this staff chat message.',
+          partial: data.partial === true
+        };
+      }
+      if (typeof data.authorName !== 'string' || !data.authorName) {
+        throw new Error('The service returned an invalid staff chat result.');
       }
       return { ok: true, authorName: data.authorName };
     } catch (error) {

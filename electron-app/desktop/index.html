@@ -183,20 +183,28 @@
               </section>
               <section id="ticket-detail-view" class="ticket-detail-view" aria-label="Ticket transcript" hidden>
                 <button id="back-to-tickets" class="secondary ticket-back-button" type="button">← Back to person's tickets</button>
+                <p id="ticket-chat-sync-warning" class="ticket-chat-sync-warning" role="status" aria-live="polite" hidden></p>
                 <div id="ticket-detail-content"></div>
                 <p id="ticket-detail-state" class="members-state" role="status" aria-live="polite" hidden></p>
                 <p id="ticket-reply-unavailable" class="ticket-reply-unavailable" hidden>
                   An administrator must link your Discord account before you can reply or close a ticket.
                 </p>
                 <form id="ticket-reply-form" class="ticket-reply-form" hidden>
-                  <label for="ticket-reply-input">Reply as your app account</label>
-                  <p class="muted">The bot will DM the customer and mirror your reply in this ticket channel.</p>
+                  <label for="ticket-message-mode">Message type</label>
+                  <select id="ticket-message-mode">
+                    <option value="reply">Reply to customer</option>
+                    <option value="staff-chat">Staff chat only</option>
+                  </select>
+                  <p id="ticket-message-mode-help" class="ticket-message-mode-help">
+                    This will be sent to the customer’s DMs and mirrored in the ticket channel.
+                  </p>
+                  <label id="ticket-message-input-label" for="ticket-reply-input">Reply to customer</label>
                   <textarea id="ticket-reply-input" maxlength="1800" rows="3" required
                     placeholder="Write a reply…"></textarea>
                   <div class="ticket-reply-actions">
                     <p id="ticket-reply-status" class="ticket-reply-status" role="status" aria-live="polite"></p>
                     <div class="ticket-reply-buttons">
-                      <button type="submit">Send reply</button>
+                      <button id="ticket-message-submit" type="submit">Send reply</button>
                       <button id="close-ticket-button" class="danger" type="button">Close ticket</button>
                     </div>
                   </div>

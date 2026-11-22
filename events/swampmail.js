@@ -482,6 +482,30 @@ async function handleStaffMessage(client, message) {
   }
 
   await handleStaffSubcommands(client, message, user);
+  if ([EDIT_PREFIX, DELETE_PREFIX, NOTIFY_PREFIX, UNNOTIFY_PREFIX, CLOSE_PREFIX,
+    SILENT_CLOSE_PREFIX, CLEAR_PREFIX].some(prefix => content.startsWith(prefix))) {
+    return;
+  }
+
+  const attachments = [...(message.attachments?.values() || [])]
+    .map(attachment => `[Attachment: ${attachment.url}]`)
+    .join('\n');
+  try {
+    await recordTicketMessage(message.channel, user, {
+      sourceMessageID: message.id,
+      mirrorMessageID: message.id,
+      authorID: message.author.id,
+      authorName: message.author.tag || message.author.username,
+      authorAvatarUrl: message.author.displayAvatarURL({ extension: 'png', size: 64 }),
+      content: content || attachments || '*No text content*',
+      timestamp: message.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
+      messageType: 'staff-chat',
+      staffID: message.author.id,
+    });
+  } catch (error) {
+    console.error('Could not sync a staff chat message to the live ticket archive:', error);
+    await message.channel.send('⚠️ This staff chat message could not be synced to the app transcript.');
+  }
 }
 
 // =============================

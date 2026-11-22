@@ -114,6 +114,30 @@ test('live ticket messages create an open record, avoid duplicates, and track st
   assert.deepEqual(ticket.staffIDs, ['987654321098765432']);
 });
 
+test('live staff chat messages are marked as internal', async () => {
+  const channel = {
+    id: 'ticket-channel-staff-chat',
+    name: 'player',
+    createdAt: new Date('2026-11-22T18:00:00.000Z')
+  };
+  const user = { id: '123456789012345678', username: 'player' };
+  await recordTicketMessage(channel, user, {
+    sourceMessageID: 'staff-chat-message-1',
+    mirrorMessageID: 'staff-chat-message-1',
+    authorID: '987654321098765432',
+    authorName: 'helper#0001',
+    content: 'I will check this with the team.',
+    timestamp: '11/22/2026, 01:00 PM',
+    messageType: 'staff-chat',
+    staffID: '987654321098765432'
+  });
+  const ticket = recordsByCollection.get('player_Tickets')
+    .find(record => record.ticketChannelID === channel.id);
+
+  assert.equal(ticket.messages[0].messageType, 'staff-chat');
+  assert.deepEqual(ticket.staffIDs, ['987654321098765432']);
+});
+
 test('closing reconciles live messages with their human authors and closes the record', async () => {
   const channel = {
     id: 'ticket-channel-close',
@@ -204,4 +228,61 @@ test('closing reconciles live messages with their human authors and closes the r
     '987654321098765432'
   ]);
   assert.equal(ticket.messages[1].content.includes('Staff ID:'), false);
+});
+
+test('closing preserves staff chat classification from Discord messages', async () => {
+  const channel = {
+    id: 'ticket-channel-staff-chat-close',
+    name: 'player',
+    createdAt: new Date('2026-11-22T18:00:00.000Z'),
+    messages: {
+      fetch: async () => {
+        if (channel.fetchCount++) return makeCollection([]);
+        return makeCollection([appStaffChat, discordStaffChat]);
+      }
+    },
+    fetchCount: 0
+  };
+  const user = { id: '123456789012345678', username: 'player' };
+  const discordStaffChat = {
+    id: 'discord-staff-chat-1',
+    author: {
+      id: '987654321098765432',
+      username: 'helper',
+      tag: 'helper#0001',
+      bot: false,
+      displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/987654321098765432/helper.png'
+    },
+    content: 'Checking this internally.',
+    embeds: [],
+    attachments: new Map(),
+    createdAt: new Date('2026-11-22T18:01:00.000Z')
+  };
+  const appStaffChat = {
+    id: 'app-staff-chat-1',
+    author: { id: 'bot-id', username: 'bot', bot: true },
+    content: '',
+    embeds: [{
+      author: {
+        name: 'helper#0001',
+        iconURL: 'https://cdn.discordapp.com/avatars/987654321098765432/helper.png'
+      },
+      description: 'I will check this with the team.',
+      footer: { text: 'Message Type: Staff Chat | Staff ID: 987654321098765432' }
+    }],
+    attachments: new Map(),
+    createdAt: new Date('2026-11-22T18:02:00.000Z')
+  };
+
+  await closeTicketAndSave(channel, user, '987654321098765432');
+  const ticket = recordsByCollection.get('player_Tickets')
+    .find(record => record.ticketChannelID === channel.id);
+  const rawChat = ticket.messages.find(message => message.content === 'Checking this internally.');
+  const appChat = ticket.messages.find(message => message.content === 'I will check this with the team.');
+
+  assert.equal(rawChat.messageType, 'staff-chat');
+  assert.equal(rawChat.authorID, '987654321098765432');
+  assert.equal(rawChat.authorAvatarUrl, 'https://cdn.discordapp.com/avatars/987654321098765432/helper.png');
+  assert.equal(appChat.messageType, 'staff-chat');
+  assert.equal(appChat.content.includes('Message Type:'), false);
 });

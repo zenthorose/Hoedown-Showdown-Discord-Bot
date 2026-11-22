@@ -12,9 +12,10 @@ contextBridge.exposeInMainWorld('hoedown', {
   getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),
   getTicketPeople: (filters) => ipcRenderer.invoke('tickets:people', filters),
   getTicketsForPerson: (personId) => ipcRenderer.invoke('tickets:person', personId),
-  getTicket: (collectionName, ticketId) =>
-    ipcRenderer.invoke('tickets:get', { collectionName, ticketId }),
+  getTicket: (collectionName, ticketId, options) =>
+    ipcRenderer.invoke('tickets:get', { collectionName, ticketId, ...options }),
   sendTicketReply: (input) => ipcRenderer.invoke('tickets:reply', input),
+  sendTicketStaffMessage: (input) => ipcRenderer.invoke('tickets:staff-chat', input),
   editTicketReply: (input) => ipcRenderer.invoke('tickets:edit-reply', input),
   closeTicket: (input) => ipcRenderer.invoke('tickets:close', input),
   updateMember: (discordId, fields) =>
