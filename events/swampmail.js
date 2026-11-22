@@ -1,7 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const { closeTicketAndSave } = require('../database/ticketManager');
+const {
+  closeTicketAndSave,
+  ensureTicketOpen,
+  recordTicketMessage,
+  updateTicketMessage
+} = require('../database/ticketManager');
 
 // =============================
 // CONFIGURATION CONSTANTS
@@ -47,17 +52,6 @@ const COMMANDS = [
   { prefix: UNNOTIFY_PREFIX, desc: 'Disable notifications for the staff member who runs this command for this ticket.' },
   { prefix: COMMANDS_PREFIX, desc: 'Show a list of available commands.' }
 ];
-
-// =============================
-// DATABASE HOOKS
-// =============================
-const {
-  createTicket,
-  addMessage,
-  addStaff,
-  closeTicket,
-  getUserTickets
-} = require('../database/ticketManager');
 
 // =============================
 // HELPER FUNCTIONS
@@ -202,6 +196,13 @@ module.exports = {
               embeds: [embed],
             });
 
+            try {
+              await ensureTicketOpen(ticketChannel, user, message.author.id);
+            } catch (error) {
+              console.error('❌ Could not create the live ticket record:', error);
+              await ticketChannel.send('⚠️ This ticket could not be synced to the archive yet.');
+            }
+
             await user.send(`📩 A support ticket has been created for you by staff.`)
               .catch(() => console.warn(`⚠️ Could not DM ${user.tag}`));
 
@@ -244,8 +245,9 @@ module.exports = {
           .setColor('Red')
           .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
           .setDescription(message.content || '*No content*')
-          .setFooter({ text: `DM Message ID: ${message.id}` })
+          .setFooter({ text: `DM Message ID: ${message.id} | Author ID: ${message.author.id}` })
           .setTimestamp();
+        let mirroredMessage;
 
         if (!ticketChannel) {
           ticketChannel = await guild.channels.create({
@@ -266,7 +268,7 @@ module.exports = {
             ],
           });
 
-          await ticketChannel.send({
+          mirroredMessage = await ticketChannel.send({
             content: `🎟️ **New Support Ticket**\nFrom: **${message.author.tag}**\nID: ${message.author.id}\n<@&1069083357100642316>`,
             embeds: [userEmbed],
           });
@@ -285,7 +287,7 @@ module.exports = {
           await message.reply('✅ Ticket opened. The support team will respond soon.');
           console.log(`📨 New ticket opened for ${message.author.tag}`);
         } else {
-          await ticketChannel.send({ embeds: [userEmbed] });
+          mirroredMessage = await ticketChannel.send({ embeds: [userEmbed] });
           // Notify any subscribers for this channel
           try {
             const subs = notifyManager.getSubscribers(ticketChannel.id);
@@ -299,6 +301,20 @@ module.exports = {
 
           await message.react('✅');
           console.log(`📩 DM added to existing ticket for ${message.author.tag}`);
+        }
+
+        try {
+          await recordTicketMessage(ticketChannel, message.author, {
+            sourceMessageID: message.id,
+            mirrorMessageID: mirroredMessage.id,
+            authorID: message.author.id,
+            authorName: message.author.username,
+            content: message.content || '*No content*',
+            timestamp: message.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
+          });
+        } catch (error) {
+          console.error('❌ Could not sync a user ticket message:', error);
+          await ticketChannel.send('⚠️ A message could not be synced to the live ticket archive.');
         }
       } else if (message.guild && message.channel.parent?.name === SUPPORT_CATEGORY_NAME) {
         await handleStaffMessage(client, message);
@@ -336,6 +352,17 @@ module.exports = {
 
       const embed = EmbedBuilder.from(targetMsg.embeds[0]).setDescription(newDesc);
       await targetMsg.edit({ embeds: [embed] });
+      try {
+        await updateTicketMessage(
+          ticketChannel,
+          newMessage.author,
+          targetMsg.id,
+          newDesc
+        );
+      } catch (error) {
+        console.error('❌ Could not sync an edited user ticket message:', error);
+        await ticketChannel.send('⚠️ An edited message could not be synced to the live ticket archive.');
+      }
 
       console.log(`✏️ Synced edit for ${newMessage.author.tag} in ticket channel ${ticketChannel.name}`);
 
@@ -378,6 +405,12 @@ module.exports = {
 
       const embed = EmbedBuilder.from(targetMsg.embeds[0]).setDescription(newDescription);
       await targetMsg.edit({ embeds: [embed] });
+      try {
+        await updateTicketMessage(ticketChannel, deletedMessage.author, targetMsg.id, newDescription);
+      } catch (error) {
+        console.error('❌ Could not sync a deleted user ticket message:', error);
+        await ticketChannel.send('⚠️ A deleted message could not be synced to the live ticket archive.');
+      }
 
       await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
 
@@ -417,9 +450,23 @@ async function handleStaffMessage(client, message) {
         .setColor('Blue')
         .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
         .setDescription(replyText)
-        .setFooter({ text: `Sent DM Message ID: ${dmMsg.id}` })
+        .setFooter({ text: `Sent DM Message ID: ${dmMsg.id} | Staff ID: ${message.author.id}` })
         .setTimestamp();
-      await message.channel.send({ embeds: [staffEmbed] });
+      const mirroredMessage = await message.channel.send({ embeds: [staffEmbed] });
+      try {
+        await recordTicketMessage(message.channel, user, {
+          sourceMessageID: dmMsg.id,
+          mirrorMessageID: mirroredMessage.id,
+          authorID: message.author.id,
+          authorName: message.author.username,
+          content: replyText,
+          timestamp: dmMsg.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
+          staffID: message.author.id,
+        });
+      } catch (error) {
+        console.error('❌ Could not sync a staff ticket reply:', error);
+        await message.channel.send('⚠️ The reply was sent, but could not be synced to the live ticket archive.');
+      }
     } catch (err) {
       console.error('❌ Failed to send DM:', err);
       await message.channel.send('❌ Could not DM the user.');
@@ -470,6 +517,12 @@ async function handleStaffSubcommands(client, message, user) {
         const dmMsg = await user.createDM().then(dm => dm.messages.fetch(dmMessageId).catch(() => null));
         if (dmMsg) await dmMsg.edit(`📩 **Support Reply:** ${newText}`);
       }
+      try {
+        await updateTicketMessage(message.channel, user, targetMsg.id, newDescription, message.author.id);
+      } catch (error) {
+        console.error('❌ Could not sync an edited staff ticket reply:', error);
+        await message.channel.send('⚠️ The edit was applied, but could not be synced to the live ticket archive.');
+      }
     } catch (err) {
       console.error('❌ Edit failed:', err);
       await message.channel.send('❌ Failed to edit message.');
@@ -500,6 +553,12 @@ async function handleStaffSubcommands(client, message, user) {
       if (dmMessageId) {
         const dmMsg = await user.createDM().then(dm => dm.messages.fetch(dmMessageId).catch(() => null));
         if (dmMsg) await dmMsg.delete().catch(() => {});
+      }
+      try {
+        await updateTicketMessage(message.channel, user, targetMsg.id, newDescription, message.author.id);
+      } catch (error) {
+        console.error('❌ Could not sync a deleted staff ticket reply:', error);
+        await message.channel.send('⚠️ The deletion was applied, but could not be synced to the live ticket archive.');
       }
     } catch (err) {
       console.error('❌ Delete failed:', err);
@@ -542,17 +601,17 @@ async function handleStaffSubcommands(client, message, user) {
   // --- Normal Close ---
   if (content.startsWith(CLOSE_PREFIX)) {
     try {
-      // Notify the user
-      await user.send('📩 Your support ticket has been closed.').catch(() => {});
-
       // Save chat logs to MongoDB before deleting the channel
-      await closeTicketAndSave(message.channel, user);
+      await closeTicketAndSave(message.channel, user, message.author.id);
+
+      await user.send('📩 Your support ticket has been closed.').catch(() => {});
 
       // Delete the channel
       await message.channel.delete();
       console.log(`✅ Ticket for ${user.tag} closed and saved by staff.`);
     } catch (err) {
       console.error(`❌ Error closing ticket for ${user.tag}:`, err);
+      await message.channel.send('❌ The ticket could not be saved to the archive, so this channel was left open.');
     }
     return;
   }
@@ -561,13 +620,14 @@ async function handleStaffSubcommands(client, message, user) {
   if (content.startsWith(SILENT_CLOSE_PREFIX)) {
     try {
       // Save chat logs to MongoDB but don’t message the user
-      await closeTicketAndSave(message.channel, user);
+      await closeTicketAndSave(message.channel, user, message.author.id);
 
       // Delete the channel
       await message.channel.delete();
       console.log(`✅ Ticket silently closed and saved.`);
     } catch (err) {
       console.error(`❌ Error during silent close:`, err);
+      await message.channel.send('❌ The ticket could not be saved to the archive, so this channel was left open.');
     }
     return;
   }

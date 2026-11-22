@@ -18,6 +18,10 @@ function getESTTime() {
   return moment().tz('America/New_York').format('MM/DD/YYYY, hh:mm A z');
 }
 
+function formatMessageTime(date) {
+  return date.toLocaleString('en-US', { timeZone: 'America/New_York' });
+}
+
 function getCollectionForUser(username) {
   const modelName = `${username}_Tickets`;
 
@@ -26,126 +30,208 @@ function getCollectionForUser(username) {
     return mongoose.models[modelName];
   }
 
+  const ticketMessageSchema = new mongoose.Schema({
+    sourceMessageID: String,
+    mirrorMessageID: String,
+    authorID: String,
+    authorName: String,
+    content: String,
+    timestamp: String,
+  }, { _id: false });
+
   const schema = new mongoose.Schema({
     ticketID: String,
+    ticketChannelID: String,
     username: String,
     userID: String,
     createdAt: String,
     closedAt: String,
     status: String,
-    messages: [
-      {
-        authorID: String,
-        authorName: String,
-        content: String,
-        timestamp: String,
-      },
-    ],
+    messages: [ticketMessageSchema],
     staffIDs: [String],
   });
+  schema.index({ ticketChannelID: 1 }, { unique: true, sparse: true });
 
   return mongoose.model(modelName, schema, modelName);
 }
 
-// --- Close Ticket and Save to MongoDB ---
-async function closeTicketAndSave(channel, user) {
+async function updateTicket(Model, ticketChannelID, update, options = {}) {
   try {
-    console.log(`📥 Collecting messages for ${channel.name}...`);
-
-    // Fetch all messages in batches (100 per request)
-    let allMessages = [];
-    let lastID = null;
-
-    while (true) {
-      const options = { limit: 100 };
-      if (lastID) options.before = lastID;
-
-      const fetched = await channel.messages.fetch(options);
-      if (fetched.size === 0) break;
-
-      allMessages = allMessages.concat(Array.from(fetched.values()));
-      lastID = fetched.last().id;
-    }
-
-    console.log(`💬 Collected ${allMessages.length} messages.`);
-
-    // --- Format messages (with embeds & attachments) ---
-    const formattedMessages = allMessages.reverse().map(m => {
-      let parts = [];
-
-      // Message text
-      if (m.content?.trim()) parts.push(m.content.trim());
-
-      // Handle embeds (even if message has text)
-      if (m.embeds.length > 0) {
-        const embedText = m.embeds
-          .map(embed => {
-            const embedParts = [];
-            if (embed.title) embedParts.push(`**${embed.title}**`);
-            if (embed.description) embedParts.push(embed.description);
-            if (embed.fields?.length) {
-              embedParts.push(embed.fields.map(f => `${f.name}: ${f.value}`).join('\n'));
-            }
-            if (embed.footer?.text) embedParts.push(`_Footer: ${embed.footer.text}_`);
-            return embedParts.join('\n');
-          })
-          .join('\n\n');
-        if (embedText.trim().length > 0) parts.push(embedText);
-      }
-
-      // Handle attachments
-      if (m.attachments.size > 0) {
-        const attachText = [...m.attachments.values()]
-          .map(a => `[Attachment: ${a.url}]`)
-          .join('\n');
-        parts.push(attachText);
-      }
-
-      // Fallback
-      if (parts.length === 0) parts.push("[No content / embed / attachment]");
-
-      return {
-        authorID: m.author.id,
-        authorName: m.author.username,
-        content: parts.join('\n\n'),
-        timestamp: m.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
-      };
-    });
-
-    // --- Identify staff members ---
-    const staffRoleIDs = ['YOUR_STAFF_ROLE_ID_HERE']; // TODO: Replace with your real role IDs
-    const staffIDs = [...new Set(
-      allMessages
-        .filter(m => m.member && m.member.roles.cache.some(r => staffRoleIDs.includes(r.id)))
-        .map(m => m.author.id)
-    )];
-
-    // --- Build ticket data ---
-    const createdAt = formattedMessages[0]?.timestamp || getESTTime();
-    const closedAt = getESTTime();
-    const ticketID = `${user.username} ${createdAt}`;
-    const TicketModel = getCollectionForUser(user.username);
-
-    const ticketData = new TicketModel({
-      ticketID,
-      username: user.username,
-      userID: user.id,
-      createdAt,
-      closedAt,
-      status: 'Closed',
-      messages: formattedMessages,
-      staffIDs,
-    });
-
-    // --- Save to MongoDB ---
-    await ticketData.save();
-    console.log(`🧾 Ticket "${ticketID}" saved to ${user.username}_Tickets`);
-
-  } catch (err) {
-    console.error("❌ Error saving ticket:", err);
+    return await Model.updateOne({ ticketChannelID }, update, options);
+  } catch (error) {
+    if (error.code !== 11000 || !options.upsert) throw error;
+    return Model.updateOne({ ticketChannelID }, update, { ...options, upsert: false });
   }
 }
 
+async function ensureTicketOpen(channel, user, staffID) {
+  const TicketModel = getCollectionForUser(user.username);
+  const createdAt = formatMessageTime(channel.createdAt || new Date());
+  const update = {
+    $setOnInsert: {
+      ticketID: `${user.username} ${createdAt}`,
+      ticketChannelID: channel.id,
+      username: user.username,
+      userID: user.id,
+      createdAt,
+      status: 'Open',
+      messages: [],
+    },
+  };
+  if (staffID) update.$addToSet = { staffIDs: staffID };
+  else update.$setOnInsert.staffIDs = [];
+
+  await updateTicket(TicketModel, channel.id, update, { upsert: true });
+}
+
+async function recordTicketMessage(channel, user, message) {
+  if (!message.sourceMessageID || !message.mirrorMessageID || !message.authorID) {
+    throw new TypeError('Ticket messages require source, mirror, and author IDs.');
+  }
+
+  await ensureTicketOpen(channel, user, message.staffID);
+  const TicketModel = getCollectionForUser(user.username);
+  const storedMessage = {
+    sourceMessageID: message.sourceMessageID,
+    mirrorMessageID: message.mirrorMessageID,
+    authorID: message.authorID,
+    authorName: message.authorName,
+    content: message.content,
+    timestamp: message.timestamp,
+  };
+  const update = { $addToSet: { messages: storedMessage } };
+  if (message.staffID) update.$addToSet.staffIDs = message.staffID;
+
+  await updateTicket(TicketModel, channel.id, update);
+}
+
+async function updateTicketMessage(channel, user, mirrorMessageID, content, staffID) {
+  const TicketModel = getCollectionForUser(user.username);
+  const update = { $set: { 'messages.$[message].content': content } };
+  if (staffID) update.$addToSet = { staffIDs: staffID };
+
+  const result = await TicketModel.updateOne(
+    { ticketChannelID: channel.id, 'messages.mirrorMessageID': mirrorMessageID },
+    update,
+    { arrayFilters: [{ 'message.mirrorMessageID': mirrorMessageID }] }
+  );
+  if (result.matchedCount === 0) {
+    throw new Error(`Ticket message ${mirrorMessageID} was not found for live update.`);
+  }
+}
+
+function getEmbedAttribution(message, user) {
+  const footer = message.embeds.map(embed => embed.footer?.text || '').join(' ');
+  const authorIDMatch = footer.match(/(?:Author|Staff) ID:\s*(\d+)/);
+  const sourceMessageIDMatch = footer.match(/(?:DM|Sent DM) Message ID:\s*(\d+)/);
+  const staffIDMatch = footer.match(/Staff ID:\s*(\d+)/);
+  const isUserDM = /DM Message ID:\s*\d+/.test(footer);
+  const embedAuthor = message.embeds.find(embed => embed.author?.name)?.author?.name;
+
+  return {
+    authorID: authorIDMatch?.[1] || (isUserDM ? user.id : message.author.id),
+    authorName: embedAuthor || message.author.username,
+    sourceMessageID: sourceMessageIDMatch?.[1] || message.id,
+    staffID: staffIDMatch?.[1] || '',
+  };
+}
+
+function formatTicketMessage(message, user) {
+  const attribution = getEmbedAttribution(message, user);
+  const parts = [];
+  if (message.content?.trim()) parts.push(message.content.trim());
+
+  if (message.embeds.length > 0) {
+    const embedText = message.embeds
+      .map(embed => {
+        const embedParts = [];
+        if (embed.title) embedParts.push(`**${embed.title}**`);
+        if (embed.description) embedParts.push(embed.description);
+        if (embed.fields?.length) {
+          embedParts.push(embed.fields.map(field => `${field.name}: ${field.value}`).join('\n'));
+        }
+        if (embed.footer?.text) {
+          const visibleFooter = embed.footer.text.replace(/\s*\|\s*(?:Author|Staff) ID:\s*\d+/g, '');
+          if (visibleFooter) embedParts.push(`_Footer: ${visibleFooter}_`);
+        }
+        return embedParts.join('\n');
+      })
+      .join('\n\n');
+    if (embedText.trim()) parts.push(embedText);
+  }
+
+  if (message.attachments.size > 0) {
+    parts.push([...message.attachments.values()]
+      .map(attachment => `[Attachment: ${attachment.url}]`)
+      .join('\n'));
+  }
+
+  if (parts.length === 0) parts.push('[No content / embed / attachment]');
+
+  return {
+    ...attribution,
+    mirrorMessageID: message.id,
+    content: parts.join('\n\n'),
+    timestamp: formatMessageTime(message.createdAt),
+  };
+}
+
+async function closeTicketAndSave(channel, user, closedByID) {
+  console.log(`📥 Collecting messages for ${channel.name}...`);
+
+  let allMessages = [];
+  let lastID = null;
+  while (true) {
+    const options = { limit: 100 };
+    if (lastID) options.before = lastID;
+
+    const fetched = await channel.messages.fetch(options);
+    if (fetched.size === 0) break;
+
+    allMessages = allMessages.concat(Array.from(fetched.values()));
+    lastID = fetched.last().id;
+  }
+
+  console.log(`💬 Collected ${allMessages.length} messages.`);
+  const formattedMessages = allMessages.reverse().map(message => formatTicketMessage(message, user));
+  const staffIDs = [...new Set([
+    ...formattedMessages.map(message => message.staffID).filter(Boolean),
+    closedByID,
+  ].filter(Boolean))];
+  const createdAt = formattedMessages[0]?.timestamp || formatMessageTime(channel.createdAt || new Date());
+  const closedAt = getESTTime();
+  const TicketModel = getCollectionForUser(user.username);
+  const update = {
+    $set: {
+      status: 'Closed',
+      closedAt,
+      messages: formattedMessages.map(({ sourceMessageID, mirrorMessageID, authorID, authorName, content, timestamp }) => ({
+        sourceMessageID,
+        mirrorMessageID,
+        authorID,
+        authorName,
+        content,
+        timestamp,
+      })),
+    },
+    $setOnInsert: {
+      ticketID: `${user.username} ${createdAt}`,
+      ticketChannelID: channel.id,
+      username: user.username,
+      userID: user.id,
+      createdAt,
+    },
+  };
+  if (staffIDs.length) update.$addToSet = { staffIDs: { $each: staffIDs } };
+  else update.$setOnInsert.staffIDs = [];
+
+  await updateTicket(TicketModel, channel.id, update, { upsert: true });
+  console.log(`🧾 Ticket for ${user.username} closed and saved to ${user.username}_Tickets`);
+}
+
 module.exports = {
-  closeTicketAndSave
+  closeTicketAndSave,
+  ensureTicketOpen,
+  recordTicketMessage,
+  updateTicketMessage
 };

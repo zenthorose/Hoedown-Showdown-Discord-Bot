@@ -47,7 +47,7 @@ const pages = {
   tickets: {
     title: 'Tickets',
     icon: '🎟️',
-    description: 'Search closed support tickets and review transcripts.'
+    description: 'Search support tickets and review live or closed transcripts.'
   }
 };
 const editableMemberFields = [
@@ -811,7 +811,7 @@ async function openTicket(ticketSummary) {
     for (const [label, value] of [
       ['Status', ticket.status || 'Unknown'],
       ['Created', ticket.createdAt || 'Unknown'],
-      ['Closed', ticket.closedAt || 'Unknown']
+      ['Closed', ticket.closedAt || (ticket.status === 'Open' ? 'Not closed' : 'Unknown')]
     ]) {
       const entry = document.createElement('div');
       const term = document.createElement('dt');

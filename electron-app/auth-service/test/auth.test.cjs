@@ -403,6 +403,15 @@ test('ticket archive requires a session, filters summaries, and returns selected
       status: 'Closed',
       staffIDs: []
     }],
+    active_Tickets: [{
+      _id: new ObjectId('686868686868686868686868'),
+      ticketID: 'active ticket',
+      username: 'active',
+      userID: '345678901234567890',
+      createdAt: '11/22/2026, 01:00 PM',
+      status: 'Open',
+      staffIDs: ['987654321098765432']
+    }],
     'josé_Tickets': [{
       _id: new ObjectId('676767676767676767676767'),
       ticketID: 'unrelated archived ticket',
@@ -437,7 +446,7 @@ test('ticket archive requires a session, filters summaries, and returns selected
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
     assert.equal(result.total, 1);
-    assert.equal(result.collectionCount, 3);
+    assert.equal(result.collectionCount, 4);
     assert.deepEqual(result.tickets, [{
       collectionName: 'cowboy_Tickets',
       ticketId: firstTicketId.toHexString(),
@@ -449,6 +458,13 @@ test('ticket archive requires a session, filters summaries, and returns selected
       status: 'Closed',
       staffIDs: ['987654321098765432']
     }]);
+
+    const openTicketsResponse = await fetch(`${baseUrl}/api/tickets?search=Open`, { headers });
+    const openTickets = await openTicketsResponse.json();
+    assert.equal(openTicketsResponse.status, 200);
+    assert.equal(openTickets.total, 1);
+    assert.equal(openTickets.tickets[0].status, 'Open');
+    assert.equal(openTickets.tickets[0].closedAt, '');
 
     const unauthorizedDetail = await fetch(
       `${baseUrl}/api/tickets/cowboy_Tickets/${firstTicketId.toHexString()}`
