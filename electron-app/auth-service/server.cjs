@@ -308,7 +308,7 @@ function createApp({
   let avoidsChangeStreamRetryDelay = 5000;
   let ticketChangeStream;
   let ticketChangeStreamRetry;
-  let ticketChangeStreamRetryDelay = 5000;
+  let ticketChangeStreamRetryDelay = 1000;
 
   const writeMemberEvent = (response, eventName, data) => {
     if (!response.writableEnded && !response.destroyed) {
@@ -403,14 +403,14 @@ function createApp({
 
   const scheduleTicketChangeStreamRestart = (error) => {
     if (memberChangeStreamStopped || ticketChangeStreamRetry) return;
-    console.error('Ticket change stream failed; reconnecting:', error);
+    console.error(`Ticket change stream failed; retrying in ${ticketChangeStreamRetryDelay}ms:`, error);
     broadcastTicketsResync();
     ticketChangeStreamRetry = setTimeout(() => {
       ticketChangeStreamRetry = null;
       startTicketChangeStream();
       broadcastTicketsResync();
     }, ticketChangeStreamRetryDelay);
-    ticketChangeStreamRetryDelay = Math.min(ticketChangeStreamRetryDelay * 2, 60000);
+    ticketChangeStreamRetryDelay = Math.min(ticketChangeStreamRetryDelay * 2, 5000);
     ticketChangeStreamRetry.unref?.();
   };
   const startTicketChangeStream = () => {
@@ -421,7 +421,7 @@ function createApp({
       ]);
       ticketChangeStream = stream;
       stream.on('change', (change) => {
-        ticketChangeStreamRetryDelay = 5000;
+        ticketChangeStreamRetryDelay = 1000;
         const updatedFields = Object.keys(change.updateDescription?.updatedFields || {});
         const messageOnlyUpdate = change.operationType === 'update' &&
           updatedFields.length > 0 &&

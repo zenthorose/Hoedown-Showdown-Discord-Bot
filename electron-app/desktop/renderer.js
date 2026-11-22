@@ -1071,22 +1071,6 @@ async function openTicket(ticketSummary) {
   }
 }
 
-function resyncTickets() {
-  if (signedInPanel.hidden) return;
-  if (ticketResyncTimer) clearTimeout(ticketResyncTimer);
-  ticketResyncTimer = setTimeout(() => {
-    ticketResyncTimer = null;
-    ticketsLoaded = false;
-    void loadTickets(ticketPage);
-
-    const ticketsView = document.getElementById('tickets-view');
-    const detailView = document.getElementById('ticket-detail-view');
-    if (!ticketsView.hidden && !detailView.hidden && selectedTicketSummary) {
-      void openTicket(selectedTicketSummary);
-    }
-  }, 200);
-}
-
 function memberPickerLabel(member) {
   const name = member.nickname || member.username || member.discordId || 'Unknown member';
   const account = member.username ? `@${member.username}` : member.discordId;
