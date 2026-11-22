@@ -36,6 +36,9 @@ function getCollectionForUser(username) {
     authorID: String,
     authorName: String,
     authorAvatarUrl: String,
+    editedByID: String,
+    editedByName: String,
+    editedAt: String,
     content: String,
     timestamp: String,
   }, { _id: false });
@@ -98,6 +101,9 @@ async function recordTicketMessage(channel, user, message) {
     authorID: message.authorID,
     authorName: message.authorName,
     authorAvatarUrl: message.authorAvatarUrl,
+    editedByID: message.editedByID,
+    editedByName: message.editedByName,
+    editedAt: message.editedAt,
     content: message.content,
     timestamp: message.timestamp,
   };
@@ -128,6 +134,9 @@ function getEmbedAttribution(message, user) {
   const appUsernameMatch = footer.match(/App Username:\s*([A-Za-z0-9._-]{1,64})/);
   const sourceMessageIDMatch = footer.match(/(?:DM|Sent DM) Message ID:\s*(\d+)/);
   const staffIDMatch = footer.match(/Staff ID:\s*(\d+)/);
+  const editedByIDMatch = footer.match(/Edited by ID:\s*(\d+)/);
+  const editedByNameMatch = footer.match(/Edited by:\s*([^|]+)/);
+  const editedAtMatch = footer.match(/Edited at:\s*([^|]+)/);
   const isUserDM = /DM Message ID:\s*\d+/.test(footer);
   const embedAuthor = message.embeds.find(embed => embed.author?.name)?.author?.name;
   const authorAvatarUrl = message.embeds.find(embed => embed.author?.iconURL)?.author?.iconURL || '';
@@ -137,6 +146,9 @@ function getEmbedAttribution(message, user) {
       (appUsernameMatch ? `app:${appUsernameMatch[1]}` : isUserDM ? user.id : message.author.id),
     authorName: embedAuthor || message.author.username,
     authorAvatarUrl,
+    editedByID: editedByIDMatch?.[1] || '',
+    editedByName: editedByNameMatch?.[1]?.trim() || '',
+    editedAt: editedAtMatch?.[1]?.trim() || '',
     sourceMessageID: sourceMessageIDMatch?.[1] || message.id,
     staffID: staffIDMatch?.[1] || '',
   };
@@ -158,7 +170,7 @@ function formatTicketMessage(message, user) {
         }
         if (embed.footer?.text) {
           const visibleFooter = embed.footer.text.replace(
-            /\s*\|\s*(?:(?:Author|Staff) ID:\s*\d+|App Username:\s*[A-Za-z0-9._-]{1,64})/g,
+            /\s*\|\s*(?:(?:Author|Staff|Edited by) ID:\s*\d+|App Username:\s*[A-Za-z0-9._-]{1,64}|Edited by:\s*[^|]+|Edited at:\s*[^|]+)/g,
             ''
           );
           if (visibleFooter) embedParts.push(`_Footer: ${visibleFooter}_`);
@@ -214,12 +226,15 @@ async function closeTicketAndSave(channel, user, closedByID) {
     $set: {
       status: 'Closed',
       closedAt,
-      messages: formattedMessages.map(({ sourceMessageID, mirrorMessageID, authorID, authorName, authorAvatarUrl, content, timestamp }) => ({
+      messages: formattedMessages.map(({ sourceMessageID, mirrorMessageID, authorID, authorName, authorAvatarUrl, editedByID, editedByName, editedAt, content, timestamp }) => ({
         sourceMessageID,
         mirrorMessageID,
         authorID,
         authorName,
         authorAvatarUrl,
+        editedByID,
+        editedByName,
+        editedAt,
         content,
         timestamp,
       })),

@@ -159,7 +159,9 @@ test('closing reconciles live messages with their human authors and closes the r
     embeds: [{
       author: { name: 'cowboy', iconURL: 'https://cdn.discordapp.com/avatars/345678901234567890/cowboy.png' },
       description: 'I can help with that.',
-      footer: { text: 'Sent DM Message ID: app-dm-1 | Staff ID: 345678901234567890 | App Username: cowboy' }
+      footer: {
+        text: 'Sent DM Message ID: app-dm-1 | Staff ID: 345678901234567890 | App Username: cowboy | Edited by: helper#0001 | Edited by ID: 987654321098765432 | Edited at: 2026-11-22T18:04:00.000Z'
+      }
     }],
     attachments: new Map(),
     createdAt: new Date('2026-11-22T18:03:00.000Z')
@@ -191,6 +193,10 @@ test('closing reconciles live messages with their human authors and closes the r
   assert.equal(ticket.messages[2].authorName, 'cowboy');
   assert.equal(ticket.messages[0].authorAvatarUrl, 'https://cdn.discordapp.com/avatars/123456789012345678/player.png');
   assert.equal(ticket.messages[2].authorAvatarUrl, 'https://cdn.discordapp.com/avatars/345678901234567890/cowboy.png');
+  assert.equal(ticket.messages[2].editedByID, '987654321098765432');
+  assert.equal(ticket.messages[2].editedByName, 'helper#0001');
+  assert.equal(ticket.messages[2].editedAt, '2026-11-22T18:04:00.000Z');
+  assert.equal(ticket.messages[2].content.includes('Edited by:'), false);
   assert.deepEqual(ticket.staffIDs.sort(), [
     '345678901234567890',
     '876543210987654321',

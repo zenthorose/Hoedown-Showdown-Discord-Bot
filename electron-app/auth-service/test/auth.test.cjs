@@ -555,6 +555,9 @@ test('ticket archive requires a session, filters summaries, and returns selected
       timestamp: '11/21/2026, 03:00 PM',
       authorAvatarUrl: '',
       mirrorMessageID: '',
+      editedByID: '',
+      editedByName: '',
+      editedAt: '',
       canEdit: false
     }]);
 
@@ -766,8 +769,18 @@ test('staff replies can be edited in place, but customer messages cannot', async
     );
     assert.equal(edited.status, 200);
     assert.equal(ticket.messages[0].content, 'Corrected staff reply');
+    assert.equal(ticket.messages[0].editedByID, staffId);
+    assert.equal(ticket.messages[0].editedByName, 'cowboy#0001');
+    assert.equal(ticket.messages[0].editedAt, editCalls[0].editedAt);
     assert.equal(editCalls.length, 1);
     assert.equal(editCalls[0].message.mirrorMessageID, staffMirrorId);
+    assert.equal(editCalls[0].editorDiscordId, staffId);
+    const refreshedTranscript = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}`,
+      { headers }
+    );
+    const refreshedTicket = await refreshedTranscript.json();
+    assert.equal(refreshedTicket.ticket.messages[0].editedByName, 'cowboy#0001');
 
     const customerEdit = await fetch(
       `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}/messages/${customerMirrorId}`,
@@ -784,7 +797,12 @@ test('staff replies can be edited in place, but customer messages cannot', async
     discordId: staffId,
     editTicketReply: async (input) => {
       editCalls.push(input);
-      return { ok: true };
+      return {
+        ok: true,
+        editedByID: input.editorDiscordId,
+        editedByName: 'cowboy#0001',
+        editedAt: input.editedAt
+      };
     }
   });
 });

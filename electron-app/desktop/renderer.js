@@ -1087,6 +1087,16 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
       body.className = 'ticket-message-content';
       body.textContent = message.content || '[No message content]';
       item.append(messageHeader, authorId, body);
+      if (message.editedByName) {
+        const editNote = document.createElement('small');
+        editNote.className = 'ticket-message-edit-note';
+        const editedAt = message.editedAt ? new Date(message.editedAt) : null;
+        const editTime = editedAt && !Number.isNaN(editedAt.getTime())
+          ? ` · ${editedAt.toLocaleString()}`
+          : '';
+        editNote.textContent = `Last edited by ${message.editedByName}${editTime}`;
+        item.append(editNote);
+      }
       if (ticketIsOpen && canReply && message.canEdit === true && message.mirrorMessageID) {
         const actions = document.createElement('div');
         actions.className = 'ticket-message-actions';

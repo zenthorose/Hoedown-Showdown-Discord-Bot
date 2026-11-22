@@ -1175,6 +1175,9 @@ function createApp({
             ? message.authorAvatarUrl
             : '',
           mirrorMessageID: typeof message.mirrorMessageID === 'string' ? message.mirrorMessageID : '',
+          editedByID: typeof message.editedByID === 'string' ? message.editedByID : '',
+          editedByName: typeof message.editedByName === 'string' ? message.editedByName : '',
+          editedAt: typeof message.editedAt === 'string' ? message.editedAt : '',
           canEdit: ticketIsOpen && isStaffReply &&
             MEMBER_ID_PATTERN.test(message.sourceMessageID || '') &&
             MEMBER_ID_PATTERN.test(message.mirrorMessageID || '')
@@ -1295,10 +1298,13 @@ function createApp({
         return res.status(200).json({ authorName: message.authorName || '' });
       }
 
+      const editedAt = new Date().toISOString();
       const result = await editTicketReplyCallback({
         ticket,
         collectionName,
         message,
+        editorDiscordId: session.user.discordId,
+        editedAt,
         replyText
       });
       if (!result || result.ok !== true) {
@@ -1307,19 +1313,36 @@ function createApp({
           partial: result?.partial === true
         });
       }
+      if (typeof result.editedByName !== 'string' || !result.editedByName ||
+          result.editedByID !== session.user.discordId || result.editedAt !== editedAt) {
+        return res.status(502).json({
+          error: 'The Discord messages were edited, but the edit attribution could not be verified.',
+          partial: true
+        });
+      }
 
       const saved = await tickets.updateOne(
         { _id: ticket._id, status: ticket.status },
-        { $set: { 'messages.$[message].content': replyText } },
+        {
+          $set: {
+            'messages.$[message].content': replyText,
+            'messages.$[message].editedByID': result.editedByID,
+            'messages.$[message].editedByName': result.editedByName,
+            'messages.$[message].editedAt': result.editedAt
+          }
+        },
         { arrayFilters: [{ 'message.mirrorMessageID': mirrorMessageID, 'message.authorID': message.authorID }] }
       );
-      if (saved.matchedCount !== 1 || saved.modifiedCount !== 1) {
+      if (saved.matchedCount !== 1 || saved.modifiedCount === 0) {
         return res.status(502).json({
           error: 'The Discord messages were edited, but the ticket transcript could not be updated.',
           partial: true
         });
       }
-      return res.status(200).json({ authorName: message.authorName || '' });
+      return res.status(200).json({
+        authorName: message.authorName || '',
+        editedByName: result.editedByName
+      });
     } catch (error) {
       return sendError(res, error, 'Ticket reply edit failed:');
     }
@@ -1949,21 +1972,23 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       }
       : null;
     const editTicketReply = discordClient && ticketDatabase
-      ? async ({ ticket, message, replyText }) => {
+      ? async ({ ticket, message, editorDiscordId, editedAt, replyText }) => {
         if (!discordClient.isReady()) {
           return { ok: false, error: 'The Discord bot is not ready to edit replies.' };
         }
 
         let recipient;
         let channel;
+        let editorProfile;
         try {
-          [recipient, channel] = await Promise.all([
+          [recipient, channel, editorProfile] = await Promise.all([
             discordClient.users.fetch(ticket.userID),
-            discordClient.channels.fetch(ticket.ticketChannelID)
+            discordClient.channels.fetch(ticket.ticketChannelID),
+            discordClient.users.fetch(editorDiscordId)
           ]);
         } catch (error) {
-          console.error('Could not load a Discord destination for a ticket reply edit:', error);
-          return { ok: false, error: 'Could not access the ticket recipient or channel.' };
+          console.error('Could not load a Discord account or destination for a ticket reply edit:', error);
+          return { ok: false, error: 'Could not access the linked editor account, ticket recipient, or channel.' };
         }
         if (!recipient || !channel || typeof channel.isTextBased !== 'function' ||
             !channel.isTextBased() || !channel.messages?.fetch) {
@@ -1992,6 +2017,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
           ? footerAppUsername === message.authorID.slice('app:'.length)
           : footerStaffId === message.authorID;
         if (!botId || dmMessage.author.id !== botId || mirroredMessage.author.id !== botId ||
+            !editorProfile || typeof editorProfile.tag !== 'string' || !editorProfile.tag ||
             !dmMessage.content.startsWith(SUPPORT_REPLY_PREFIX) ||
             dmMessage.content !== `${SUPPORT_REPLY_PREFIX}${message.content}` ||
             !mirrorEmbed || typeof mirrorEmbed.toJSON !== 'function' ||
@@ -2000,7 +2026,25 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         }
 
         const previousDmContent = dmMessage.content;
-        const updatedEmbed = { ...mirrorEmbed.toJSON(), description: replyText };
+        const embedData = mirrorEmbed.toJSON();
+        const previousFooter = mirrorFooter
+          .replace(/\s*\|\s*Edited by:\s*[^|]*/g, '')
+          .replace(/\s*\|\s*Edited by ID:\s*\d+/g, '')
+          .replace(/\s*\|\s*Edited at:\s*[^|]*/g, '')
+          .trim();
+        const updatedEmbed = {
+          ...embedData,
+          description: replyText,
+          footer: {
+            ...(embedData.footer || {}),
+            text: [
+              previousFooter,
+              `Edited by: ${editorProfile.tag}`,
+              `Edited by ID: ${editorDiscordId}`,
+              `Edited at: ${editedAt}`
+            ].filter(Boolean).join(' | ')
+          }
+        };
         let dmUpdated = false;
         try {
           await dmMessage.edit({ content: `${SUPPORT_REPLY_PREFIX}${replyText}` });
@@ -2022,7 +2066,12 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
           }
           return { ok: false, error: 'Could not update both original Discord messages; no transcript change was saved.' };
         }
-        return { ok: true };
+        return {
+          ok: true,
+          editedByID: editorDiscordId,
+          editedByName: editorProfile.tag,
+          editedAt
+        };
       }
       : null;
     await users.createIndex({ username: 1 }, { unique: true });
