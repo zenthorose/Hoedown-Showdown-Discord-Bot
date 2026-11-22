@@ -393,6 +393,14 @@ test('ticket archive requires a session, filters summaries, and returns selected
         content: 'I need help.',
         timestamp: '11/21/2026, 03:00 PM'
       }]
+    }, {
+      _id: new ObjectId('696969696969696969696969'),
+      ticketID: 'open ticket',
+      username: 'cowboy',
+      userID: '123456789012345678',
+      createdAt: '11/22/2026, 01:00 PM',
+      status: 'Open',
+      staffIDs: []
     }],
     player_Tickets: [{
       _id: secondTicketId,
@@ -400,6 +408,15 @@ test('ticket archive requires a session, filters summaries, and returns selected
       username: 'player',
       userID: '234567890123456789',
       createdAt: '11/20/2026, 10:00 AM',
+      status: 'Closed',
+      staffIDs: []
+    }],
+    cowboy_old_Tickets: [{
+      _id: new ObjectId('606060606060606060606060'),
+      ticketID: 'earlier ticket',
+      username: 'cowboy.old',
+      userID: '123456789012345678',
+      createdAt: '11/19/2026, 01:00 PM',
       status: 'Closed',
       staffIDs: []
     }],
@@ -416,7 +433,7 @@ test('ticket archive requires a session, filters summaries, and returns selected
       _id: new ObjectId('676767676767676767676767'),
       ticketID: 'unrelated archived ticket',
       username: 'josé',
-      userID: '345678901234567890',
+      userID: '456789012345678901',
       createdAt: '11/21/2026, 01:00 PM',
       status: 'Closed',
       staffIDs: []
@@ -446,7 +463,7 @@ test('ticket archive requires a session, filters summaries, and returns selected
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
     assert.equal(result.total, 1);
-    assert.equal(result.collectionCount, 4);
+    assert.equal(result.collectionCount, 5);
     assert.deepEqual(result.tickets, [{
       collectionName: 'cowboy_Tickets',
       ticketId: firstTicketId.toHexString(),
@@ -462,9 +479,38 @@ test('ticket archive requires a session, filters summaries, and returns selected
     const openTicketsResponse = await fetch(`${baseUrl}/api/tickets?search=Open`, { headers });
     const openTickets = await openTicketsResponse.json();
     assert.equal(openTicketsResponse.status, 200);
-    assert.equal(openTickets.total, 1);
-    assert.equal(openTickets.tickets[0].status, 'Open');
-    assert.equal(openTickets.tickets[0].closedAt, '');
+    assert.equal(openTickets.total, 2);
+    assert.equal(openTickets.tickets.every((ticket) => ticket.status === 'Open'), true);
+
+    const unauthorizedPeople = await fetch(`${baseUrl}/api/ticket-people`);
+    assert.equal(unauthorizedPeople.status, 401);
+    const peopleResponse = await fetch(`${baseUrl}/api/ticket-people?search=cowboy`, { headers });
+    const peopleResult = await peopleResponse.json();
+    assert.equal(peopleResponse.status, 200);
+    assert.equal(peopleResult.total, 1);
+    assert.deepEqual(peopleResult.people[0], {
+      personId: '123456789012345678',
+      userID: '123456789012345678',
+      username: 'cowboy',
+      latestCreatedAt: '11/22/2026, 01:00 PM',
+      ticketCount: 3,
+      openTicketCount: 1,
+      closedTicketCount: 2,
+      collectionNames: ['cowboy_Tickets', 'cowboy_old_Tickets']
+    });
+
+    const unauthorizedPersonHistory = await fetch(
+      `${baseUrl}/api/ticket-people/123456789012345678/tickets`
+    );
+    assert.equal(unauthorizedPersonHistory.status, 401);
+    const personTicketsResponse = await fetch(
+      `${baseUrl}/api/ticket-people/123456789012345678/tickets`,
+      { headers }
+    );
+    const personTickets = await personTicketsResponse.json();
+    assert.equal(personTicketsResponse.status, 200);
+    assert.equal(personTickets.total, 3);
+    assert.deepEqual(personTickets.tickets.map((ticket) => ticket.status), ['Open', 'Closed', 'Closed']);
 
     const unauthorizedDetail = await fetch(
       `${baseUrl}/api/tickets/cowboy_Tickets/${firstTicketId.toHexString()}`
@@ -788,6 +834,15 @@ test('authenticated event stream publishes member changes and Avoids and Tickets
     });
     const ticketUpdate = await readUntil(/event: tickets-resync/);
     assert.match(ticketUpdate, /event: tickets-resync/);
+
+    ticketChangeStream.emit('change', {
+      operationType: 'update',
+      ns: { coll: 'player_Tickets' },
+      updateDescription: { updatedFields: { 'messages.0.content': 'A reply.' } }
+    });
+    const messageUpdate = await readUntil(/event: ticket-message/);
+    assert.match(messageUpdate, /event: ticket-message/);
+    assert.match(messageUpdate, /"collectionName":"player_Tickets"/);
     await reader.cancel();
   }, { memberChangeStream, avoidsChangeStream, ticketDatabase });
 });

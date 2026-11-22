@@ -203,6 +203,12 @@ function serializeTicketSummary(ticket, collectionName) {
   };
 }
 
+function ticketPersonId(ticket) {
+  if (typeof ticket.userID === 'string' && ticket.userID.trim()) return ticket.userID;
+  const username = typeof ticket.username === 'string' ? ticket.username.trim().toLocaleLowerCase('en') : '';
+  return username ? `username:${username}` : '';
+}
+
 async function updateAvoidsInGoogleSheets(users) {
   const triggerUrl = process.env.Google_Apps_Script_URL;
   if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
@@ -413,9 +419,20 @@ function createApp({
         { $match: { 'ns.coll': { $regex: '_Tickets$' } } }
       ]);
       ticketChangeStream = stream;
-      stream.on('change', () => {
+      stream.on('change', (change) => {
         ticketChangeStreamRetryDelay = 5000;
-        broadcastTicketsResync();
+        const updatedFields = Object.keys(change.updateDescription?.updatedFields || {});
+        const messageOnlyUpdate = change.operationType === 'update' &&
+          updatedFields.length > 0 &&
+          updatedFields.every((field) =>
+            field === 'messages' || field.startsWith('messages.') ||
+            field === 'staffIDs' || field.startsWith('staffIDs.')
+          );
+        if (messageOnlyUpdate) {
+          broadcastMemberEvent('ticket-message', { collectionName: change.ns.coll });
+        } else {
+          broadcastTicketsResync();
+        }
       });
       stream.on('error', (error) => {
         if (ticketChangeStream !== stream || memberChangeStreamStopped) return;
@@ -852,6 +869,193 @@ function createApp({
     }
   });
 
+  app.get('/api/ticket-people', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+
+      const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+      const from = typeof req.query.from === 'string' ? req.query.from : '';
+      const to = typeof req.query.to === 'string' ? req.query.to : '';
+      const pageValue = typeof req.query.page === 'string' ? req.query.page : '1';
+      if (search.length > 100) return res.status(400).json({ error: 'Ticket search must be 100 characters or fewer.' });
+      if ((from && !validDateFilter(from)) || (to && !validDateFilter(to))) {
+        return res.status(400).json({ error: 'Use valid dates in YYYY-MM-DD format.' });
+      }
+      if (from && to && from > to) {
+        return res.status(400).json({ error: 'The start date must be on or before the end date.' });
+      }
+      if (!/^[1-9]\d{0,4}$/.test(pageValue) || Number(pageValue) > 10000) {
+        return res.status(400).json({ error: 'Ticket page must be between 1 and 10,000.' });
+      }
+
+      const collectionInfos = await ticketDatabase.listCollections({}, { nameOnly: true }).toArray();
+      const ticketCollections = collectionInfos.filter(({ name }) => isTicketCollectionName(name));
+      const peopleById = new Map();
+      for (const { name: collectionName } of ticketCollections) {
+        const collectionTickets = await ticketDatabase.collection(collectionName).find({}, {
+          projection: { username: 1, userID: 1, createdAt: 1, status: 1 }
+        }).toArray();
+        for (const ticket of collectionTickets) {
+          const personId = ticketPersonId(ticket);
+          if (!personId) continue;
+
+          let person = peopleById.get(personId);
+          if (!person) {
+            person = {
+              personId,
+              userID: typeof ticket.userID === 'string' ? ticket.userID : '',
+              username: '',
+              latestCreatedAt: '',
+              latestDateKey: '',
+              ticketCount: 0,
+              openTicketCount: 0,
+              closedTicketCount: 0,
+              matchesDateRange: !from && !to,
+              searchNames: new Set(),
+              collectionNames: new Set()
+            };
+            peopleById.set(personId, person);
+          }
+
+          const username = typeof ticket.username === 'string' ? ticket.username : '';
+          if (username) person.searchNames.add(username.toLocaleLowerCase('en'));
+          person.collectionNames.add(collectionName);
+          person.ticketCount += 1;
+          if (typeof ticket.status === 'string' && ticket.status.toLocaleLowerCase('en') === 'open') {
+            person.openTicketCount += 1;
+          } else {
+            person.closedTicketCount += 1;
+          }
+
+          const date = ticketDateKey(ticket.createdAt);
+          if ((!from && !to) || (date && (!from || date >= from) && (!to || date <= to))) {
+            person.matchesDateRange = true;
+          }
+          if (!person.latestDateKey || date >= person.latestDateKey) {
+            person.latestDateKey = date;
+            person.latestCreatedAt = typeof ticket.createdAt === 'string' ? ticket.createdAt : '';
+            if (username) person.username = username;
+          }
+        }
+      }
+
+      const normalizedSearch = search.toLocaleLowerCase('en');
+      const people = [...peopleById.values()]
+        .filter((person) => person.matchesDateRange && (
+          !normalizedSearch ||
+          person.userID.toLocaleLowerCase('en').includes(normalizedSearch) ||
+          [...person.searchNames].some((name) => name.includes(normalizedSearch))
+        ))
+        .sort((left, right) =>
+          right.latestDateKey.localeCompare(left.latestDateKey) ||
+          left.username.localeCompare(right.username, 'en')
+        )
+        .map((person) => ({
+          personId: person.personId,
+          userID: person.userID,
+          username: person.username,
+          latestCreatedAt: person.latestCreatedAt,
+          ticketCount: person.ticketCount,
+          openTicketCount: person.openTicketCount,
+          closedTicketCount: person.closedTicketCount,
+          collectionNames: [...person.collectionNames].sort()
+        }));
+
+      const total = people.length;
+      const start = (Number(pageValue) - 1) * TICKET_PAGE_SIZE;
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        people: people.slice(start, start + TICKET_PAGE_SIZE),
+        total,
+        collectionCount: ticketCollections.length,
+        page: Number(pageValue),
+        pageSize: TICKET_PAGE_SIZE
+      });
+    } catch (error) {
+      return sendError(res, error, 'Ticket people lookup failed:');
+    }
+  });
+
+  app.get('/api/ticket-people/:personId/tickets', limited(600), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+
+      const { personId } = req.params;
+      const fallbackUsername = personId.startsWith('username:') ? personId.slice('username:'.length) : '';
+      const isDiscordId = /^\d{1,20}$/.test(personId);
+      const isUsernameKey = Boolean(fallbackUsername) &&
+        Buffer.byteLength(personId, 'utf8') <= 120 &&
+        !personId.includes('\0') &&
+        !personId.includes('$');
+      if (!isDiscordId && !isUsernameKey) {
+        return res.status(400).json({ error: 'A valid ticket owner is required.' });
+      }
+
+      const collectionInfos = await ticketDatabase.listCollections({}, { nameOnly: true }).toArray();
+      const ticketCollections = collectionInfos.filter(({ name }) => isTicketCollectionName(name));
+      const tickets = [];
+      const collectionNames = new Set();
+      let username = '';
+      let latestUsernameDate = '';
+      for (const { name: collectionName } of ticketCollections) {
+        const collectionTickets = await ticketDatabase.collection(collectionName).find({}, {
+          projection: {
+            _id: 1,
+            ticketID: 1,
+            username: 1,
+            userID: 1,
+            createdAt: 1,
+            closedAt: 1,
+            status: 1,
+            staffIDs: 1
+          }
+        }).toArray();
+        for (const ticket of collectionTickets) {
+          const matchesPerson = isDiscordId
+            ? ticket.userID === personId
+            : (typeof ticket.userID !== 'string' || !ticket.userID.trim()) &&
+              typeof ticket.username === 'string' &&
+              ticket.username.toLocaleLowerCase('en') === fallbackUsername;
+          if (!matchesPerson) continue;
+
+          tickets.push(serializeTicketSummary(ticket, collectionName));
+          collectionNames.add(collectionName);
+          const createdDate = ticketDateKey(ticket.createdAt);
+          if (!username || createdDate >= latestUsernameDate) {
+            username = typeof ticket.username === 'string' ? ticket.username : username;
+            latestUsernameDate = createdDate;
+          }
+        }
+      }
+
+      tickets.sort((left, right) => {
+        const leftIsOpen = typeof left.status === 'string' && left.status.toLocaleLowerCase('en') === 'open';
+        const rightIsOpen = typeof right.status === 'string' && right.status.toLocaleLowerCase('en') === 'open';
+        const openOrder = Number(rightIsOpen) - Number(leftIsOpen);
+        return openOrder ||
+          ticketDateKey(right.createdAt).localeCompare(ticketDateKey(left.createdAt)) ||
+          right.ticketId.localeCompare(left.ticketId);
+      });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        person: {
+          personId,
+          userID: isDiscordId ? personId : '',
+          username: username || fallbackUsername,
+          collectionNames: [...collectionNames].sort()
+        },
+        tickets,
+        total: tickets.length
+      });
+    } catch (error) {
+      return sendError(res, error, 'Ticket owner history lookup failed:');
+    }
+  });
+
   app.get('/api/tickets', limited(30), async (req, res) => {
     try {
       const session = await readSession(req, res);
@@ -928,7 +1132,7 @@ function createApp({
     }
   });
 
-  app.get('/api/tickets/:collectionName/:ticketId', limited(60), async (req, res) => {
+  app.get('/api/tickets/:collectionName/:ticketId', limited(600), async (req, res) => {
     try {
       const session = await readSession(req, res);
       if (!session) return;

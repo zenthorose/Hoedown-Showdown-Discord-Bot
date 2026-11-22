@@ -123,6 +123,7 @@ function startMembersLiveUpdates() {
         if (eventName === 'member') mainWindow.webContents.send('members:changed', data);
         else if (eventName === 'avoids-resync') mainWindow.webContents.send('avoids:resync', data);
         else if (eventName === 'tickets-resync') mainWindow.webContents.send('tickets:resync', data);
+        else if (eventName === 'ticket-message') mainWindow.webContents.send('tickets:message', data);
         else mainWindow.webContents.send('members:resync', data);
       }
     }
@@ -590,6 +591,86 @@ app.whenReady().then(async () => {
         page: data.page,
         pageSize: data.pageSize
       };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the ticket service.' };
+    }
+  });
+
+  ipcMain.handle('tickets:people', async (event, filters = {}) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted ticket people request.');
+    }
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
+      return { ok: false, error: 'Enter valid ticket filters.' };
+    }
+    const query = new URLSearchParams();
+    for (const field of ['search', 'from', 'to', 'page']) {
+      if (typeof filters[field] === 'string' && filters[field]) query.set(field, filters[field]);
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi(`/api/ticket-people?${query}`, { token: sessionToken });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not load ticket owners.' };
+      if (!Array.isArray(data.people) || !Number.isSafeInteger(data.total) ||
+          !Number.isSafeInteger(data.page) || !Number.isSafeInteger(data.pageSize) ||
+          data.people.some((person) =>
+            !person || typeof person.personId !== 'string' ||
+            typeof person.username !== 'string' ||
+            !Number.isSafeInteger(person.ticketCount) ||
+            !Number.isSafeInteger(person.openTicketCount) ||
+            !Number.isSafeInteger(person.closedTicketCount) ||
+            !Array.isArray(person.collectionNames))) {
+        throw new Error('The service returned an invalid ticket owner list.');
+      }
+      return {
+        ok: true,
+        people: data.people,
+        total: data.total,
+        collectionCount: Number.isSafeInteger(data.collectionCount) ? data.collectionCount : null,
+        page: data.page,
+        pageSize: data.pageSize
+      };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the ticket service.' };
+    }
+  });
+
+  ipcMain.handle('tickets:person', async (event, personId) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted ticket owner history request.');
+    }
+    const isDiscordId = typeof personId === 'string' && /^\d{1,20}$/.test(personId);
+    const isUsernameKey = typeof personId === 'string' &&
+      personId.startsWith('username:') &&
+      Buffer.byteLength(personId, 'utf8') <= 120 &&
+      !personId.includes('\0') &&
+      !personId.includes('$');
+    if (!isDiscordId && !isUsernameKey) {
+      return { ok: false, error: 'Enter a valid ticket owner.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const route = `/api/ticket-people/${encodeURIComponent(personId)}/tickets`;
+      const { response, data } = await requestApi(route, { token: sessionToken });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not load this ticket history.' };
+      if (!data.person || typeof data.person.personId !== 'string' ||
+          !Array.isArray(data.person.collectionNames) ||
+          !Array.isArray(data.tickets) || !Number.isSafeInteger(data.total)) {
+        throw new Error('The service returned an invalid ticket history.');
+      }
+      return { ok: true, person: data.person, tickets: data.tickets, total: data.total };
     } catch (error) {
       return { ok: false, error: error.message || 'Could not reach the ticket service.' };
     }

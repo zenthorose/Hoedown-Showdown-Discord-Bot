@@ -130,14 +130,14 @@
               <div id="ticket-list-view">
                 <header class="members-toolbar ticket-toolbar">
                   <div>
-                    <h2>Ticket archive</h2>
-                    <p id="tickets-summary" class="muted">Sign in to load archived tickets.</p>
+                    <h2>People with ticket history</h2>
+                    <p id="tickets-summary" class="muted">Sign in to load ticket history.</p>
                   </div>
                   <form id="ticket-filters" class="ticket-filters">
                     <label class="ticket-search-field">
-                      <span class="visually-hidden">Search tickets, players, and staff</span>
+                      <span class="visually-hidden">Search people</span>
                       <input id="ticket-search" type="search" maxlength="100"
-                        placeholder="Search tickets…" autocomplete="off">
+                        placeholder="Search people…" autocomplete="off">
                     </label>
                     <label class="ticket-date-field">
                       <span class="visually-hidden">From date</span>
@@ -151,16 +151,38 @@
                     <button id="refresh-tickets" class="secondary refresh-button" type="button">↻ Refresh</button>
                   </form>
                 </header>
-                <div id="tickets-list" class="tickets-list" role="list" aria-label="Support tickets"></div>
+                <div id="tickets-list" class="tickets-list" role="list" aria-label="People with ticket history"></div>
                 <p id="tickets-state" class="members-state" role="status" aria-live="polite">Tickets are not loaded.</p>
-                <nav class="ticket-pagination" aria-label="Ticket pages">
+                <nav class="ticket-pagination" aria-label="People pages">
                   <button id="tickets-previous" class="secondary" type="button" disabled>← Previous</button>
                   <span id="tickets-page-label" class="muted">Page 1</span>
                   <button id="tickets-next" class="secondary" type="button" disabled>Next →</button>
                 </nav>
               </div>
+              <section id="person-tickets-view" class="person-tickets-view" aria-label="Person ticket history" hidden>
+                <button id="back-to-people" class="secondary ticket-back-button" type="button">← Back to people</button>
+                <header class="members-toolbar ticket-toolbar">
+                  <div>
+                    <h2 id="ticket-person-name" class="ticket-detail-title"></h2>
+                    <p id="ticket-person-summary" class="muted"></p>
+                  </div>
+                  <button id="refresh-person-tickets" class="secondary refresh-button" type="button">↻ Refresh</button>
+                </header>
+                <section class="person-ticket-section" aria-labelledby="open-person-tickets-title">
+                  <h3 id="open-person-tickets-title" class="ticket-section-title">Open</h3>
+                  <div id="open-person-tickets" class="tickets-list person-ticket-list" role="list"
+                    aria-label="Open tickets"></div>
+                  <p id="open-person-tickets-state" class="members-state" role="status" aria-live="polite" hidden></p>
+                </section>
+                <section class="person-ticket-section" aria-labelledby="closed-person-tickets-title">
+                  <h3 id="closed-person-tickets-title" class="ticket-section-title">Closed</h3>
+                  <div id="closed-person-tickets" class="tickets-list person-ticket-list" role="list"
+                    aria-label="Closed tickets"></div>
+                  <p id="closed-person-tickets-state" class="members-state" role="status" aria-live="polite" hidden></p>
+                </section>
+              </section>
               <section id="ticket-detail-view" class="ticket-detail-view" aria-label="Ticket transcript" hidden>
-                <button id="back-to-tickets" class="secondary ticket-back-button" type="button">← Back to tickets</button>
+                <button id="back-to-tickets" class="secondary ticket-back-button" type="button">← Back to person's tickets</button>
                 <div id="ticket-detail-content"></div>
                 <p id="ticket-detail-state" class="members-state" role="status" aria-live="polite" hidden></p>
               </section>

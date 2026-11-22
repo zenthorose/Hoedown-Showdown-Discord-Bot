@@ -344,6 +344,9 @@ footer { margin-top: 20px; font-size: 12px; }
 .ticket-row-details .ticket-status { color: #86c28b; }
 .ticket-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
 .ticket-pagination button, .ticket-back-button { padding: 8px 12px; font-size: 12px; }
+.person-tickets-view { max-height: calc(100vh - 240px); overflow: auto; }
+.person-ticket-section + .person-ticket-section { margin-top: 18px; }
+.person-ticket-list { max-height: none; min-height: 0; overflow: visible; }
 .ticket-detail-view { max-height: calc(100vh - 240px); overflow: auto; }
 .ticket-back-button { margin-bottom: 15px; }
 .ticket-detail-title { margin: 0 0 5px; overflow-wrap: anywhere; color: #f0d58f; font-size: 20px; }

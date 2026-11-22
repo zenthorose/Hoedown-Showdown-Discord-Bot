@@ -15,17 +15,24 @@ let avoidsLoaded = false;
 let avoidsLoading = false;
 let avoidsResyncPending = false;
 let avoidTargetFieldId = 0;
-let ticketRecords = [];
+let ticketPeople = [];
 let ticketsLoaded = false;
 let ticketsLoading = false;
 let ticketLoadError = '';
 let ticketLoadGeneration = 0;
 let ticketResyncTimer = null;
+let ticketMessageResyncTimer = null;
+let lastTicketMessageRefresh = 0;
 let ticketPage = 1;
 let ticketPageSize = 50;
 let ticketTotal = 0;
 let ticketCollectionCount = null;
 let ticketDetailGeneration = 0;
+let personTicketLoadGeneration = 0;
+let personTicketRecords = [];
+let personTicketsLoading = false;
+let personTicketsError = '';
+let selectedPersonSummary = null;
 let selectedTicketSummary = null;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
@@ -49,7 +56,7 @@ const pages = {
   tickets: {
     title: 'Tickets',
     icon: '🎟️',
-    description: 'Search support tickets and review live or closed transcripts.'
+    description: 'Browse people with ticket history and review open or closed tickets.'
   }
 };
 const editableMemberFields = [
@@ -115,22 +122,33 @@ function showSignedOut() {
   ticketLoadError = '';
   ticketLoadGeneration += 1;
   ticketDetailGeneration += 1;
+  personTicketLoadGeneration += 1;
   if (ticketResyncTimer) clearTimeout(ticketResyncTimer);
   ticketResyncTimer = null;
+  if (ticketMessageResyncTimer) clearTimeout(ticketMessageResyncTimer);
+  ticketMessageResyncTimer = null;
   ticketPage = 1;
   ticketTotal = 0;
   ticketCollectionCount = null;
-  ticketRecords = [];
+  ticketPeople = [];
+  personTicketRecords = [];
+  personTicketsLoading = false;
+  personTicketsError = '';
+  selectedPersonSummary = null;
   selectedTicketSummary = null;
   document.getElementById('tickets-list').replaceChildren();
-  document.getElementById('tickets-summary').textContent = 'Sign in to load archived tickets.';
+  document.getElementById('tickets-summary').textContent = 'Sign in to load ticket history.';
   document.getElementById('tickets-state').textContent = 'Tickets are not loaded.';
   document.getElementById('ticket-search').value = '';
   document.getElementById('ticket-from').value = '';
   document.getElementById('ticket-to').value = '';
+  document.getElementById('person-tickets-view').hidden = true;
+  document.getElementById('ticket-list-view').hidden = false;
+  document.getElementById('person-tickets-summary').textContent = '';
+  document.getElementById('open-person-tickets').replaceChildren();
+  document.getElementById('closed-person-tickets').replaceChildren();
   document.getElementById('ticket-detail-content').replaceChildren();
   document.getElementById('ticket-detail-view').hidden = true;
-  document.getElementById('ticket-list-view').hidden = false;
   resetToken = null;
 }
 
@@ -184,8 +202,12 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   if (isMembers && !membersLoaded && !membersLoading) void loadMembers();
   if (isAvoids && !avoidsLoaded && !avoidsLoading) void loadAvoids();
   if (isTickets && !ticketsLoaded && !ticketsLoading) void loadTickets(1);
-  else if (isTickets && selectedTicketSummary && !document.getElementById('ticket-detail-view').hidden) {
-    void openTicket(selectedTicketSummary);
+  else if (isTickets && selectedPersonSummary) {
+    if (selectedTicketSummary && !document.getElementById('ticket-detail-view').hidden) {
+      void openTicket(selectedTicketSummary);
+    } else {
+      void loadPersonTickets(selectedPersonSummary);
+    }
   }
 });
 
@@ -668,38 +690,43 @@ function resyncAvoids() {
   }
 }
 
-function renderTickets() {
+function ticketFiltersAreActive() {
+  return Boolean(
+    document.getElementById('ticket-search').value.trim() ||
+    document.getElementById('ticket-from').value ||
+    document.getElementById('ticket-to').value
+  );
+}
+
+function renderTicketPeople() {
   const list = document.getElementById('tickets-list');
   const state = document.getElementById('tickets-state');
   list.replaceChildren();
 
-  for (const ticket of ticketRecords) {
+  for (const person of ticketPeople) {
     const row = document.createElement('article');
     row.className = 'ticket-row';
     row.setAttribute('role', 'listitem');
     const openButton = document.createElement('button');
     openButton.className = 'ticket-open-button';
     openButton.type = 'button';
-    openButton.addEventListener('click', () => { void openTicket(ticket); });
+    openButton.addEventListener('click', () => { void selectTicketPerson(person); });
 
     const identity = document.createElement('div');
     identity.className = 'ticket-identity';
     const title = document.createElement('strong');
-    title.textContent = ticket.ticketID || 'Untitled ticket';
+    title.textContent = person.username || person.userID || 'Unknown player';
     const user = document.createElement('span');
-    user.textContent = `${ticket.username || 'Unknown player'}${ticket.userID ? ` · ${ticket.userID}` : ''}`;
+    user.textContent = `${person.userID || 'Discord ID unavailable'} · ${person.ticketCount} ticket${person.ticketCount === 1 ? '' : 's'}`;
     identity.append(title, user);
 
     const details = document.createElement('div');
     details.className = 'ticket-row-details';
-    const created = document.createElement('span');
-    created.textContent = ticket.createdAt || 'Date unavailable';
-    const staff = document.createElement('span');
-    staff.textContent = `${ticket.staffIDs.length} staff member${ticket.staffIDs.length === 1 ? '' : 's'}`;
-    const status = document.createElement('span');
-    status.className = 'ticket-status';
-    status.textContent = ticket.status || 'Unknown status';
-    details.append(created, staff, status);
+    const latest = document.createElement('span');
+    latest.textContent = `Latest: ${person.latestCreatedAt || 'Date unavailable'}`;
+    const counts = document.createElement('span');
+    counts.textContent = `${person.openTicketCount} open · ${person.closedTicketCount} closed`;
+    details.append(latest, counts);
     openButton.append(identity, details);
     row.append(openButton);
     list.append(row);
@@ -710,33 +737,28 @@ function renderTickets() {
   document.getElementById('tickets-previous').disabled = ticketsLoading || ticketPage <= 1;
   document.getElementById('tickets-next').disabled = ticketsLoading || ticketPage >= totalPages;
   document.getElementById('refresh-tickets').disabled = ticketsLoading;
-  state.hidden = ticketRecords.length > 0 && !ticketsLoading && !ticketLoadError;
-  const hasFilters = Boolean(
-    document.getElementById('ticket-search').value.trim() ||
-    document.getElementById('ticket-from').value ||
-    document.getElementById('ticket-to').value
-  );
-  if (ticketsLoading) state.textContent = 'Loading tickets…';
+  state.hidden = ticketPeople.length > 0 && !ticketsLoading && !ticketLoadError;
+  const hasFilters = ticketFiltersAreActive();
+  if (ticketsLoading) state.textContent = 'Loading ticket history…';
   else if (ticketLoadError) state.textContent = ticketLoadError;
   else if (ticketCollectionCount === 0) state.textContent = 'No ticket archive collections were found.';
-  else if (ticketTotal === 0 && hasFilters) state.textContent = 'No tickets match your search and date filters.';
-  else if (ticketTotal === 0 && ticketCollectionCount !== null) {
-    state.textContent = `No tickets are stored across ${ticketCollectionCount} ticket archive(s).`;
-  } else if (ticketTotal === 0) state.textContent = 'No tickets were found in the archive.';
-  else if (ticketRecords.length === 0) state.textContent = 'There are no tickets on this page.';
+  else if (ticketTotal === 0 && hasFilters) state.textContent = 'No people match your search and date filters.';
+  else if (ticketTotal === 0) state.textContent = 'No people with ticket history were found.';
+  else if (ticketPeople.length === 0) state.textContent = 'There are no people on this page.';
+
   const start = ticketTotal ? (ticketPage - 1) * ticketPageSize + 1 : 0;
-  const end = Math.min(ticketPage * ticketPageSize, ticketTotal);
+  const end = Math.min(start + ticketPeople.length - 1, ticketTotal);
   document.getElementById('tickets-summary').textContent = ticketsLoading
-    ? 'Loading ticket archive…'
+    ? 'Loading people with ticket history…'
     : ticketLoadError
-      ? 'Ticket archive could not be loaded.'
-    : ticketTotal
-    ? `Showing ${start}–${end} of ${ticketTotal} ticket${ticketTotal === 1 ? '' : 's'}.`
-    : ticketCollectionCount !== null
-      ? hasFilters
-        ? `No matches across ${ticketCollectionCount} ticket archive(s).`
-        : `0 tickets across ${ticketCollectionCount} ticket archive(s).`
-      : '0 tickets found.';
+      ? 'Ticket history could not be loaded.'
+      : ticketTotal
+        ? `Showing ${start}–${end} of ${ticketTotal} player${ticketTotal === 1 ? '' : 's'}.`
+        : ticketCollectionCount !== null
+          ? hasFilters
+            ? `No matches across ${ticketCollectionCount} ticket archive(s).`
+            : `0 players across ${ticketCollectionCount} ticket archive(s).`
+          : '0 players found.';
 }
 
 async function loadTickets(page = ticketPage) {
@@ -745,20 +767,20 @@ async function loadTickets(page = ticketPage) {
   ticketLoadError = '';
   ticketPage = page;
   const state = document.getElementById('tickets-state');
-  state.hidden = false;
-  state.textContent = 'Loading tickets…';
-  document.getElementById('tickets-summary').textContent = 'Loading ticket archive…';
-  renderTickets();
+  state.hidden = ticketPeople.length > 0;
+  state.textContent = 'Loading ticket history…';
+  document.getElementById('tickets-summary').textContent = 'Loading people with ticket history…';
+  renderTicketPeople();
   try {
-    const result = await window.hoedown.getTickets({
+    const result = await window.hoedown.getTicketPeople({
       search: document.getElementById('ticket-search').value.trim(),
       from: document.getElementById('ticket-from').value,
       to: document.getElementById('ticket-to').value,
       page: String(page)
     });
     if (generation !== ticketLoadGeneration) return;
-    if (!result.ok) throw new Error(result.error || 'Could not load Tickets.');
-    ticketRecords = result.tickets;
+    if (!result.ok) throw new Error(result.error || 'Could not load ticket history.');
+    ticketPeople = result.people;
     ticketTotal = result.total;
     ticketCollectionCount = Number.isSafeInteger(result.collectionCount)
       ? result.collectionCount
@@ -767,24 +789,192 @@ async function loadTickets(page = ticketPage) {
     ticketPageSize = result.pageSize;
     ticketsLoaded = true;
     ticketLoadError = '';
-    renderTickets();
+    renderTicketPeople();
   } catch (error) {
     if (generation !== ticketLoadGeneration) return;
     ticketsLoaded = false;
-    ticketLoadError = error.message || 'Could not load tickets.';
+    ticketLoadError = error.message || 'Could not load ticket history.';
   } finally {
     if (generation === ticketLoadGeneration) {
       ticketsLoading = false;
-      renderTickets();
+      renderTicketPeople();
     }
   }
 }
 
-function showTicketList() {
+function createTicketRow(ticket) {
+  const row = document.createElement('article');
+  row.className = 'ticket-row';
+  row.setAttribute('role', 'listitem');
+  const openButton = document.createElement('button');
+  openButton.className = 'ticket-open-button';
+  openButton.type = 'button';
+  openButton.addEventListener('click', () => { void openTicket(ticket); });
+
+  const identity = document.createElement('div');
+  identity.className = 'ticket-identity';
+  const title = document.createElement('strong');
+  title.textContent = ticket.ticketID || 'Untitled ticket';
+  const created = document.createElement('span');
+  created.textContent = ticket.createdAt || 'Date unavailable';
+  identity.append(title, created);
+
+  const details = document.createElement('div');
+  details.className = 'ticket-row-details';
+  const staff = document.createElement('span');
+  staff.textContent = `${ticket.staffIDs.length} staff member${ticket.staffIDs.length === 1 ? '' : 's'}`;
+  const status = document.createElement('span');
+  status.className = 'ticket-status';
+  status.textContent = ticket.status || 'Unknown status';
+  details.append(staff, status);
+  openButton.append(identity, details);
+  row.append(openButton);
+  return row;
+}
+
+function renderPersonTickets() {
+  const openList = document.getElementById('open-person-tickets');
+  const closedList = document.getElementById('closed-person-tickets');
+  const openState = document.getElementById('open-person-tickets-state');
+  const closedState = document.getElementById('closed-person-tickets-state');
+  openList.replaceChildren();
+  closedList.replaceChildren();
+
+  const openTickets = personTicketRecords.filter((ticket) =>
+    typeof ticket.status === 'string' && ticket.status.toLocaleLowerCase('en') === 'open'
+  );
+  const closedTickets = personTicketRecords.filter((ticket) =>
+    !ticket.status || ticket.status.toLocaleLowerCase('en') !== 'open'
+  );
+  for (const ticket of openTickets) openList.append(createTicketRow(ticket));
+  for (const ticket of closedTickets) closedList.append(createTicketRow(ticket));
+
+  document.getElementById('ticket-person-name').textContent =
+    selectedPersonSummary?.username || selectedPersonSummary?.userID || 'Ticket history';
+  document.getElementById('ticket-person-summary').textContent = selectedPersonSummary
+    ? `${selectedPersonSummary.userID || 'Discord ID unavailable'} · ${personTicketRecords.length} ticket${personTicketRecords.length === 1 ? '' : 's'} · ${selectedPersonSummary.openTicketCount} open · ${selectedPersonSummary.closedTicketCount} closed`
+    : '';
+  document.getElementById('refresh-person-tickets').disabled = personTicketsLoading;
+
+  for (const [state, records, label] of [
+    [openState, openTickets, 'open tickets'],
+    [closedState, closedTickets, 'closed tickets']
+  ]) {
+    state.hidden = records.length > 0 && !personTicketsLoading && !personTicketsError;
+    if (personTicketsLoading) state.textContent = 'Loading ticket history…';
+    else if (personTicketsError) state.textContent = personTicketsError;
+    else state.textContent = `No ${label}.`;
+  }
+}
+
+async function selectTicketPerson(person) {
+  selectedPersonSummary = person;
+  selectedTicketSummary = null;
+  personTicketRecords = [];
+  personTicketsError = '';
+  personTicketsLoading = false;
+  document.getElementById('ticket-list-view').hidden = true;
+  document.getElementById('person-tickets-view').hidden = false;
+  document.getElementById('ticket-detail-view').hidden = true;
+  await loadPersonTickets(person, { preserve: false });
+}
+
+async function loadPersonTickets(person, { preserve = true } = {}) {
+  if (!person) return;
+  selectedPersonSummary = person;
+  const generation = ++personTicketLoadGeneration;
+  personTicketsLoading = true;
+  personTicketsError = '';
+  if (!preserve) personTicketRecords = [];
+  renderPersonTickets();
+  try {
+    const result = await window.hoedown.getTicketsForPerson(person.personId);
+    if (generation !== personTicketLoadGeneration) return;
+    if (!result.ok) throw new Error(result.error || 'Could not load this ticket history.');
+    personTicketRecords = result.tickets;
+    const openCount = personTicketRecords.filter((ticket) =>
+      ticket.status?.toLocaleLowerCase('en') === 'open'
+    ).length;
+    selectedPersonSummary = {
+      ...selectedPersonSummary,
+      ...result.person,
+      ticketCount: result.total,
+      openTicketCount: openCount,
+      closedTicketCount: result.total - openCount
+    };
+    if (selectedTicketSummary) {
+      selectedTicketSummary = personTicketRecords.find((ticket) =>
+        ticket.collectionName === selectedTicketSummary.collectionName &&
+        ticket.ticketId === selectedTicketSummary.ticketId
+      ) || selectedTicketSummary;
+    }
+  } catch (error) {
+    if (generation !== personTicketLoadGeneration) return;
+    personTicketsError = error.message || 'Could not load this ticket history.';
+  } finally {
+    if (generation === personTicketLoadGeneration) {
+      personTicketsLoading = false;
+      renderPersonTickets();
+    }
+  }
+}
+
+function resyncTickets() {
+  if (signedInPanel.hidden) return;
+  if (ticketResyncTimer) clearTimeout(ticketResyncTimer);
+  ticketResyncTimer = setTimeout(() => {
+    ticketResyncTimer = null;
+    ticketsLoaded = false;
+    void loadTickets(ticketPage);
+    if (!selectedPersonSummary) return;
+
+    void loadPersonTickets(selectedPersonSummary, { preserve: true });
+    const ticketsView = document.getElementById('tickets-view');
+    const detailView = document.getElementById('ticket-detail-view');
+    if (!ticketsView.hidden && !detailView.hidden && selectedTicketSummary) {
+      void openTicket(selectedTicketSummary);
+    }
+  }, 200);
+}
+
+function resyncTicketMessage(update) {
+  const collectionName = update?.collectionName;
+  if (signedInPanel.hidden || typeof collectionName !== 'string' ||
+      !selectedPersonSummary?.collectionNames?.includes(collectionName) ||
+      ticketMessageResyncTimer) return;
+
+  const wait = Math.max(0, 1500 - (Date.now() - lastTicketMessageRefresh));
+  ticketMessageResyncTimer = setTimeout(() => {
+    ticketMessageResyncTimer = null;
+    lastTicketMessageRefresh = Date.now();
+    if (!selectedPersonSummary?.collectionNames?.includes(collectionName)) return;
+
+    void loadPersonTickets(selectedPersonSummary, { preserve: true });
+    const ticketsView = document.getElementById('tickets-view');
+    const detailView = document.getElementById('ticket-detail-view');
+    if (!ticketsView.hidden && !detailView.hidden &&
+        selectedTicketSummary?.collectionName === collectionName) {
+      void openTicket(selectedTicketSummary);
+    }
+  }, wait);
+}
+
+function showTicketPeople() {
+  ticketDetailGeneration += 1;
+  personTicketLoadGeneration += 1;
+  selectedPersonSummary = null;
+  selectedTicketSummary = null;
+  document.getElementById('ticket-detail-view').hidden = true;
+  document.getElementById('person-tickets-view').hidden = true;
+  document.getElementById('ticket-list-view').hidden = false;
+}
+
+function showPersonTickets() {
   ticketDetailGeneration += 1;
   selectedTicketSummary = null;
   document.getElementById('ticket-detail-view').hidden = true;
-  document.getElementById('ticket-list-view').hidden = false;
+  document.getElementById('ticket-list-view').hidden = true;
+  document.getElementById('person-tickets-view').hidden = false;
 }
 
 async function openTicket(ticketSummary) {
@@ -794,6 +984,7 @@ async function openTicket(ticketSummary) {
   const content = document.getElementById('ticket-detail-content');
   const state = document.getElementById('ticket-detail-state');
   document.getElementById('ticket-list-view').hidden = true;
+  document.getElementById('person-tickets-view').hidden = true;
   detailView.hidden = false;
   content.replaceChildren();
   state.hidden = false;
@@ -1041,28 +1232,32 @@ document.getElementById('refresh-avoids').addEventListener('click', () => {
 document.getElementById('ticket-filters').addEventListener('submit', (event) => {
   event.preventDefault();
   ticketsLoaded = false;
-  showTicketList();
+  showTicketPeople();
   void loadTickets(1);
 });
 document.getElementById('refresh-tickets').addEventListener('click', () => {
   ticketsLoaded = false;
-  showTicketList();
+  showTicketPeople();
   void loadTickets(ticketPage);
 });
 document.getElementById('tickets-previous').addEventListener('click', () => {
   if (ticketPage > 1) {
-    showTicketList();
+    showTicketPeople();
     void loadTickets(ticketPage - 1);
   }
 });
 document.getElementById('tickets-next').addEventListener('click', () => {
   const lastPage = Math.max(1, Math.ceil(ticketTotal / ticketPageSize));
   if (ticketPage < lastPage) {
-    showTicketList();
+    showTicketPeople();
     void loadTickets(ticketPage + 1);
   }
 });
-document.getElementById('back-to-tickets').addEventListener('click', showTicketList);
+document.getElementById('refresh-person-tickets').addEventListener('click', () => {
+  if (selectedPersonSummary) void loadPersonTickets(selectedPersonSummary);
+});
+document.getElementById('back-to-people').addEventListener('click', showTicketPeople);
+document.getElementById('back-to-tickets').addEventListener('click', showPersonTickets);
 
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1185,6 +1380,7 @@ window.hoedown.onMemberChange(applyMemberChange);
 window.hoedown.onMembersResync(() => { void resyncMembers(); });
 window.hoedown.onAvoidsResync(resyncAvoids);
 window.hoedown.onTicketsResync(resyncTickets);
+window.hoedown.onTicketMessage(resyncTicketMessage);
 window.hoedown.onMembersLiveStatus((liveStatus) => {
   setLiveUpdatesStatus(liveStatus);
 });

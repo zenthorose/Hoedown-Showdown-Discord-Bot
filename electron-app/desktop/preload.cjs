@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('hoedown', {
   getMembers: () => ipcRenderer.invoke('members:list'),
   getAvoids: () => ipcRenderer.invoke('avoids:list'),
   getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),
+  getTicketPeople: (filters) => ipcRenderer.invoke('tickets:people', filters),
+  getTicketsForPerson: (personId) => ipcRenderer.invoke('tickets:person', personId),
   getTicket: (collectionName, ticketId) =>
     ipcRenderer.invoke('tickets:get', { collectionName, ticketId }),
   updateMember: (discordId, fields) =>
@@ -38,6 +40,12 @@ contextBridge.exposeInMainWorld('hoedown', {
     const listener = (_event, update) => callback(update);
     ipcRenderer.on('tickets:resync', listener);
     return () => ipcRenderer.removeListener('tickets:resync', listener);
+  },
+  onTicketMessage: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Ticket message callback must be a function.');
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on('tickets:message', listener);
+    return () => ipcRenderer.removeListener('tickets:message', listener);
   },
   onMembersLiveStatus: (callback) => {
     if (typeof callback !== 'function') throw new TypeError('Members live-status callback must be a function.');
