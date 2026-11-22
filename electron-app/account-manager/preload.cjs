@@ -5,7 +5,9 @@ contextBridge.exposeInMainWorld('admin', {
   saveSettings: (settings) => ipcRenderer.invoke('admin:save-settings', settings),
   testConnection: () => ipcRenderer.invoke('admin:test-connection'),
   listUsers: () => ipcRenderer.invoke('admin:list-users'),
-  createUser: (username) => ipcRenderer.invoke('admin:create-user', username),
+  createUser: (account) => ipcRenderer.invoke('admin:create-user', account),
+  linkDiscord: (username, discordId) =>
+    ipcRenderer.invoke('admin:link-discord', { username, discordId }),
   manageUser: (action, username, active) =>
     ipcRenderer.invoke('admin:manage-user', { action, username, active }),
   listDevices: (username) => ipcRenderer.invoke('admin:list-devices', username),

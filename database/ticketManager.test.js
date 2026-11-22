@@ -122,7 +122,7 @@ test('closing reconciles live messages with their human authors and closes the r
     messages: {
       fetch: async () => {
         if (channel.fetchCount++) return makeCollection([]);
-        return makeCollection([appMessage, staffMessage, userMessage]);
+        return makeCollection([legacyAppMessage, appMessage, staffMessage, userMessage]);
       }
     },
     fetchCount: 0
@@ -133,7 +133,7 @@ test('closing reconciles live messages with their human authors and closes the r
     author: { id: 'bot-id', username: 'bot' },
     content: '',
     embeds: [{
-      author: { name: 'player#0001' },
+      author: { name: 'player#0001', iconURL: 'https://cdn.discordapp.com/avatars/123456789012345678/player.png' },
       description: 'I need help.',
       footer: { text: `DM Message ID: user-dm-1 | Author ID: ${user.id}` }
     }],
@@ -145,7 +145,7 @@ test('closing reconciles live messages with their human authors and closes the r
     author: { id: 'bot-id', username: 'bot' },
     content: '',
     embeds: [{
-      author: { name: 'helper#0001' },
+      author: { name: 'helper#0001', iconURL: 'https://cdn.discordapp.com/avatars/987654321098765432/helper.png' },
       description: 'We can help.',
       footer: { text: 'Sent DM Message ID: staff-dm-1 | Staff ID: 987654321098765432' }
     }],
@@ -157,12 +157,24 @@ test('closing reconciles live messages with their human authors and closes the r
     author: { id: 'bot-id', username: 'bot' },
     content: '',
     embeds: [{
-      author: { name: 'cowboy' },
+      author: { name: 'cowboy', iconURL: 'https://cdn.discordapp.com/avatars/345678901234567890/cowboy.png' },
       description: 'I can help with that.',
-      footer: { text: 'Sent DM Message ID: app-dm-1 | App Username: cowboy' }
+      footer: { text: 'Sent DM Message ID: app-dm-1 | Staff ID: 345678901234567890 | App Username: cowboy' }
     }],
     attachments: new Map(),
     createdAt: new Date('2026-11-22T18:03:00.000Z')
+  };
+  const legacyAppMessage = {
+    id: 'mirror-legacy-app-1',
+    author: { id: 'bot-id', username: 'bot' },
+    content: '',
+    embeds: [{
+      author: { name: 'legacy-account' },
+      description: 'An older app reply.',
+      footer: { text: 'Sent DM Message ID: legacy-dm-1 | App Username: legacy-account' }
+    }],
+    attachments: new Map(),
+    createdAt: new Date('2026-11-22T18:04:00.000Z')
   };
 
   await closeTicketAndSave(channel, user, '876543210987654321');
@@ -173,10 +185,14 @@ test('closing reconciles live messages with their human authors and closes the r
   assert.deepEqual(ticket.messages.map(message => message.authorID), [
     user.id,
     '987654321098765432',
-    'app:cowboy'
+    '345678901234567890',
+    'app:legacy-account'
   ]);
   assert.equal(ticket.messages[2].authorName, 'cowboy');
+  assert.equal(ticket.messages[0].authorAvatarUrl, 'https://cdn.discordapp.com/avatars/123456789012345678/player.png');
+  assert.equal(ticket.messages[2].authorAvatarUrl, 'https://cdn.discordapp.com/avatars/345678901234567890/cowboy.png');
   assert.deepEqual(ticket.staffIDs.sort(), [
+    '345678901234567890',
     '876543210987654321',
     '987654321098765432'
   ]);

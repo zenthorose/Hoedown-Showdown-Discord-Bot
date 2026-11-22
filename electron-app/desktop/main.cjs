@@ -706,10 +706,10 @@ app.whenReady().then(async () => {
         return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
       }
       if (!response.ok) return { ok: false, error: data.error || 'Could not load the ticket transcript.' };
-      if (!data.ticket || !Array.isArray(data.ticket.messages)) {
+      if (!data.ticket || !Array.isArray(data.ticket.messages) || typeof data.canReply !== 'boolean') {
         throw new Error('The service returned an invalid ticket transcript.');
       }
-      return { ok: true, ticket: data.ticket };
+      return { ok: true, ticket: data.ticket, canReply: data.canReply };
     } catch (error) {
       return { ok: false, error: error.message || 'Could not reach the ticket service.' };
     }

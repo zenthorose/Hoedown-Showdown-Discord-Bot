@@ -35,6 +35,7 @@ function getCollectionForUser(username) {
     mirrorMessageID: String,
     authorID: String,
     authorName: String,
+    authorAvatarUrl: String,
     content: String,
     timestamp: String,
   }, { _id: false });
@@ -96,6 +97,7 @@ async function recordTicketMessage(channel, user, message) {
     mirrorMessageID: message.mirrorMessageID,
     authorID: message.authorID,
     authorName: message.authorName,
+    authorAvatarUrl: message.authorAvatarUrl,
     content: message.content,
     timestamp: message.timestamp,
   };
@@ -128,11 +130,13 @@ function getEmbedAttribution(message, user) {
   const staffIDMatch = footer.match(/Staff ID:\s*(\d+)/);
   const isUserDM = /DM Message ID:\s*\d+/.test(footer);
   const embedAuthor = message.embeds.find(embed => embed.author?.name)?.author?.name;
+  const authorAvatarUrl = message.embeds.find(embed => embed.author?.iconURL)?.author?.iconURL || '';
 
   return {
     authorID: authorIDMatch?.[1] ||
       (appUsernameMatch ? `app:${appUsernameMatch[1]}` : isUserDM ? user.id : message.author.id),
     authorName: embedAuthor || message.author.username,
+    authorAvatarUrl,
     sourceMessageID: sourceMessageIDMatch?.[1] || message.id,
     staffID: staffIDMatch?.[1] || '',
   };
@@ -210,11 +214,12 @@ async function closeTicketAndSave(channel, user, closedByID) {
     $set: {
       status: 'Closed',
       closedAt,
-      messages: formattedMessages.map(({ sourceMessageID, mirrorMessageID, authorID, authorName, content, timestamp }) => ({
+      messages: formattedMessages.map(({ sourceMessageID, mirrorMessageID, authorID, authorName, authorAvatarUrl, content, timestamp }) => ({
         sourceMessageID,
         mirrorMessageID,
         authorID,
         authorName,
+        authorAvatarUrl,
         content,
         timestamp,
       })),

@@ -1,6 +1,7 @@
 const byId = (id) => document.getElementById(id);
 let latestAudit = [];
 let currentSettings = { configured: false, serviceUrl: '', hasR2: false };
+let discordLinkUsername = '';
 
 function showStatus(id, message) {
   byId(id).textContent = message || '';
@@ -36,6 +37,25 @@ async function loadUsers() {
     for (const account of accounts) {
       const row = document.createElement('tr');
       addCell(row, account.username);
+      const discordCell = addCell(row, '');
+      if (account.discordId) {
+        const identity = document.createElement('span');
+        identity.className = 'discord-identity';
+        if (typeof account.discordAvatarUrl === 'string' &&
+            /^https:\/\/cdn\.discordapp\.com\//.test(account.discordAvatarUrl)) {
+          const avatar = document.createElement('img');
+          avatar.src = account.discordAvatarUrl;
+          avatar.alt = '';
+          avatar.loading = 'lazy';
+          identity.append(avatar);
+        }
+        const details = document.createElement('span');
+        details.textContent = `${account.discordUsername || 'Linked'}\n${account.discordId}`;
+        identity.append(details);
+        discordCell.append(identity);
+      } else {
+        discordCell.textContent = 'Not linked';
+      }
       addCell(row, account.active ? 'Active' : 'Disabled');
       addCell(row, displayDate(account.createdAt));
       addCell(row, displayDate(account.lastLoginAt));
@@ -50,6 +70,7 @@ async function loadUsers() {
         button.dataset.username = account.username;
         actions.appendChild(button);
       };
+      addButton(account.discordId ? 'Edit Discord' : 'Link Discord', 'link-discord');
       addButton(account.active ? 'Disable' : 'Enable', 'toggle');
       addButton('Reset password', 'reset');
       addButton('Revoke sessions', 'revoke');
@@ -126,8 +147,12 @@ byId('create-form').addEventListener('submit', async (event) => {
   const button = event.currentTarget.querySelector('button');
   button.disabled = true;
   try {
-    const result = await window.admin.createUser(byId('new-username').value);
+    const result = await window.admin.createUser({
+      username: byId('new-username').value,
+      discordId: byId('new-discord-id').value
+    });
     byId('new-username').value = '';
+    byId('new-discord-id').value = '';
     byId('temporary-password-value').textContent = result.password;
     byId('temporary-password').hidden = false;
     showStatus('account-status', `Created ${result.username}. Share its temporary password securely.`);
@@ -154,6 +179,17 @@ byId('account-rows').addEventListener('click', async (event) => {
   if (!button) return;
   const { action, username } = button.dataset;
   try {
+    if (action === 'link-discord') {
+      const account = (await window.admin.listUsers()).find((item) => item.username === username);
+      if (!account) throw new Error('Account was not found.');
+      discordLinkUsername = username;
+      byId('discord-link-account').textContent = `App account: ${username}`;
+      byId('discord-link-id').value = account.discordId || '';
+      byId('discord-link-status').textContent = '';
+      byId('discord-link-dialog').showModal();
+      byId('discord-link-id').focus();
+      return;
+    }
     if (action === 'devices') {
       const devices = await window.admin.listDevices(username);
       const body = byId('device-rows');
@@ -213,6 +249,38 @@ byId('account-rows').addEventListener('click', async (event) => {
     showStatus('account-status', error.message || 'Account action failed.');
   }
 });
+
+byId('discord-link-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!discordLinkUsername) return;
+  const buttons = [...event.currentTarget.querySelectorAll('button')];
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    await window.admin.linkDiscord(discordLinkUsername, byId('discord-link-id').value.trim());
+    byId('discord-link-dialog').close();
+    showStatus('account-status', `Updated Discord link for ${discordLinkUsername}.`);
+    await loadUsers();
+    await loadAudit();
+  } catch (error) {
+    showStatus('discord-link-status', error.message || 'Could not update Discord link.');
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+});
+
+byId('remove-discord-link').addEventListener('click', async () => {
+  if (!discordLinkUsername || !window.confirm(`Remove the Discord link for ${discordLinkUsername}?`)) return;
+  try {
+    await window.admin.linkDiscord(discordLinkUsername, '');
+    byId('discord-link-dialog').close();
+    showStatus('account-status', `Removed the Discord link for ${discordLinkUsername}.`);
+    await loadUsers();
+    await loadAudit();
+  } catch (error) {
+    showStatus('discord-link-status', error.message || 'Could not remove Discord link.');
+  }
+});
+byId('cancel-discord-link').addEventListener('click', () => byId('discord-link-dialog').close());
 
 byId('device-rows').addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-action="revoke-device"]');

@@ -37,8 +37,10 @@
             <h2>Create account</h2>
             <form id="create-form" class="inline-form">
               <label>Username<input id="new-username" maxlength="64" required></label>
+              <label>Discord user ID (optional)<input id="new-discord-id" inputmode="numeric" maxlength="20"></label>
               <button type="submit">Create account</button>
             </form>
+            <p class="muted">Discord accounts are linked by an administrator. The bot verifies the ID and provides the profile picture.</p>
             <div id="temporary-password" class="secret-box" hidden>
               <strong>Temporary password — share securely</strong>
               <code id="temporary-password-value"></code>
@@ -66,7 +68,7 @@
             <button id="refresh-users" class="secondary" type="button">Refresh</button>
           </div>
           <div class="table-wrap">
-            <table><thead><tr><th>Username</th><th>Status</th><th>Created</th><th>Last sign-in</th><th>Version</th><th>Actions</th></tr></thead><tbody id="account-rows"></tbody></table>
+            <table><thead><tr><th>Username</th><th>Discord account</th><th>Status</th><th>Created</th><th>Last sign-in</th><th>Version</th><th>Actions</th></tr></thead><tbody id="account-rows"></tbody></table>
           </div>
           <p id="account-status" class="status" role="status"></p>
         </section>
@@ -128,6 +130,21 @@
       </section>
       <p id="global-status" class="status" role="status" aria-live="polite"></p>
     </main>
+    <dialog id="discord-link-dialog" class="discord-link-dialog">
+      <form id="discord-link-form">
+        <h2>Link Discord account</h2>
+        <p id="discord-link-account" class="muted"></p>
+        <label>Discord user ID
+          <input id="discord-link-id" inputmode="numeric" maxlength="20" required>
+        </label>
+        <p id="discord-link-status" class="status" role="status"></p>
+        <div class="actions">
+          <button type="submit">Save link</button>
+          <button id="remove-discord-link" class="danger" type="button">Remove link</button>
+          <button id="cancel-discord-link" class="secondary" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
     <script src="renderer.js"></script>
   </body>
 </html>

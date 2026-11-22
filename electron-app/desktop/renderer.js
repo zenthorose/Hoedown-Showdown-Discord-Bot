@@ -984,6 +984,7 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
   const content = document.getElementById('ticket-detail-content');
   const state = document.getElementById('ticket-detail-state');
   const replyForm = document.getElementById('ticket-reply-form');
+  const replyUnavailable = document.getElementById('ticket-reply-unavailable');
   const replyStatus = document.getElementById('ticket-reply-status');
   document.getElementById('ticket-list-view').hidden = true;
   document.getElementById('person-tickets-view').hidden = true;
@@ -993,6 +994,7 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
   } else {
     content.replaceChildren();
     replyForm.hidden = true;
+    replyUnavailable.hidden = true;
     document.getElementById('ticket-reply-input').value = '';
     replyStatus.textContent = '';
     replyStatus.dataset.error = 'false';
@@ -1060,13 +1062,25 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
       const messageHeader = document.createElement('header');
       const author = document.createElement('strong');
       author.textContent = message.authorName || message.authorID || 'Unknown author';
+      const authorBlock = document.createElement('span');
+      authorBlock.className = 'ticket-message-author';
+      if (typeof message.authorAvatarUrl === 'string' &&
+          /^https:\/\/cdn\.discordapp\.com\//.test(message.authorAvatarUrl)) {
+        const avatar = document.createElement('img');
+        avatar.className = 'ticket-message-author-avatar';
+        avatar.src = message.authorAvatarUrl;
+        avatar.alt = '';
+        avatar.loading = 'lazy';
+        authorBlock.append(avatar);
+      }
+      authorBlock.append(author);
       const timestamp = document.createElement('time');
       timestamp.textContent = message.timestamp || 'Time unavailable';
-      messageHeader.append(author, timestamp);
+      messageHeader.append(authorBlock, timestamp);
       const authorId = document.createElement('small');
       authorId.textContent = message.authorID?.startsWith('app:')
         ? 'App account'
-        : message.authorID || '';
+        : message.authorID ? `Discord ID: ${message.authorID}` : '';
       const body = document.createElement('p');
       body.className = 'ticket-message-content';
       body.textContent = message.content || '[No message content]';
@@ -1076,7 +1090,10 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     const previousScrollTop = detailView.scrollTop;
     const wasAtBottom = detailView.scrollHeight - detailView.clientHeight - previousScrollTop <= 32;
     state.hidden = true;
-    replyForm.hidden = ticket.status?.toLocaleLowerCase('en') !== 'open';
+    const ticketIsOpen = ticket.status?.toLocaleLowerCase('en') === 'open';
+    const canReply = result.canReply === true;
+    replyForm.hidden = !ticketIsOpen || !canReply;
+    replyUnavailable.hidden = !ticketIsOpen || canReply;
     content.replaceChildren(heading, summary, metadata, staffHeading, staffList, transcriptHeading, transcript);
     if (preserveScroll) {
       const maxScrollTop = Math.max(0, detailView.scrollHeight - detailView.clientHeight);

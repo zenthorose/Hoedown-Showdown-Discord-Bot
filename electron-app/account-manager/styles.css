@@ -71,6 +71,14 @@ th, td { padding: 8px; border-bottom: 1px solid #354037; text-align: left; verti
 th { color: #d5bd79; position: sticky; top: 0; background: #1a211c; }
 td.actions-cell { min-width: 250px; }
 .actions-cell button { margin: 2px; padding: 6px 8px; font-size: 11px; }
+.discord-identity { display: flex; align-items: center; gap: 8px; min-width: 180px; }
+.discord-identity img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
+.discord-identity span { overflow-wrap: anywhere; }
+.discord-link-dialog { width: min(460px, calc(100vw - 32px)); padding: 20px; border: 1px solid #48564b; border-radius: 9px; background: #1a211c; color: #eef1eb; }
+.discord-link-dialog::backdrop { background: rgba(0, 0, 0, .7); }
+.discord-link-dialog form { display: grid; gap: 12px; }
+.discord-link-dialog h2, .discord-link-dialog p { margin: 0; }
+.discord-link-dialog .actions { flex-wrap: wrap; }
 .status { min-height: 1.25em; color: #edcc7c; }
 .muted { color: #a4afa5; font-size: 12px; }
 .secret-box { display: grid; gap: 8px; margin-top: 15px; padding: 12px; border: 1px solid #94733d; border-radius: 6px; }

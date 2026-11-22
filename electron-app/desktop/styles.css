@@ -378,6 +378,7 @@ footer { margin-top: 20px; font-size: 12px; }
 .ticket-reply-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .ticket-reply-status { min-height: 1em; margin: 0; color: #9dc79d; font-size: 11px; }
 .ticket-reply-status[data-error="true"] { color: #e99b9b; }
+.ticket-reply-unavailable { margin: 12px 0; color: #e9bd7a; font-size: 12px; }
 .ticket-detail-title { margin: 0 0 5px; overflow-wrap: anywhere; color: #f0d58f; font-size: 20px; }
 .ticket-detail-summary { margin: 0 0 15px; font-size: 12px; }
 .ticket-metadata { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 9px; margin: 0 0 16px; }
@@ -391,6 +392,8 @@ footer { margin-top: 20px; font-size: 12px; }
 .ticket-message { min-width: 0; padding: 12px; border: 1px solid #354239; border-radius: 8px; background: #1a211c; }
 .ticket-message header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; }
 .ticket-message header strong { overflow-wrap: anywhere; color: #f0d58f; font-size: 12px; }
+.ticket-message-author { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
+.ticket-message-author-avatar { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; object-fit: cover; }
 .ticket-message time, .ticket-message small { overflow-wrap: anywhere; color: #879389; font-size: 10px; }
 .ticket-message-content { margin: 8px 0 0; overflow-wrap: anywhere; color: #d3dbd3; font-size: 12px; white-space: pre-wrap; }
 .visually-hidden {

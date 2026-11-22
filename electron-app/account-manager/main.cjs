@@ -201,15 +201,33 @@ app.whenReady().then(() => {
 
   ipcMain.handle('admin:create-user', async (event, value) => {
     requireTrusted(event);
-    const username = String(value || '').trim().toLowerCase();
+    const username = String(value && value.username || '').trim().toLowerCase();
+    const discordId = String(value && value.discordId || '').trim();
     if (!/^[a-zA-Z0-9._-]{1,64}$/.test(username)) throw new TypeError('Username is invalid.');
+    if (discordId && !/^\d{17,20}$/.test(discordId)) throw new TypeError('Discord user ID is invalid.');
     const data = await requestAdmin(await loadSettings(), '/api/admin/users', {
       method: 'POST',
-      body: { username }
+      body: { username, discordId }
     });
     if (data.username !== username || typeof data.password !== 'string') {
       throw new Error('Render returned incomplete account details.');
     }
+    return data;
+  });
+
+  ipcMain.handle('admin:link-discord', async (event, input) => {
+    requireTrusted(event);
+    const username = String(input && input.username || '').trim().toLowerCase();
+    const discordId = String(input && input.discordId || '').trim();
+    if (!/^[a-zA-Z0-9._-]{1,64}$/.test(username) ||
+        (discordId && !/^\d{17,20}$/.test(discordId))) {
+      throw new TypeError('A valid username and Discord user ID are required.');
+    }
+    const data = await requestAdmin(await loadSettings(), '/api/admin/users/link-discord', {
+      method: 'POST',
+      body: { username, discordId }
+    });
+    if (data.username !== username) throw new Error('Render returned an unexpected account.');
     return data;
   });
 

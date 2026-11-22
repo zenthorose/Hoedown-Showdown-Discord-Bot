@@ -172,6 +172,10 @@ function isTicketCollectionName(value) {
     !value.startsWith('system.');
 }
 
+function validDiscordAvatarUrl(value) {
+  return typeof value === 'string' && /^https:\/\/cdn\.discordapp\.com\//.test(value);
+}
+
 function ticketDateKey(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
@@ -242,6 +246,7 @@ function createApp({
   dummyPasswordHash,
   updateFeed,
   updateDiscordNickname,
+  getDiscordProfile,
   sendTicketReply: sendTicketReplyCallback,
   updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
   saveAvoidRelationships
@@ -1156,14 +1161,18 @@ function createApp({
         authorID: typeof message.authorID === 'string' ? message.authorID : '',
         authorName: typeof message.authorName === 'string' ? message.authorName : '',
         content: typeof message.content === 'string' ? message.content : '',
-        timestamp: typeof message.timestamp === 'string' ? message.timestamp : ''
+        timestamp: typeof message.timestamp === 'string' ? message.timestamp : '',
+        authorAvatarUrl: validDiscordAvatarUrl(message.authorAvatarUrl)
+          ? message.authorAvatarUrl
+          : ''
       })) : [];
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
         ticket: {
           ...serializeTicketSummary(ticket, collectionName),
           messages
-        }
+        },
+        canReply: MEMBER_ID_PATTERN.test(session.user.discordId || '')
       });
     } catch (error) {
       return sendError(res, error, 'Ticket transcript lookup failed:');
@@ -1195,6 +1204,9 @@ function createApp({
       if (typeof ticket.status !== 'string' || ticket.status.toLocaleLowerCase('en') !== 'open') {
         return res.status(409).json({ error: 'Replies can only be sent on open tickets.' });
       }
+      if (!MEMBER_ID_PATTERN.test(session.user.discordId || '')) {
+        return res.status(409).json({ error: 'An administrator must link a Discord account before you can reply.' });
+      }
       if (!/^\d{17,20}$/.test(ticket.userID || '') ||
           typeof ticket.ticketChannelID !== 'string' || !ticket.ticketChannelID) {
         return res.status(409).json({ error: 'This ticket is missing its Discord recipient or channel.' });
@@ -1204,6 +1216,7 @@ function createApp({
         ticket,
         collectionName,
         appUsername: session.user.username,
+        staffDiscordId: session.user.discordId,
         replyText
       });
       if (!result || result.ok !== true) {
@@ -1402,11 +1415,24 @@ function createApp({
     if (!authorizeAdmin(req, res)) return;
     try {
       const accounts = await users.find({}, {
-        projection: { _id: 0, username: 1, active: 1, createdAt: 1, lastLoginAt: 1, lastAppVersion: 1 }
+        projection: {
+          _id: 0,
+          username: 1,
+          discordId: 1,
+          discordUsername: 1,
+          discordAvatarUrl: 1,
+          active: 1,
+          createdAt: 1,
+          lastLoginAt: 1,
+          lastAppVersion: 1
+        }
       }).sort({ username: 1 }).toArray();
       return res.status(200).json({
         accounts: accounts.map((item) => ({
           username: item.username,
+          discordId: typeof item.discordId === 'string' ? item.discordId : '',
+          discordUsername: typeof item.discordUsername === 'string' ? item.discordUsername : '',
+          discordAvatarUrl: validDiscordAvatarUrl(item.discordAvatarUrl) ? item.discordAvatarUrl : '',
           active: item.active !== false,
           createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : null,
           lastLoginAt: item.lastLoginAt instanceof Date ? item.lastLoginAt.toISOString() : null,
@@ -1452,7 +1478,33 @@ function createApp({
     if (!authorizeAdmin(req, res)) return;
     const username = normalizeUsername(req.body && req.body.username);
     if (!USERNAME_PATTERN.test(username)) return res.status(400).json({ error: 'Username must be 1-64 letters, numbers, dots, underscores, or hyphens.' });
+    const rawDiscordId = req.body?.discordId;
+    if (rawDiscordId !== undefined && typeof rawDiscordId !== 'string') {
+      return res.status(400).json({ error: 'Discord ID must be text.' });
+    }
+    const discordId = typeof rawDiscordId === 'string' ? rawDiscordId.trim() : '';
+    if (discordId && !MEMBER_ID_PATTERN.test(discordId)) {
+      return res.status(400).json({ error: 'Enter a valid Discord user ID.' });
+    }
     try {
+      let discordProfile = null;
+      if (discordId) {
+        const existingLink = await users.findOne({ discordId });
+        if (existingLink) return res.status(409).json({ error: 'That Discord ID is already linked to an app account.' });
+        if (typeof getDiscordProfile !== 'function') {
+          return res.status(503).json({ error: 'Discord profile lookup is not available.' });
+        }
+        try {
+          discordProfile = await getDiscordProfile(discordId);
+        } catch (error) {
+          console.error('Discord profile lookup failed during account creation:', error);
+          return res.status(502).json({ error: 'The bot could not verify that Discord ID.' });
+        }
+        if (!discordProfile || typeof discordProfile.username !== 'string' ||
+            !validDiscordAvatarUrl(discordProfile.avatarUrl)) {
+          return res.status(502).json({ error: 'The bot returned an invalid Discord profile.' });
+        }
+      }
       const password = generatePassword();
       await users.insertOne({
         username,
@@ -1460,13 +1512,87 @@ function createApp({
         active: true,
         tokenVersion: 0,
         mustChangePassword: true,
-        createdAt: new Date()
+        createdAt: new Date(),
+        ...(discordProfile ? {
+          discordId,
+          discordUsername: discordProfile.username,
+          discordAvatarUrl: discordProfile.avatarUrl
+        } : {})
       });
       const auditLogged = await recordAdminAction('create-account', username);
-      return res.status(201).json({ username, password, auditLogged });
+      return res.status(201).json({
+        username,
+        password,
+        discordId,
+        discordUsername: discordProfile?.username || '',
+        discordAvatarUrl: discordProfile?.avatarUrl || '',
+        auditLogged
+      });
     } catch (error) {
       if (error.code === 11000) return res.status(409).json({ error: 'That username already exists.' });
       return sendError(res, error, 'Admin account creation failed:');
+    }
+  });
+
+  app.post('/api/admin/users/link-discord', adminMutationLimit, async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    const username = normalizeUsername(req.body && req.body.username);
+    if (!USERNAME_PATTERN.test(username)) {
+      return res.status(400).json({ error: 'A valid account username is required.' });
+    }
+    if (typeof req.body?.discordId !== 'string') {
+      return res.status(400).json({ error: 'Discord ID must be text.' });
+    }
+    const discordId = req.body.discordId.trim();
+    if (discordId && !MEMBER_ID_PATTERN.test(discordId)) {
+      return res.status(400).json({ error: 'Enter a valid Discord user ID.' });
+    }
+
+    try {
+      let update;
+      let discordProfile = null;
+      if (discordId) {
+        const existingLink = await users.findOne({ discordId, username: { $ne: username } });
+        if (existingLink) return res.status(409).json({ error: 'That Discord ID is already linked to another app account.' });
+        if (typeof getDiscordProfile !== 'function') {
+          return res.status(503).json({ error: 'Discord profile lookup is not available.' });
+        }
+        try {
+          discordProfile = await getDiscordProfile(discordId);
+        } catch (error) {
+          console.error('Discord profile lookup failed while linking an app account:', error);
+          return res.status(502).json({ error: 'The bot could not verify that Discord ID.' });
+        }
+        if (!discordProfile || typeof discordProfile.username !== 'string' ||
+            !validDiscordAvatarUrl(discordProfile.avatarUrl)) {
+          return res.status(502).json({ error: 'The bot returned an invalid Discord profile.' });
+        }
+        update = {
+          $set: {
+            discordId,
+            discordUsername: discordProfile.username,
+            discordAvatarUrl: discordProfile.avatarUrl
+          }
+        };
+      } else {
+        update = { $unset: { discordId: '', discordUsername: '', discordAvatarUrl: '' } };
+      }
+
+      const result = await users.updateOne({ username }, update);
+      if (!result.matchedCount) return res.status(404).json({ error: 'Account was not found.' });
+      const auditLogged = await recordAdminAction(
+        discordId ? 'link-discord-account' : 'unlink-discord-account',
+        username
+      );
+      return res.status(200).json({
+        username,
+        discordId,
+        discordUsername: discordProfile?.username || '',
+        discordAvatarUrl: discordProfile?.avatarUrl || '',
+        auditLogged
+      });
+    } catch (error) {
+      return sendError(res, error, 'Discord account link update failed:');
     }
   });
 
@@ -1634,30 +1760,33 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     const members = hoedownDatabase ? hoedownDatabase.collection('Members') : null;
     const avoids = hoedownDatabase ? hoedownDatabase.collection('Avoids') : null;
     const sendTicketReply = discordClient && ticketDatabase
-      ? async ({ ticket, collectionName, appUsername, replyText }) => {
+      ? async ({ ticket, collectionName, appUsername, staffDiscordId, replyText }) => {
         if (!discordClient.isReady()) {
           return { ok: false, error: 'The Discord bot is not ready to send replies.' };
         }
 
         let recipient;
         let channel;
+        let staffProfile;
         try {
-          [recipient, channel] = await Promise.all([
+          [recipient, channel, staffProfile] = await Promise.all([
             discordClient.users.fetch(ticket.userID),
-            discordClient.channels.fetch(ticket.ticketChannelID)
+            discordClient.channels.fetch(ticket.ticketChannelID),
+            discordClient.users.fetch(staffDiscordId)
           ]);
         } catch (error) {
-          console.error('Could not load the Discord destination for a ticket reply:', error);
-          return { ok: false, error: 'Could not access the ticket recipient or channel.' };
+          console.error('Could not load a Discord account or destination for a ticket reply:', error);
+          return { ok: false, error: 'Could not access the linked Discord account, ticket recipient, or channel.' };
         }
         if (!recipient || !channel || typeof channel.send !== 'function' ||
-            typeof channel.isTextBased !== 'function' || !channel.isTextBased()) {
-          return { ok: false, error: 'The ticket recipient or text channel is unavailable.' };
+            typeof channel.isTextBased !== 'function' || !channel.isTextBased() ||
+            !staffProfile || typeof staffProfile.displayAvatarURL !== 'function') {
+          return { ok: false, error: 'The linked Discord account, recipient, or text channel is unavailable.' };
         }
 
         let dmMessage;
         try {
-          dmMessage = await recipient.send(`📩 **Support reply from ${appUsername}:**\n${replyText}`);
+          dmMessage = await recipient.send(`📩 **Support Reply:** ${replyText}`);
         } catch (error) {
           console.error('Could not send a ticket reply to the customer DM:', error);
           return { ok: false, error: 'Could not send the reply to the customer’s DMs.' };
@@ -1666,11 +1795,12 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         const timestamp = dmMessage.createdAt instanceof Date
           ? dmMessage.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' })
           : new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+        const staffAvatarUrl = staffProfile.displayAvatarURL({ extension: 'png', size: 64 });
         const mirrorEmbed = {
           color: 0x3498db,
-          author: { name: appUsername },
+          author: { name: appUsername, icon_url: staffAvatarUrl },
           description: replyText,
-          footer: { text: `Sent DM Message ID: ${dmMessage.id} | App Username: ${appUsername}` },
+          footer: { text: `Sent DM Message ID: ${dmMessage.id} | Staff ID: ${staffDiscordId} | App Username: ${appUsername}` },
           timestamp: dmMessage.createdAt instanceof Date
             ? dmMessage.createdAt.toISOString()
             : new Date().toISOString()
@@ -1695,11 +1825,13 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
                 messages: {
                   sourceMessageID: dmMessage.id,
                   mirrorMessageID: mirroredMessage.id,
-                  authorID: `app:${appUsername}`,
+                  authorID: staffDiscordId,
                   authorName: appUsername,
+                  authorAvatarUrl: staffAvatarUrl,
                   content: replyText,
                   timestamp
-                }
+                },
+                staffIDs: staffDiscordId
               }
             }
           );
@@ -1722,6 +1854,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       }
       : null;
     await users.createIndex({ username: 1 }, { unique: true });
+    await users.createIndex({ discordId: 1 }, { unique: true, sparse: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
     await audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_SECONDS });
@@ -1751,6 +1884,16 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
             || await discordClient.guilds.fetch(discordGuildId);
           const member = await guild.members.fetch(discordId);
           await member.setNickname(nickname || null, 'Updated through the Hoedown desktop app');
+        }
+        : null,
+      getDiscordProfile: discordClient
+        ? async (discordId) => {
+          if (!discordClient.isReady()) throw new Error('The Discord bot is not ready to look up profiles.');
+          const user = await discordClient.users.fetch(discordId);
+          return {
+            username: user.username,
+            avatarUrl: user.displayAvatarURL({ extension: 'png', size: 64 })
+          };
         }
         : null
     });

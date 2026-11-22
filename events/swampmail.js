@@ -309,6 +309,7 @@ module.exports = {
             mirrorMessageID: mirroredMessage.id,
             authorID: message.author.id,
             authorName: message.author.username,
+            authorAvatarUrl: message.author.displayAvatarURL({ extension: 'png', size: 64 }),
             content: message.content || '*No content*',
             timestamp: message.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
           });
@@ -459,6 +460,7 @@ async function handleStaffMessage(client, message) {
           mirrorMessageID: mirroredMessage.id,
           authorID: message.author.id,
           authorName: message.author.username,
+          authorAvatarUrl: message.author.displayAvatarURL({ extension: 'png', size: 64 }),
           content: replyText,
           timestamp: dmMsg.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
           staffID: message.author.id,

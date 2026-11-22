@@ -98,7 +98,8 @@ async function withServer(run, options = {}) {
     passwordHash: await bcrypt.hash(password, 4),
     active: true,
     tokenVersion: 0,
-    mustChangePassword: false
+    mustChangePassword: false,
+    ...(options.discordId ? { discordId: options.discordId } : {})
   };
   const users = new MemoryCollection([user]);
   const devices = new MemoryCollection();
@@ -145,6 +146,7 @@ async function withServer(run, options = {}) {
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
     updateDiscordNickname,
+    getDiscordProfile: options.getDiscordProfile,
     sendTicketReply: options.sendTicketReply,
     updateAvoidsInGoogleSheets,
     saveAvoidRelationships
@@ -529,7 +531,8 @@ test('ticket archive requires a session, filters summaries, and returns selected
       authorID: '123456789012345678',
       authorName: 'Cowboy',
       content: 'I need help.',
-      timestamp: '11/21/2026, 03:00 PM'
+      timestamp: '11/21/2026, 03:00 PM',
+      authorAvatarUrl: ''
     }]);
 
     const invalidCollection = await fetch(
@@ -550,7 +553,14 @@ test('ticket replies require a session, use the app username, and reject closed 
         username: 'player',
         userID: '123456789012345678',
         ticketChannelID: '234567890123456789',
-        status: 'Open'
+        status: 'Open',
+        messages: [{
+          authorID: '123456789012345678',
+          authorName: 'player',
+          authorAvatarUrl: 'https://cdn.discordapp.com/avatars/123456789012345678/player.png',
+          content: 'Hello',
+          timestamp: '11/22/2026'
+        }]
       },
       {
         _id: closedTicketId,
@@ -581,6 +591,13 @@ test('ticket replies require a session, use the app username, and reject closed 
     });
     const { token } = await login.json();
     const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const detailResponse = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${openTicketId.toHexString()}`,
+      { headers }
+    );
+    const detail = await detailResponse.json();
+    assert.equal(detail.canReply, true);
+    assert.equal(detail.ticket.messages[0].authorAvatarUrl, 'https://cdn.discordapp.com/avatars/123456789012345678/player.png');
     const openResponse = await fetch(
       `${baseUrl}/api/tickets/player_Tickets/${openTicketId.toHexString()}/reply`,
       { method: 'POST', headers, body }
@@ -591,6 +608,7 @@ test('ticket replies require a session, use the app username, and reject closed 
     assert.equal(replies.length, 1);
     assert.equal(replies[0].collectionName, 'player_Tickets');
     assert.equal(replies[0].appUsername, 'cowboy');
+    assert.equal(replies[0].staffDiscordId, '123456789012345678');
     assert.equal(replies[0].replyText, 'We can help with that.');
 
     const closedResponse = await fetch(
@@ -601,8 +619,60 @@ test('ticket replies require a session, use the app username, and reject closed 
     assert.equal(replies.length, 1);
   }, {
     ticketDatabase,
+    discordId: '123456789012345678',
     sendTicketReply: async (reply) => {
       replies.push(reply);
+      return { ok: true };
+    }
+  });
+
+});
+
+test('ticket replies require an administrator-linked Discord account', async () => {
+  const openTicketId = new ObjectId();
+  const ticketDatabase = new MemoryTicketDatabase({
+    player_Tickets: [{
+      _id: openTicketId,
+        ticketID: 'player ticket',
+        username: 'player',
+        userID: '123456789012345678',
+        ticketChannelID: '987654321098765432',
+        status: 'Open',
+        messages: []
+      }]
+  });
+  let sendCalls = 0;
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'cowboy',
+          password,
+          ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+        })
+    });
+    const { token } = await login.json();
+    const detailResponse = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${openTicketId.toHexString()}`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+    assert.equal((await detailResponse.json()).canReply, false);
+    const response = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${openTicketId.toHexString()}/reply`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ replyText: 'Reply without linked Discord' })
+      }
+    );
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /administrator must link/i);
+    assert.equal(sendCalls, 0);
+  }, {
+    ticketDatabase,
+    sendTicketReply: async () => {
+      sendCalls += 1;
       return { ok: true };
     }
   });
@@ -1008,6 +1078,39 @@ test('admin account creation returns a temporary password and disable revokes se
     assert.equal(disabledResponse.status, 200);
     assert.equal(user.active, false);
     assert.equal(user.tokenVersion, 1);
+  });
+});
+
+test('admin can link and unlink a verified Discord profile', async () => {
+  const authorization = 'Bearer test-admin-key-that-is-at-least-thirty-two-characters';
+  await withServer(async ({ baseUrl, user }) => {
+    const linked = await fetch(`${baseUrl}/api/admin/users/link-discord`, {
+      method: 'POST',
+      headers: { authorization, 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'cowboy', discordId: '123456789012345678' })
+    });
+    assert.equal(linked.status, 200);
+    assert.equal(user.discordId, '123456789012345678');
+    assert.equal(user.discordUsername, 'verified-discord-user');
+    assert.equal(user.discordAvatarUrl, 'https://cdn.discordapp.com/avatars/123456789012345678/avatar.png');
+
+    const listed = await fetch(`${baseUrl}/api/admin/users`, { headers: { authorization } });
+    const { accounts } = await listed.json();
+    assert.equal(accounts[0].discordId, '123456789012345678');
+    assert.equal(accounts[0].discordAvatarUrl, user.discordAvatarUrl);
+
+    const unlinked = await fetch(`${baseUrl}/api/admin/users/link-discord`, {
+      method: 'POST',
+      headers: { authorization, 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'cowboy', discordId: '' })
+    });
+    assert.equal(unlinked.status, 200);
+    assert.equal(user.discordId, undefined);
+  }, {
+    getDiscordProfile: async (discordId) => ({
+      username: 'verified-discord-user',
+      avatarUrl: `https://cdn.discordapp.com/avatars/${discordId}/avatar.png`
+    })
   });
 });
 
