@@ -185,6 +185,16 @@
                 <button id="back-to-tickets" class="secondary ticket-back-button" type="button">← Back to person's tickets</button>
                 <div id="ticket-detail-content"></div>
                 <p id="ticket-detail-state" class="members-state" role="status" aria-live="polite" hidden></p>
+                <form id="ticket-reply-form" class="ticket-reply-form" hidden>
+                  <label for="ticket-reply-input">Reply as your app account</label>
+                  <p class="muted">The bot will DM the customer and mirror your reply in this ticket channel.</p>
+                  <textarea id="ticket-reply-input" maxlength="1800" rows="3" required
+                    placeholder="Write a reply…"></textarea>
+                  <div class="ticket-reply-actions">
+                    <p id="ticket-reply-status" class="ticket-reply-status" role="status" aria-live="polite"></p>
+                    <button type="submit">Send reply</button>
+                  </div>
+                </form>
               </section>
             </section>
             <form id="self-password-form" class="password-card" hidden>

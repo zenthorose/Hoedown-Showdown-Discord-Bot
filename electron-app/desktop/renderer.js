@@ -983,6 +983,8 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
   const detailView = document.getElementById('ticket-detail-view');
   const content = document.getElementById('ticket-detail-content');
   const state = document.getElementById('ticket-detail-state');
+  const replyForm = document.getElementById('ticket-reply-form');
+  const replyStatus = document.getElementById('ticket-reply-status');
   document.getElementById('ticket-list-view').hidden = true;
   document.getElementById('person-tickets-view').hidden = true;
   detailView.hidden = false;
@@ -990,6 +992,10 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     state.hidden = true;
   } else {
     content.replaceChildren();
+    replyForm.hidden = true;
+    document.getElementById('ticket-reply-input').value = '';
+    replyStatus.textContent = '';
+    replyStatus.dataset.error = 'false';
     state.hidden = false;
     state.textContent = 'Loading ticket transcript…';
   }
@@ -1058,7 +1064,9 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
       timestamp.textContent = message.timestamp || 'Time unavailable';
       messageHeader.append(author, timestamp);
       const authorId = document.createElement('small');
-      authorId.textContent = message.authorID || '';
+      authorId.textContent = message.authorID?.startsWith('app:')
+        ? 'App account'
+        : message.authorID || '';
       const body = document.createElement('p');
       body.className = 'ticket-message-content';
       body.textContent = message.content || '[No message content]';
@@ -1068,6 +1076,7 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     const previousScrollTop = detailView.scrollTop;
     const wasAtBottom = detailView.scrollHeight - detailView.clientHeight - previousScrollTop <= 32;
     state.hidden = true;
+    replyForm.hidden = ticket.status?.toLocaleLowerCase('en') !== 'open';
     content.replaceChildren(heading, summary, metadata, staffHeading, staffList, transcriptHeading, transcript);
     if (preserveScroll) {
       const maxScrollTop = Math.max(0, detailView.scrollHeight - detailView.clientHeight);
@@ -1251,6 +1260,49 @@ document.getElementById('refresh-person-tickets').addEventListener('click', () =
 });
 document.getElementById('back-to-people').addEventListener('click', showTicketPeople);
 document.getElementById('back-to-tickets').addEventListener('click', showPersonTickets);
+
+document.getElementById('ticket-reply-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const input = document.getElementById('ticket-reply-input');
+  const status = document.getElementById('ticket-reply-status');
+  const button = form.querySelector('button[type="submit"]');
+  const ticket = selectedTicketSummary;
+  const replyText = input.value.trim();
+  if (!ticket || !replyText) return;
+
+  button.disabled = true;
+  input.disabled = true;
+  status.dataset.error = 'false';
+  status.textContent = 'Sending reply…';
+  try {
+    const result = await window.hoedown.sendTicketReply({
+      collectionName: ticket.collectionName,
+      ticketId: ticket.ticketId,
+      replyText
+    });
+    if (!result.ok) {
+      status.dataset.error = 'true';
+      status.textContent = result.error || 'Could not send this reply.';
+      if (result.partial) input.value = '';
+      return;
+    }
+
+    input.value = '';
+    status.textContent = `Reply sent as ${result.authorName}.`;
+    if (selectedTicketSummary?.collectionName === ticket.collectionName &&
+        selectedTicketSummary?.ticketId === ticket.ticketId &&
+        !document.getElementById('ticket-detail-view').hidden) {
+      void openTicket(ticket, { preserveScroll: true });
+    }
+  } catch (error) {
+    status.dataset.error = 'true';
+    status.textContent = error.message || 'Could not send this reply.';
+  } finally {
+    button.disabled = false;
+    input.disabled = false;
+  }
+});
 
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();

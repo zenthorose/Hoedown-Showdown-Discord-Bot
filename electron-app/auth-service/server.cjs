@@ -242,6 +242,7 @@ function createApp({
   dummyPasswordHash,
   updateFeed,
   updateDiscordNickname,
+  sendTicketReply: sendTicketReplyCallback,
   updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
   saveAvoidRelationships
 }) {
@@ -1169,6 +1170,54 @@ function createApp({
     }
   });
 
+  app.post('/api/tickets/:collectionName/:ticketId/reply', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+      if (typeof sendTicketReplyCallback !== 'function') {
+        return res.status(503).json({ error: 'Ticket replies are not available.' });
+      }
+
+      const { collectionName, ticketId } = req.params;
+      if (!isTicketCollectionName(collectionName) || !/^[a-f\d]{24}$/i.test(ticketId)) {
+        return res.status(400).json({ error: 'A valid ticket reference is required.' });
+      }
+      const replyText = typeof req.body?.replyText === 'string' ? req.body.replyText.trim() : '';
+      if (!replyText || replyText.length > 1800) {
+        return res.status(400).json({ error: 'Replies must contain 1–1800 characters.' });
+      }
+
+      const ticket = await ticketDatabase.collection(collectionName).findOne({
+        _id: new ObjectId(ticketId)
+      });
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+      if (typeof ticket.status !== 'string' || ticket.status.toLocaleLowerCase('en') !== 'open') {
+        return res.status(409).json({ error: 'Replies can only be sent on open tickets.' });
+      }
+      if (!/^\d{17,20}$/.test(ticket.userID || '') ||
+          typeof ticket.ticketChannelID !== 'string' || !ticket.ticketChannelID) {
+        return res.status(409).json({ error: 'This ticket is missing its Discord recipient or channel.' });
+      }
+
+      const result = await sendTicketReplyCallback({
+        ticket,
+        collectionName,
+        appUsername: session.user.username,
+        replyText
+      });
+      if (!result || result.ok !== true) {
+        return res.status(result?.partial ? 502 : 503).json({
+          error: result?.error || 'The reply could not be sent.',
+          partial: result?.partial === true
+        });
+      }
+      return res.status(200).json({ authorName: session.user.username });
+    } catch (error) {
+      return sendError(res, error, 'Ticket reply delivery failed:');
+    }
+  });
+
   app.post('/api/avoids', limited(10), async (req, res) => {
     try {
       const session = await readSession(req, res);
@@ -1584,6 +1633,94 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     const ticketDatabase = ticketDatabaseName ? client.db(ticketDatabaseName) : null;
     const members = hoedownDatabase ? hoedownDatabase.collection('Members') : null;
     const avoids = hoedownDatabase ? hoedownDatabase.collection('Avoids') : null;
+    const sendTicketReply = discordClient && ticketDatabase
+      ? async ({ ticket, collectionName, appUsername, replyText }) => {
+        if (!discordClient.isReady()) {
+          return { ok: false, error: 'The Discord bot is not ready to send replies.' };
+        }
+
+        let recipient;
+        let channel;
+        try {
+          [recipient, channel] = await Promise.all([
+            discordClient.users.fetch(ticket.userID),
+            discordClient.channels.fetch(ticket.ticketChannelID)
+          ]);
+        } catch (error) {
+          console.error('Could not load the Discord destination for a ticket reply:', error);
+          return { ok: false, error: 'Could not access the ticket recipient or channel.' };
+        }
+        if (!recipient || !channel || typeof channel.send !== 'function' ||
+            typeof channel.isTextBased !== 'function' || !channel.isTextBased()) {
+          return { ok: false, error: 'The ticket recipient or text channel is unavailable.' };
+        }
+
+        let dmMessage;
+        try {
+          dmMessage = await recipient.send(`📩 **Support reply from ${appUsername}:**\n${replyText}`);
+        } catch (error) {
+          console.error('Could not send a ticket reply to the customer DM:', error);
+          return { ok: false, error: 'Could not send the reply to the customer’s DMs.' };
+        }
+
+        const timestamp = dmMessage.createdAt instanceof Date
+          ? dmMessage.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' })
+          : new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+        const mirrorEmbed = {
+          color: 0x3498db,
+          author: { name: appUsername },
+          description: replyText,
+          footer: { text: `Sent DM Message ID: ${dmMessage.id} | App Username: ${appUsername}` },
+          timestamp: dmMessage.createdAt instanceof Date
+            ? dmMessage.createdAt.toISOString()
+            : new Date().toISOString()
+        };
+        let mirroredMessage;
+        try {
+          mirroredMessage = await channel.send({ embeds: [mirrorEmbed] });
+        } catch (error) {
+          console.error('Ticket reply DM was sent but its channel mirror failed:', error);
+          return {
+            ok: false,
+            partial: true,
+            error: 'The DM was sent, but the ticket-channel mirror failed. Do not resend this reply.'
+          };
+        }
+
+        try {
+          const result = await ticketDatabase.collection(collectionName).updateOne(
+            { _id: ticket._id, status: ticket.status },
+            {
+              $addToSet: {
+                messages: {
+                  sourceMessageID: dmMessage.id,
+                  mirrorMessageID: mirroredMessage.id,
+                  authorID: `app:${appUsername}`,
+                  authorName: appUsername,
+                  content: replyText,
+                  timestamp
+                }
+              }
+            }
+          );
+          if (result.matchedCount !== 1) {
+            return {
+              ok: false,
+              partial: true,
+              error: 'The DM and channel mirror were sent, but the ticket changed before the transcript could be saved.'
+            };
+          }
+        } catch (error) {
+          console.error('Ticket reply was delivered but could not be saved to the transcript:', error);
+          return {
+            ok: false,
+            partial: true,
+            error: 'The DM and channel mirror were sent, but the transcript could not be saved.'
+          };
+        }
+        return { ok: true };
+      }
+      : null;
     await users.createIndex({ username: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
@@ -1600,6 +1737,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)
         : null,
+      sendTicketReply,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,

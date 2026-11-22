@@ -123,13 +123,15 @@ async function updateTicketMessage(channel, user, mirrorMessageID, content, staf
 function getEmbedAttribution(message, user) {
   const footer = message.embeds.map(embed => embed.footer?.text || '').join(' ');
   const authorIDMatch = footer.match(/(?:Author|Staff) ID:\s*(\d+)/);
+  const appUsernameMatch = footer.match(/App Username:\s*([A-Za-z0-9._-]{1,64})/);
   const sourceMessageIDMatch = footer.match(/(?:DM|Sent DM) Message ID:\s*(\d+)/);
   const staffIDMatch = footer.match(/Staff ID:\s*(\d+)/);
   const isUserDM = /DM Message ID:\s*\d+/.test(footer);
   const embedAuthor = message.embeds.find(embed => embed.author?.name)?.author?.name;
 
   return {
-    authorID: authorIDMatch?.[1] || (isUserDM ? user.id : message.author.id),
+    authorID: authorIDMatch?.[1] ||
+      (appUsernameMatch ? `app:${appUsernameMatch[1]}` : isUserDM ? user.id : message.author.id),
     authorName: embedAuthor || message.author.username,
     sourceMessageID: sourceMessageIDMatch?.[1] || message.id,
     staffID: staffIDMatch?.[1] || '',
@@ -151,7 +153,10 @@ function formatTicketMessage(message, user) {
           embedParts.push(embed.fields.map(field => `${field.name}: ${field.value}`).join('\n'));
         }
         if (embed.footer?.text) {
-          const visibleFooter = embed.footer.text.replace(/\s*\|\s*(?:Author|Staff) ID:\s*\d+/g, '');
+          const visibleFooter = embed.footer.text.replace(
+            /\s*\|\s*(?:(?:Author|Staff) ID:\s*\d+|App Username:\s*[A-Za-z0-9._-]{1,64})/g,
+            ''
+          );
           if (visibleFooter) embedParts.push(`_Footer: ${visibleFooter}_`);
         }
         return embedParts.join('\n');

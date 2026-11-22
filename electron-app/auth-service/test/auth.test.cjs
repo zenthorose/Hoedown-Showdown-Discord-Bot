@@ -145,6 +145,7 @@ async function withServer(run, options = {}) {
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
     updateDiscordNickname,
+    sendTicketReply: options.sendTicketReply,
     updateAvoidsInGoogleSheets,
     saveAvoidRelationships
   });
@@ -537,6 +538,74 @@ test('ticket archive requires a session, filters summaries, and returns selected
     );
     assert.equal(invalidCollection.status, 404);
   }, { ticketDatabase });
+});
+
+test('ticket replies require a session, use the app username, and reject closed tickets', async () => {
+  const openTicketId = new ObjectId();
+  const closedTicketId = new ObjectId();
+  const ticketDatabase = new MemoryTicketDatabase({
+    'player_Tickets': [
+      {
+        _id: openTicketId,
+        username: 'player',
+        userID: '123456789012345678',
+        ticketChannelID: '234567890123456789',
+        status: 'Open'
+      },
+      {
+        _id: closedTicketId,
+        username: 'player',
+        userID: '123456789012345678',
+        ticketChannelID: '234567890123456789',
+        status: 'Closed'
+      }
+    ]
+  });
+  const replies = [];
+  await withServer(async ({ baseUrl, password }) => {
+    const body = JSON.stringify({ replyText: 'We can help with that.' });
+    const unauthorized = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${openTicketId.toHexString()}/reply`,
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body }
+    );
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const openResponse = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${openTicketId.toHexString()}/reply`,
+      { method: 'POST', headers, body }
+    );
+    const openResult = await openResponse.json();
+    assert.equal(openResponse.status, 200);
+    assert.deepEqual(openResult, { authorName: 'cowboy' });
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].collectionName, 'player_Tickets');
+    assert.equal(replies[0].appUsername, 'cowboy');
+    assert.equal(replies[0].replyText, 'We can help with that.');
+
+    const closedResponse = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${closedTicketId.toHexString()}/reply`,
+      { method: 'POST', headers, body }
+    );
+    assert.equal(closedResponse.status, 409);
+    assert.equal(replies.length, 1);
+  }, {
+    ticketDatabase,
+    sendTicketReply: async (reply) => {
+      replies.push(reply);
+      return { ok: true };
+    }
+  });
 });
 
 test('avoid pairing creation updates Google Sheets before MongoDB using selected member usernames', async () => {

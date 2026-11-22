@@ -122,7 +122,7 @@ test('closing reconciles live messages with their human authors and closes the r
     messages: {
       fetch: async () => {
         if (channel.fetchCount++) return makeCollection([]);
-        return makeCollection([staffMessage, userMessage]);
+        return makeCollection([appMessage, staffMessage, userMessage]);
       }
     },
     fetchCount: 0
@@ -152,6 +152,18 @@ test('closing reconciles live messages with their human authors and closes the r
     attachments: new Map(),
     createdAt: new Date('2026-11-22T18:02:00.000Z')
   };
+  const appMessage = {
+    id: 'mirror-app-1',
+    author: { id: 'bot-id', username: 'bot' },
+    content: '',
+    embeds: [{
+      author: { name: 'cowboy' },
+      description: 'I can help with that.',
+      footer: { text: 'Sent DM Message ID: app-dm-1 | App Username: cowboy' }
+    }],
+    attachments: new Map(),
+    createdAt: new Date('2026-11-22T18:03:00.000Z')
+  };
 
   await closeTicketAndSave(channel, user, '876543210987654321');
   const ticket = recordsByCollection.get('player_Tickets')
@@ -160,8 +172,10 @@ test('closing reconciles live messages with their human authors and closes the r
   assert.equal(ticket.status, 'Closed');
   assert.deepEqual(ticket.messages.map(message => message.authorID), [
     user.id,
-    '987654321098765432'
+    '987654321098765432',
+    'app:cowboy'
   ]);
+  assert.equal(ticket.messages[2].authorName, 'cowboy');
   assert.deepEqual(ticket.staffIDs.sort(), [
     '876543210987654321',
     '987654321098765432'
