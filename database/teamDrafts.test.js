@@ -103,7 +103,7 @@ function createCollections() {
   };
 }
 
-async function createDraft(collections, sourceMessageId = 'message-1') {
+async function createDraft(collections, sourceMessageId = 'message-1', targetRound) {
   return createCurrentTeamDraft({
     reactedPlayers: [
       { id: '10000000000000001', name: 'one' },
@@ -117,6 +117,7 @@ async function createDraft(collections, sourceMessageId = 'message-1') {
     playersThatReactedCollection: collections.playersThatReacted,
     teamCheckCollection: collections.teamCheck,
     roundsDatabase: collections.roundsDatabase,
+    targetRound,
     random: () => 0
   });
 }
@@ -171,6 +172,21 @@ test('a new generation uses the round after the highest populated collection whe
   const draft = await createDraft(collections);
 
   assert.equal(draft.round, 4);
+});
+
+test('the Rounds action target overrides a pending draft round', async () => {
+  const collections = createCollections();
+  const pendingDraft = await createDraft(collections);
+  assert.equal(pendingDraft.round, 1);
+  await collections.roundsDatabase.collection('Round#1').insertOne({
+    _id: 'round-selection-test',
+    testOnly: true
+  });
+
+  const nextDraft = await createDraft(collections, 'message-2', 2);
+
+  assert.equal(nextDraft.round, 2);
+  assert.equal(nextDraft.sourceMessageId, 'message-2');
 });
 
 test('approval saves round data, records pairings once, and finalizes both snapshots', async () => {

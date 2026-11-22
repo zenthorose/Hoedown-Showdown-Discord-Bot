@@ -23,7 +23,8 @@ async function generateTeamDraftFromMessage({
   botSettings,
   config,
   collections,
-  roundsDatabase
+  roundsDatabase,
+  targetRound
 }) {
   if (generationRunning) {
     throw new TeamGenerationError('A team generation is already running. Please wait for it to finish.', 409);
@@ -51,7 +52,8 @@ async function generateTeamDraftFromMessage({
         previousPairingsCollection: collections.previousPairings,
         playersThatReactedCollection: collections.playersThatReacted,
         teamCheckCollection: collections.teamCheck,
-        roundsDatabase
+        roundsDatabase,
+        targetRound
       });
     } catch (error) {
       if ([

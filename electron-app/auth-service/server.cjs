@@ -8,7 +8,7 @@ const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
 const { addAvoidRelationships } = require('../../database/pairingImport');
 const config = require('../../config.json');
-const { CURRENT_SNAPSHOT_ID, findNextRound } = require('../../database/teamDrafts');
+const { findNextRound } = require('../../database/teamDrafts');
 const { findLatestRoundOptInMessage } = require('../../utils/optInReactions');
 const { TeamGenerationError, generateTeamDraftFromMessage } = require('../../utils/teamGeneration');
 const {
@@ -2757,12 +2757,9 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         throw new TeamGenerationError('The Opt-In channel is not configured in bot settings or config.json.');
       }
 
-      const currentDraft = await roundCollections.teamCheck.findOne({ _id: CURRENT_SNAPSHOT_ID });
       let round;
       try {
-        round = currentDraft?.status === 'pending'
-          ? currentDraft.round
-          : await findNextRound(roundsDatabase);
+        round = await findNextRound(roundsDatabase);
       } catch (error) {
         if (error.message === 'All 16 round collections already contain approved data.') {
           throw new TeamGenerationError(error.message, 409);
@@ -2794,7 +2791,8 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
           previousPairings: hoedownDatabase.collection('PreviousPairings'),
           ...roundCollections
         },
-        roundsDatabase
+        roundsDatabase,
+        targetRound: round
       });
     };
     await users.createIndex({ username: 1 }, { unique: true });

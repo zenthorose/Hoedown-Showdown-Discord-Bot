@@ -349,6 +349,7 @@ async function createCurrentTeamDraft({
   playersThatReactedCollection,
   teamCheckCollection,
   roundsDatabase,
+  targetRound,
   random = Math.random,
   now = () => new Date()
 }) {
@@ -366,9 +367,12 @@ async function createCurrentTeamDraft({
   if (currentDraft?.status === 'approving') {
     throw new Error('The current draft is being approved. Try again after approval finishes.');
   }
-  const round = currentDraft?.status === 'pending'
-    ? currentDraft.round
-    : await findNextRound(roundsDatabase);
+  const usesPendingDraftRound = currentDraft?.status === 'pending' && targetRound === undefined;
+  const round = targetRound !== undefined
+    ? targetRound
+    : usesPendingDraftRound
+      ? currentDraft.round
+      : await findNextRound(roundsDatabase);
   if (!Number.isInteger(round) || round < 1 || round > ROUND_COUNT) {
     throw new Error('The current Team Check draft has an invalid round number.');
   }
@@ -385,7 +389,7 @@ async function createCurrentTeamDraft({
     loadPairingKeys(avoidsCollection, 'avoids'),
     loadPairingKeys(previousPairingsCollection, 'previousPairings')
   ]);
-  const teamLabelStartIndex = currentDraft?.status === 'pending' &&
+  const teamLabelStartIndex = usesPendingDraftRound &&
     Number.isSafeInteger(currentDraft.teamLabelStartIndex)
     ? currentDraft.teamLabelStartIndex
     : await getNextTeamLabelIndex(roundsDatabase, round);
