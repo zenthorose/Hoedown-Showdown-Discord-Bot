@@ -1164,7 +1164,8 @@ function createApp({
       const staffIDs = Array.isArray(ticket.staffIDs) ? ticket.staffIDs : [];
       const messages = Array.isArray(ticket.messages) ? ticket.messages.map((message) => {
         const authorID = typeof message.authorID === 'string' ? message.authorID : '';
-        const isStaffReply = staffIDs.includes(authorID) || authorID.startsWith('app:');
+        const isStaffReply = authorID !== ticket.userID &&
+          (staffIDs.includes(authorID) || authorID.startsWith('app:'));
         return {
           authorID,
           authorName: typeof message.authorName === 'string' ? message.authorName : '',
@@ -1281,8 +1282,10 @@ function createApp({
         ? ticket.messages.find((item) => item.mirrorMessageID === mirrorMessageID)
         : null;
       if (!message) return res.status(404).json({ error: 'Ticket reply was not found.' });
-      const isStaffReply = (Array.isArray(ticket.staffIDs) && ticket.staffIDs.includes(message.authorID)) ||
-        (typeof message.authorID === 'string' && message.authorID.startsWith('app:'));
+      const messageAuthorID = typeof message.authorID === 'string' ? message.authorID : '';
+      const isStaffReply = messageAuthorID !== ticket.userID &&
+        ((Array.isArray(ticket.staffIDs) && ticket.staffIDs.includes(messageAuthorID)) ||
+          messageAuthorID.startsWith('app:'));
       if (!isStaffReply ||
           !MEMBER_ID_PATTERN.test(message.sourceMessageID || '') ||
           !MEMBER_ID_PATTERN.test(message.mirrorMessageID || '')) {

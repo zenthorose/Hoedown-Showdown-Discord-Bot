@@ -714,7 +714,7 @@ test('staff replies can be edited in place, but customer messages cannot', async
     userID: customerId,
     ticketChannelID: '876543210987654321',
     status: 'Open',
-    staffIDs: [staffId],
+    staffIDs: [staffId, customerId],
     messages: [
       {
         sourceMessageID: '456789012345678901',
