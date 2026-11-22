@@ -129,13 +129,26 @@ async function saveSettings(input) {
 }
 
 function exportCsv(events) {
-  const fields = ['actor', 'action', 'username', 'at'];
+  const fields = ['actor', 'action', 'username', 'at', 'details'];
   const cell = (value) => {
     const text = String(value == null ? '' : value);
     const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
     return `"${safe.replace(/"/g, '""')}"`;
   };
-  return [fields.join(','), ...events.map((event) => fields.map((field) => cell(event[field])).join(','))].join('\r\n');
+  return [
+    fields.join(','),
+    ...events.map((event) => fields.map((field) => {
+      if (field === 'at' && event.at) {
+        const date = new Date(event.at);
+        return cell(Number.isNaN(date.getTime())
+          ? event.at
+          : date.toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' }));
+      }
+      return cell(field === 'details' && event.details
+        ? JSON.stringify(event.details)
+        : event[field]);
+    }).join(','))
+  ].join('\r\n');
 }
 
 function createWindow() {

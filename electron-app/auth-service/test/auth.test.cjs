@@ -80,6 +80,7 @@ class MemoryCollection {
   }
 
   find(filter = {}) {
+    this.lastFindFilter = filter;
     let items = this.items.filter((item) => this.matches(item, filter));
     const cursor = {
       sort: () => cursor,
@@ -265,11 +266,22 @@ test('admin bot settings save complete boolean values and record an audit event'
     assert.deepEqual(botSettings.items[0].settings, settings);
     assert.equal(audit.items.some((entry) =>
       entry.action === 'update-bot-settings' && entry.username === 'global'), true);
+    const auditEntry = audit.items.find((entry) => entry.action === 'update-bot-settings');
+    assert.ok(auditEntry.details.changedSettings.some((change) =>
+      change.setting === 'approveRound.ENABLE_DISCORD_POSTING' && change.from === true && change.to === false));
+    assert.ok(auditEntry.details.changedSettings.some((change) =>
+      change.setting === 'channels.LOG_CHANNEL_ID' && change.from === '' && change.to === '12345678901234567'));
 
     const loaded = await fetch(`${baseUrl}/api/admin/bot-settings`, {
       headers: { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' }
     });
     assert.deepEqual((await loaded.json()).settings, settings);
+
+    const auditResponse = await fetch(`${baseUrl}/api/admin/audit`, {
+      headers: { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' }
+    });
+    const auditResult = await auditResponse.json();
+    assert.deepEqual(auditResult.events[0].details, auditEntry.details);
   });
 });
 
@@ -1608,11 +1620,19 @@ test('admin can link and unlink a verified Discord profile', async () => {
   });
 });
 
-test('admin audit accepts inclusive date filters and rejects invalid dates', async () => {
-  await withServer(async ({ baseUrl }) => {
+test('admin audit date filters use inclusive Eastern calendar days and reject invalid dates', async () => {
+  await withServer(async ({ baseUrl, audit }) => {
     const headers = { authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' };
     const valid = await fetch(`${baseUrl}/api/admin/audit?from=2026-02-27&to=2026-02-28`, { headers });
     assert.equal(valid.status, 200);
+    assert.equal(audit.lastFindFilter.at.$gte.toISOString(), '2026-02-27T05:00:00.000Z');
+    assert.equal(audit.lastFindFilter.at.$lt.toISOString(), '2026-03-01T05:00:00.000Z');
+
+    const daylightSavingDate = await fetch(`${baseUrl}/api/admin/audit?from=2026-03-08&to=2026-03-08`, { headers });
+    assert.equal(daylightSavingDate.status, 200);
+    assert.equal(audit.lastFindFilter.at.$gte.toISOString(), '2026-03-08T05:00:00.000Z');
+    assert.equal(audit.lastFindFilter.at.$lt.toISOString(), '2026-03-09T04:00:00.000Z');
+
     const invalid = await fetch(`${baseUrl}/api/admin/audit?from=2026-02-31`, { headers });
     assert.equal(invalid.status, 400);
   });

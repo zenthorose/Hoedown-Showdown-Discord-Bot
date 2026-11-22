@@ -11,7 +11,20 @@ function showStatus(id, message) {
 function displayDate(value) {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' });
+}
+
+function formatAuditDetails(entry) {
+  const changes = entry.details?.changedSettings;
+  if (!Array.isArray(changes)) {
+    return entry.action === 'update-bot-settings' ? 'Details unavailable for this older event' : '—';
+  }
+  if (changes.length === 0) return 'No settings changed';
+  return changes.map(({ setting, from, to }) =>
+    `${setting}: ${JSON.stringify(from)} → ${JSON.stringify(to)}`
+  ).join('\n');
 }
 
 function addCell(row, value) {
@@ -96,6 +109,8 @@ async function loadAudit(filters = {}) {
       addCell(row, displayDate(entry.at));
       addCell(row, entry.action);
       addCell(row, entry.username);
+      const details = addCell(row, formatAuditDetails(entry));
+      details.className = 'audit-details';
       addCell(row, entry.actor);
       body.appendChild(row);
     }

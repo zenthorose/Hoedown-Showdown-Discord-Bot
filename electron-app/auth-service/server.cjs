@@ -28,6 +28,16 @@ const MEMBER_FIELD_LIMITS = {
   steamId: 128,
   streamLink: 2048
 };
+const EASTERN_DAY_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23'
+});
 const THEME_COLOR_FIELDS = [
   'background',
   'surface',
@@ -203,6 +213,50 @@ function validDateFilter(value) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function easternDateBoundary(value) {
+  const [year, month, day] = value.split('-').map(Number);
+  const targetUtc = Date.UTC(year, month - 1, day);
+  let timestamp = targetUtc;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = Object.fromEntries(EASTERN_DAY_FORMATTER.formatToParts(new Date(timestamp))
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, Number(part.value)]));
+    const renderedAsUtc = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second
+    );
+    timestamp += targetUtc - renderedAsUtc;
+  }
+  return new Date(timestamp);
+}
+
+function nextCalendarDate(value) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
+function collectSettingsChanges(previous, next, prefix = '') {
+  const previousIsObject = previous && typeof previous === 'object' && !Array.isArray(previous);
+  const nextIsObject = next && typeof next === 'object' && !Array.isArray(next);
+  if (previousIsObject && nextIsObject) {
+    const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+    return [...keys].flatMap((key) =>
+      collectSettingsChanges(previous[key], next[key], prefix ? `${prefix}.${key}` : key)
+    );
+  }
+  if (Object.is(previous, next)) return [];
+  return [{
+    setting: prefix,
+    from: previous === undefined ? null : previous,
+    to: next === undefined ? null : next
+  }];
+}
+
 function isTicketCollectionName(value) {
   return typeof value === 'string' &&
     value.endsWith('_Tickets') &&
@@ -312,9 +366,15 @@ function createApp({
     console.error(message, error);
     return res.status(503).json({ error: 'The service is temporarily unavailable. Please try again.' });
   };
-  const recordAdminAction = async (action, username) => {
+  const recordAdminAction = async (action, username, details) => {
     try {
-      await audit.insertOne({ actor: 'admin', action, username, at: new Date() });
+      await audit.insertOne({
+        actor: 'admin',
+        action,
+        username,
+        at: new Date(),
+        ...(details ? { details } : {})
+      });
       return true;
     } catch (error) {
       console.error(`Admin audit write failed for ${action}:`, error);
@@ -360,16 +420,20 @@ function createApp({
       return res.status(400).json({ error: error.message });
     }
     try {
+      const currentDocument = await botSettings.findOne({ _id: BOT_SETTINGS_ID });
+      const previousSettings = normalizeStoredBotSettings(currentDocument && currentDocument.settings);
+      const changedSettings = collectSettingsChanges(previousSettings, settings);
       const updatedAt = new Date();
       await botSettings.updateOne(
         { _id: BOT_SETTINGS_ID },
         { $set: { settings, updatedAt, updatedBy: 'admin' } },
         { upsert: true }
       );
-      const auditLogged = await recordAdminAction('update-bot-settings', 'global');
+      const auditLogged = await recordAdminAction('update-bot-settings', 'global', { changedSettings });
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
         settings,
+        changedSettings,
         updatedAt: updatedAt.toISOString(),
         updatedBy: 'admin',
         auditLogged
@@ -2088,22 +2152,21 @@ function createApp({
         (rawSearch !== undefined && (typeof rawSearch !== 'string' || rawSearch.length > 64))) {
       return res.status(400).json({ error: 'Audit filters are invalid.' });
     }
-    const fromDate = from === undefined ? null : new Date(from);
-    const toDate = to === undefined ? null : new Date(to);
+    const fromIsDateOnly = typeof from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(from);
+    const toIsDateOnly = typeof to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(to);
+    if ((from !== undefined && fromIsDateOnly && !validDateFilter(from)) ||
+        (to !== undefined && toIsDateOnly && !validDateFilter(to))) {
+      return res.status(400).json({ error: 'Audit date range is invalid.' });
+    }
+    const fromDate = from === undefined
+      ? null
+      : fromIsDateOnly ? easternDateBoundary(from) : new Date(from);
+    let toDate = to === undefined
+      ? null
+      : toIsDateOnly ? easternDateBoundary(nextCalendarDate(to)) : new Date(to);
     if ((fromDate && Number.isNaN(fromDate.getTime())) ||
         (toDate && Number.isNaN(toDate.getTime()))) {
       return res.status(400).json({ error: 'Audit date range is invalid.' });
-    }
-    if (typeof from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(from) &&
-        fromDate.toISOString().slice(0, 10) !== from) {
-      return res.status(400).json({ error: 'Audit date range is invalid.' });
-    }
-    if (typeof to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(to) &&
-        toDate.toISOString().slice(0, 10) !== to) {
-      return res.status(400).json({ error: 'Audit date range is invalid.' });
-    }
-    if (typeof to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
-      toDate.setUTCDate(toDate.getUTCDate() + 1);
     }
     if (fromDate && toDate && fromDate >= toDate) {
       return res.status(400).json({ error: 'Audit date range is invalid.' });
@@ -2124,14 +2187,15 @@ function createApp({
     }
     try {
       const events = await audit.find(filter, {
-        projection: { _id: 0, actor: 1, action: 1, username: 1, at: 1 }
+        projection: { _id: 0, actor: 1, action: 1, username: 1, at: 1, details: 1 }
       }).sort({ at: -1 }).limit(1001).toArray();
       return res.status(200).json({
         events: events.slice(0, 1000).map((event) => ({
           actor: event.actor,
           action: event.action,
           username: event.username,
-          at: event.at instanceof Date ? event.at.toISOString() : null
+          at: event.at instanceof Date ? event.at.toISOString() : null,
+          details: event.details && typeof event.details === 'object' ? event.details : null
         })),
         truncated: events.length > 1000
       });
@@ -2205,8 +2269,8 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         }
 
         const timestamp = dmMessage.createdAt instanceof Date
-          ? dmMessage.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' })
-          : new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+          ? dmMessage.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' })
+          : new Date().toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' });
         const staffAvatarUrl = staffProfile.displayAvatarURL({ extension: 'png', size: 64 });
         const staffName = staffProfile.tag;
         const mirrorEmbed = {
@@ -2438,7 +2502,10 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
               content: isAppStaffChat
                 ? message.embeds.find((embed) => embed.description)?.description || '*No text content*'
                 : message.content?.trim() || attachments || '*No text content*',
-              timestamp: message.createdAt.toLocaleString('en-US', { timeZone: 'America/New_York' }),
+              timestamp: message.createdAt.toLocaleString('en-US', {
+                timeZone: 'America/New_York',
+                timeZoneName: 'short'
+              }),
               messageType: 'staff-chat',
               staffID: staffId
             });
@@ -2511,7 +2578,10 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
                   authorAvatarUrl,
                   messageType: 'staff-chat',
                   content: messageText,
-                  timestamp: timestamp.toLocaleString('en-US', { timeZone: 'America/New_York' })
+                  timestamp: timestamp.toLocaleString('en-US', {
+                    timeZone: 'America/New_York',
+                    timeZoneName: 'short'
+                  })
                 },
                 staffIDs: staffDiscordId
               }

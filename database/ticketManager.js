@@ -19,7 +19,10 @@ function getESTTime() {
 }
 
 function formatMessageTime(date) {
-  return date.toLocaleString('en-US', { timeZone: 'America/New_York' });
+  return date.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    timeZoneName: 'short'
+  });
 }
 
 function getCollectionForUser(username) {
