@@ -204,7 +204,7 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   if (isTickets && !ticketsLoaded && !ticketsLoading) void loadTickets(1);
   else if (isTickets && selectedPersonSummary) {
     if (selectedTicketSummary && !document.getElementById('ticket-detail-view').hidden) {
-      void openTicket(selectedTicketSummary);
+      void openTicket(selectedTicketSummary, { preserveScroll: true });
     } else {
       void loadPersonTickets(selectedPersonSummary);
     }
@@ -932,7 +932,7 @@ function resyncTickets() {
     const ticketsView = document.getElementById('tickets-view');
     const detailView = document.getElementById('ticket-detail-view');
     if (!ticketsView.hidden && !detailView.hidden && selectedTicketSummary) {
-      void openTicket(selectedTicketSummary);
+      void openTicket(selectedTicketSummary, { preserveScroll: true });
     }
   }, 200);
 }
@@ -954,7 +954,7 @@ function resyncTicketMessage(update) {
     const detailView = document.getElementById('ticket-detail-view');
     if (!ticketsView.hidden && !detailView.hidden &&
         selectedTicketSummary?.collectionName === collectionName) {
-      void openTicket(selectedTicketSummary);
+      void openTicket(selectedTicketSummary, { preserveScroll: true });
     }
   }, wait);
 }
@@ -977,7 +977,7 @@ function showPersonTickets() {
   document.getElementById('person-tickets-view').hidden = false;
 }
 
-async function openTicket(ticketSummary) {
+async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
   selectedTicketSummary = ticketSummary;
   const generation = ++ticketDetailGeneration;
   const detailView = document.getElementById('ticket-detail-view');
@@ -986,9 +986,13 @@ async function openTicket(ticketSummary) {
   document.getElementById('ticket-list-view').hidden = true;
   document.getElementById('person-tickets-view').hidden = true;
   detailView.hidden = false;
-  content.replaceChildren();
-  state.hidden = false;
-  state.textContent = 'Loading ticket transcript…';
+  if (preserveScroll) {
+    state.hidden = true;
+  } else {
+    content.replaceChildren();
+    state.hidden = false;
+    state.textContent = 'Loading ticket transcript…';
+  }
 
   try {
     const result = await window.hoedown.getTicket(
@@ -998,8 +1002,6 @@ async function openTicket(ticketSummary) {
     if (generation !== ticketDetailGeneration) return;
     if (!result.ok) throw new Error(result.error || 'Could not load the ticket transcript.');
     const ticket = result.ticket;
-    state.hidden = true;
-
     const heading = document.createElement('h2');
     heading.className = 'ticket-detail-title';
     heading.textContent = ticket.ticketID || 'Ticket transcript';
@@ -1063,7 +1065,14 @@ async function openTicket(ticketSummary) {
       item.append(messageHeader, authorId, body);
       transcript.append(item);
     }
-    content.append(heading, summary, metadata, staffHeading, staffList, transcriptHeading, transcript);
+    const previousScrollTop = detailView.scrollTop;
+    const wasAtBottom = detailView.scrollHeight - detailView.clientHeight - previousScrollTop <= 32;
+    state.hidden = true;
+    content.replaceChildren(heading, summary, metadata, staffHeading, staffList, transcriptHeading, transcript);
+    if (preserveScroll) {
+      const maxScrollTop = Math.max(0, detailView.scrollHeight - detailView.clientHeight);
+      detailView.scrollTop = wasAtBottom ? maxScrollTop : Math.min(previousScrollTop, maxScrollTop);
+    }
   } catch (error) {
     if (generation !== ticketDetailGeneration) return;
     state.hidden = false;
