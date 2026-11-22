@@ -3,6 +3,9 @@ const passwordForm = document.getElementById('password-form');
 const signedInPanel = document.getElementById('signed-in');
 const status = document.getElementById('status');
 const connection = document.getElementById('connection');
+const profilePicker = document.getElementById('profile-picker');
+const profileList = document.getElementById('profile-list');
+const profileEmpty = document.getElementById('profile-empty');
 const selfPasswordForm = document.getElementById('self-password-form');
 const updateBox = document.getElementById('update-box');
 let resetToken = null;
@@ -241,12 +244,19 @@ async function resetThemeColors() {
   }
 }
 
-function showSignedOut() {
-  loginForm.hidden = false;
+function showSignedOut(profileSelected = true) {
+  profilePicker.hidden = profileSelected;
+  loginForm.hidden = !profileSelected;
   passwordForm.hidden = true;
   signedInPanel.hidden = true;
   document.getElementById('auth-header').hidden = false;
+  document.getElementById('auth-title').textContent = profileSelected ? 'Sign in' : 'Choose a profile';
+  document.getElementById('back-to-profiles').hidden = !profileSelected;
+  const profileName = document.getElementById('selected-profile-name');
+  profileName.hidden = !profileSelected || !profileName.textContent;
   selfPasswordForm.hidden = true;
+  connection.hidden = true;
+  showStatus('');
   document.getElementById('app-footer').hidden = false;
   membersLoaded = false;
   memberRecords = [];
@@ -307,9 +317,52 @@ function showSignedOut() {
   resetToken = null;
 }
 
+function showProfileSelection(profiles = []) {
+  profileList.replaceChildren();
+  for (const profile of profiles) {
+    const button = document.createElement('button');
+    button.className = 'profile-choice';
+    button.type = 'button';
+    const name = document.createElement('span');
+    name.className = 'profile-choice-name';
+    name.textContent = profile.username || 'New profile';
+    const detail = document.createElement('span');
+    detail.className = 'profile-choice-detail';
+    detail.textContent = profile.username ? 'Saved sign-in' : 'Sign-in not completed';
+    button.append(name, detail);
+    button.addEventListener('click', async () => {
+      profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = true; });
+      document.getElementById('add-profile').disabled = true;
+      showStatus('Checking saved profile…');
+      try {
+        applyAuthState(await window.hoedown.selectProfile(profile.id));
+      } catch (error) {
+        showStatus(error.message || 'Could not open this profile.');
+        profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = false; });
+        document.getElementById('add-profile').disabled = false;
+      }
+    });
+    profileList.append(button);
+  }
+  profileEmpty.hidden = profiles.length > 0;
+}
+
 function applyAuthState(state) {
+  if (state && state.profileSelection) {
+    showSignedOut(false);
+    document.getElementById('username').value = '';
+    document.getElementById('password').value = '';
+    showProfileSelection(Array.isArray(state.profiles) ? state.profiles : []);
+    if (state.error) {
+      connection.textContent = state.error;
+      connection.hidden = false;
+      showStatus(state.error);
+    }
+    return;
+  }
   if (state && state.signedIn) {
     loginForm.hidden = true;
+    profilePicker.hidden = true;
     passwordForm.hidden = true;
     signedInPanel.hidden = false;
     document.getElementById('auth-header').hidden = true;
@@ -324,6 +377,9 @@ function applyAuthState(state) {
     if (!settingsLoaded && !settingsLoading) void loadSettings();
   } else {
     showSignedOut();
+    const profileName = document.getElementById('selected-profile-name');
+    profileName.textContent = state?.profileName ? `Profile: ${state.profileName}` : '';
+    profileName.hidden = !state?.profileSelected || !state?.profileName;
     if (state && state.error) {
       connection.textContent = state.error;
       connection.hidden = false;
@@ -1545,11 +1601,21 @@ document.getElementById('refresh-avoids').addEventListener('click', () => {
 document.getElementById('grab-round-reactions').addEventListener('click', async (event) => {
   const button = event.currentTarget;
   const actionStatus = document.getElementById('rounds-action-status');
+  const generationIndicator = document.getElementById('rounds-generation-indicator');
   button.disabled = true;
+  generationIndicator.classList.remove('complete', 'pending');
+  generationIndicator.classList.add('loading');
+  generationIndicator.textContent = '';
+  generationIndicator.setAttribute('aria-label', 'Generating round');
+  actionStatus.hidden = false;
   actionStatus.textContent = 'Searching the Opt-In channel and generating the Team Check draft…';
   try {
     const result = await window.hoedown.grabRoundReactions();
     if (!result.ok) throw new Error(result.error || 'Could not generate the next round draft.');
+    generationIndicator.classList.remove('loading');
+    generationIndicator.classList.add('complete');
+    generationIndicator.textContent = '✓';
+    generationIndicator.setAttribute('aria-label', 'Round generated');
     const previewMessage = result.postingStatus === 'posted'
       ? 'The Team Check preview was posted.'
       : 'Team Check posting is disabled; the draft was saved in MongoDB.';
@@ -1560,6 +1626,10 @@ document.getElementById('grab-round-reactions').addEventListener('click', async 
       `Round #${result.round} draft saved. ${result.eligiblePlayerCount} eligible players from ` +
       `${result.reactedPlayerCount} reactions.${excludedPlayers} ${previewMessage}`;
   } catch (error) {
+    generationIndicator.classList.remove('loading', 'complete');
+    generationIndicator.classList.add('pending');
+    generationIndicator.textContent = '✕';
+    generationIndicator.setAttribute('aria-label', 'Round not generated');
     actionStatus.textContent = error.message || 'Could not generate the next round draft.';
   } finally {
     button.disabled = false;
@@ -1834,6 +1904,37 @@ loginForm.addEventListener('submit', async (event) => {
   }
 });
 
+document.getElementById('add-profile').addEventListener('click', async () => {
+  const button = document.getElementById('add-profile');
+  button.disabled = true;
+  profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = true; });
+  try {
+    applyAuthState(await window.hoedown.createProfile());
+  } catch (error) {
+    connection.textContent = error.message || 'Could not create a profile.';
+    connection.hidden = false;
+  } finally {
+    if (!profilePicker.hidden) {
+      button.disabled = false;
+      profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = false; });
+    }
+  }
+});
+
+document.getElementById('back-to-profiles').addEventListener('click', async () => {
+  const button = document.getElementById('back-to-profiles');
+  button.disabled = true;
+  resetToken = null;
+  passwordForm.reset();
+  try {
+    applyAuthState(await window.hoedown.backToProfiles());
+  } catch (error) {
+    showStatus(error.message || 'Could not return to profiles.');
+  } finally {
+    button.disabled = false;
+  }
+});
+
 passwordForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const password = document.getElementById('new-password').value;
@@ -1865,7 +1966,7 @@ passwordForm.addEventListener('submit', async (event) => {
 document.getElementById('sign-out').addEventListener('click', async () => {
   try {
     const result = await window.hoedown.logout();
-    applyAuthState({ signedIn: false });
+    applyAuthState(result);
     showStatus(result.warning || 'Signed out.');
   } catch (error) {
     showStatus(error.message || 'Could not sign out.');

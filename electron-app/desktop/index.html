@@ -10,13 +10,21 @@
     <main class="panel">
       <header id="auth-header">
         <p class="eyebrow">HOEDOWN SHOWDOWN</p>
-        <h1>Welcome</h1>
+        <h1 id="auth-title">Welcome</h1>
       </header>
       <section id="connection" class="notice" role="status" hidden></section>
-      <form id="login-form">
+      <section id="profile-picker" class="profile-picker" aria-labelledby="profile-picker-title" hidden>
+        <h2 id="profile-picker-title">Choose a profile</h2>
+        <div id="profile-list" class="profile-list"></div>
+        <p id="profile-empty" class="muted" hidden>No saved profiles yet.</p>
+        <button id="add-profile" type="button">Sign in with another account</button>
+      </section>
+      <form id="login-form" hidden>
+        <p id="selected-profile-name" class="selected-profile-name" hidden></p>
         <label>Username<input id="username" name="username" autocomplete="username" maxlength="64" required></label>
         <label>Password<input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
         <button type="submit">Sign in</button>
+        <button id="back-to-profiles" class="secondary" type="button">Back to profiles</button>
       </form>
       <form id="password-form" hidden>
         <p id="password-copy">Choose a new password to continue.</p>
@@ -130,16 +138,13 @@
               <p id="avoids-state" class="members-state" role="status" aria-live="polite">Avoid relationships are not loaded.</p>
             </section>
             <section id="rounds-view" class="rounds-view" aria-label="Round management" hidden>
-              <article class="round-action-card">
-                <h2>Generate the next round draft</h2>
-                <p class="muted">
-                  The app searches the Opt-In channel for the newest bot post titled “Round N!” matching
-                  the next round after the highest populated MongoDB round.
-                </p>
-                <p class="muted">Only linked Discord accounts with an allowed bot role can run this action.</p>
+              <div class="round-action-controls">
                 <button id="grab-round-reactions" type="button">Grab reactions for next round</button>
-                <p id="rounds-action-status" class="rounds-action-status" role="status" aria-live="polite"></p>
-              </article>
+                <span id="rounds-generation-indicator" class="rounds-generation-indicator pending"
+                  role="img" aria-label="Round not generated">✕</span>
+              </div>
+              <p id="rounds-action-status" class="rounds-action-status" role="status"
+                aria-live="polite" hidden></p>
             </section>
             <section id="tickets-view" class="members-view" aria-label="Ticket archive" hidden>
               <div id="ticket-list-view">

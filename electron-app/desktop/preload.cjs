@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('hoedown', {
   getStatus: () => ipcRenderer.invoke('auth:get-status'),
   login: (credentials) => ipcRenderer.invoke('auth:login', credentials),
+  selectProfile: (profileId) => ipcRenderer.invoke('auth:select-profile', profileId),
+  createProfile: () => ipcRenderer.invoke('auth:create-profile'),
+  backToProfiles: () => ipcRenderer.invoke('auth:back-to-profiles'),
   changePassword: (token, password) =>
     ipcRenderer.invoke('auth:change-password', { token, password }),
   updatePassword: (currentPassword, password) =>

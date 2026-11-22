@@ -5,7 +5,7 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "npm --prefix auth-service test && npm --prefix account-manager test",
+    "test": "node --test desktop/profile-store.test.cjs && npm --prefix auth-service test && npm --prefix account-manager test",
     "build:win": "node scripts/validate-build-config.cjs && electron-builder --win nsis",
     "build:portable": "node scripts/validate-build-config.cjs && electron-builder --win portable",
     "account-manager": "npm --prefix account-manager start"

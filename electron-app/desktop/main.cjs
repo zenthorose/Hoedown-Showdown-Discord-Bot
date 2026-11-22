@@ -4,10 +4,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
 const { NsisUpdater } = require('electron-updater');
+const { createProfileStore } = require('./profile-store.cjs');
 
 let mainWindow;
 let sessionToken = null;
 let username = '';
+let activeProfileId = null;
+let activeProfile = null;
+let profileStore;
 let authConfig = {};
 let deviceInfo;
 let statusTimer;
@@ -55,7 +59,10 @@ function serviceUrl() {
 }
 
 function tokenFile() {
-  return path.join(app.getPath('userData'), 'session.json');
+  if (!profileStore || !activeProfileId) {
+    throw new Error('Select an app profile before accessing its saved session.');
+  }
+  return profileStore.sessionPath(activeProfileId);
 }
 
 async function loadDeviceInfo() {
@@ -357,41 +364,131 @@ async function checkSession() {
   return { signedIn: true, username };
 }
 
+async function getCurrentAuthStatus(recordLaunch = false) {
+  if (!activeProfileId) {
+    try {
+      return {
+        signedIn: false,
+        profileSelection: true,
+        profiles: await profileStore.listProfiles()
+      };
+    } catch (error) {
+      return {
+        signedIn: false,
+        profileSelection: true,
+        profiles: [],
+        error: error.message || 'Could not load saved app profiles.'
+      };
+    }
+  }
+
+  try {
+    if (!sessionToken) sessionToken = await readToken();
+    const state = await checkSession();
+    if (!state.signedIn) {
+      return {
+        ...state,
+        profileSelected: true,
+        profileName: activeProfile?.username || ''
+      };
+    }
+
+    if (recordLaunch) {
+      const { response, data } = await requestApi('/api/auth/session', {
+        token: sessionToken,
+        headers: {
+          'X-App-Device-Id': deviceInfo.deviceId,
+          'X-App-Launch-Id': deviceInfo.launchId,
+          'X-App-Device-Name': os.hostname(),
+          'X-App-Platform': process.platform,
+          'X-App-Version': app.getVersion(),
+          'X-App-Launch': 'true'
+        }
+      });
+      if (response.status === 401) {
+        await clearToken();
+        return {
+          signedIn: false,
+          profileSelected: true,
+          profileName: activeProfile?.username || '',
+          error: data.error || 'Your session expired. Sign in again.'
+        };
+      }
+      if (!response.ok) throw new Error(data.error || 'Session check failed.');
+      username = data.username;
+    }
+
+    activeProfile = await profileStore.updateUsername(activeProfileId, username);
+    if (recordLaunch) {
+      void checkForUpdate();
+      startMembersLiveUpdates();
+    }
+    return { signedIn: true, username };
+  } catch (error) {
+    return {
+      signedIn: false,
+      profileSelected: true,
+      profileName: activeProfile?.username || '',
+      error: error.message || 'Could not reach the sign-in service.'
+    };
+  }
+}
+
 app.whenReady().then(async () => {
   authConfig = JSON.parse(await fs.readFile(path.join(__dirname, 'auth-config.json'), 'utf8'));
+  profileStore = createProfileStore(app.getPath('userData'));
+  await profileStore.migrateLegacySession();
   deviceInfo = await loadDeviceInfo();
   configureUpdater();
 
   ipcMain.handle('auth:get-status', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted status request.');
-    if (!sessionToken) sessionToken = await readToken();
-    try {
-      const state = await checkSession();
-      if (state.signedIn) {
-        const { response, data } = await requestApi('/api/auth/session', {
-          token: sessionToken,
-          headers: {
-            'X-App-Device-Id': deviceInfo.deviceId,
-            'X-App-Launch-Id': deviceInfo.launchId,
-            'X-App-Device-Name': os.hostname(),
-            'X-App-Platform': process.platform,
-            'X-App-Version': app.getVersion(),
-            'X-App-Launch': 'true'
-          }
-        });
-        if (!response.ok) throw new Error(data.error || 'Session check failed.');
-        void checkForUpdate();
-        startMembersLiveUpdates();
-        return { signedIn: true, username: data.username };
-      }
-      return state;
-    } catch (error) {
-      return { signedIn: false, error: error.message || 'Could not reach the sign-in service.' };
+    return getCurrentAuthStatus(true);
+  });
+
+  ipcMain.handle('auth:select-profile', async (event, profileId) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted profile selection request.');
+    const profile = await profileStore.readProfile(profileId);
+    if (!profile) {
+      return {
+        signedIn: false,
+        profileSelection: true,
+        profiles: await profileStore.listProfiles(),
+        error: 'That saved profile could not be found.'
+      };
     }
+    stopMembersLiveUpdates();
+    activeProfileId = profile.id;
+    activeProfile = profile;
+    sessionToken = null;
+    username = '';
+    return getCurrentAuthStatus(true);
+  });
+
+  ipcMain.handle('auth:create-profile', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted profile creation request.');
+    if (activeProfileId) throw new Error('Return to the profile list before adding another sign-in.');
+    const profile = await profileStore.createProfile();
+    activeProfileId = profile.id;
+    activeProfile = profile;
+    sessionToken = null;
+    username = '';
+    return { signedIn: false, profileSelected: true, profileName: '' };
+  });
+
+  ipcMain.handle('auth:back-to-profiles', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted profile navigation request.');
+    stopMembersLiveUpdates();
+    activeProfileId = null;
+    activeProfile = null;
+    sessionToken = null;
+    username = '';
+    return getCurrentAuthStatus();
   });
 
   ipcMain.handle('auth:login', async (event, credentials) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted sign-in request.');
+    if (!activeProfileId) return { ok: false, error: 'Choose or create a profile before signing in.' };
     if (!credentials || typeof credentials.username !== 'string' ||
         typeof credentials.password !== 'string' || credentials.username.length > 64 ||
         credentials.password.length > 128) {
@@ -413,11 +510,13 @@ app.whenReady().then(async () => {
       if (!response.ok) return { ok: false, error: data.error || 'Sign-in failed. Try again.' };
       if (data.passwordChangeRequired === true) {
         if (typeof data.resetToken !== 'string') throw new Error('The service returned an invalid password-change request.');
+        activeProfile = await profileStore.updateUsername(activeProfileId, credentials.username.trim());
         return { ok: true, passwordChangeRequired: true, resetToken: data.resetToken };
       }
       if (typeof data.token !== 'string' || typeof data.username !== 'string') {
         throw new Error('The service returned an invalid session.');
       }
+      activeProfile = await profileStore.updateUsername(activeProfileId, data.username);
       await saveToken(data.token);
       sessionToken = data.token;
       username = data.username;
@@ -488,7 +587,11 @@ app.whenReady().then(async () => {
       warning = 'Signed out on this computer, but the service could not confirm session revocation.';
     }
     await clearToken();
-    return { warning };
+    stopMembersLiveUpdates();
+    activeProfileId = null;
+    activeProfile = null;
+    username = '';
+    return { ...(await getCurrentAuthStatus()), warning };
   });
 
   ipcMain.handle('settings:get', (event) =>
@@ -1030,12 +1133,7 @@ app.whenReady().then(async () => {
   });
   await mainWindow.loadFile(path.join(__dirname, 'index.html'));
   statusTimer = setInterval(async () => {
-    try {
-      const state = await checkSession();
-      sendStatus(state);
-    } catch (error) {
-      sendStatus({ signedIn: false, error: error.message });
-    }
+    sendStatus(await getCurrentAuthStatus());
   }, 5 * 60 * 1000);
 }).catch((error) => {
   console.error('Desktop app startup failed:', error);

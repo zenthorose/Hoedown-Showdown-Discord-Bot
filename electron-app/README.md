@@ -12,6 +12,8 @@ The client provides sign-in, required first-time password changes, session check
 
 The Settings tab lets each signed-in account customize the desktop app's background, surfaces, accent, text, and border colors. Color choices are stored with the account and can be reset to defaults; notification sound selection is planned for a future update.
 
+The desktop app supports multiple local profiles. Each profile has its own encrypted session token, and the previous single saved session is migrated automatically to a default profile. Launch the app again to choose a different profile in another app window; signing out revokes only the selected account's session. The service still allows one active session per account, so signing into the same account from another profile invalidates its earlier session.
+
 ## Render bot and authentication service
 
 The desktop app and Discord bot use the same Render Web Service and base URL. The service runs from the repository root; the bot's existing Express server also mounts the authentication API routes. Keep the existing bot service and its environment variables.
