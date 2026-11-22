@@ -118,7 +118,13 @@ function startMembersLiveUpdates() {
     if (eventName === 'session-expired') {
       await clearToken();
       sendStatus({ signedIn: false, error: data.error || 'Session expired. Please sign in again.' });
-    } else if (eventName === 'member' || eventName === 'resync' || eventName === 'avoids-resync') {
+    } else if (
+      eventName === 'member' ||
+      eventName === 'resync' ||
+      eventName === 'avoids-resync' ||
+      eventName === 'tickets-resync' ||
+      eventName === 'ticket-message'
+    ) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         if (eventName === 'member') mainWindow.webContents.send('members:changed', data);
         else if (eventName === 'avoids-resync') mainWindow.webContents.send('avoids:resync', data);
