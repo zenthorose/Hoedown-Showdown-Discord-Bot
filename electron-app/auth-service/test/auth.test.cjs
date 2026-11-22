@@ -717,11 +717,19 @@ test('a Discord nickname failure prevents the MongoDB profile update', async () 
   });
 });
 
-test('authenticated event stream publishes member changes and Avoids refresh events', async () => {
+test('authenticated event stream publishes member changes and Avoids and Tickets refresh events', async () => {
   const memberChangeStream = new EventEmitter();
   memberChangeStream.close = async () => memberChangeStream.emit('close');
   const avoidsChangeStream = new EventEmitter();
   avoidsChangeStream.close = async () => avoidsChangeStream.emit('close');
+  const ticketChangeStream = new EventEmitter();
+  ticketChangeStream.close = async () => ticketChangeStream.emit('close');
+  const ticketDatabase = new MemoryTicketDatabase();
+  let ticketWatchPipeline;
+  ticketDatabase.watch = (pipeline) => {
+    ticketWatchPipeline = pipeline;
+    return ticketChangeStream;
+  };
 
   await withServer(async ({ baseUrl, user, jwtSecret, members }) => {
     const unauthorized = await fetch(`${baseUrl}/api/members/stream`);
@@ -752,9 +760,13 @@ test('authenticated event stream publishes member changes and Avoids refresh eve
       streamText = '';
       return received;
     };
-    const initial = await readUntil(/event: avoids-resync/);
+    const initial = await readUntil(/event: tickets-resync/);
     assert.match(initial, /event: resync/);
     assert.match(initial, /event: avoids-resync/);
+    assert.match(initial, /event: tickets-resync/);
+    assert.deepEqual(ticketWatchPipeline, [
+      { $match: { 'ns.coll': { $regex: '_Tickets$' } } }
+    ]);
 
     members.items[0].region = 'West';
     memberChangeStream.emit('change', {
@@ -769,8 +781,15 @@ test('authenticated event stream publishes member changes and Avoids refresh eve
     avoidsChangeStream.emit('change', { operationType: 'update' });
     const avoidsUpdate = await readUntil(/event: avoids-resync/);
     assert.match(avoidsUpdate, /event: avoids-resync/);
+
+    ticketChangeStream.emit('change', {
+      operationType: 'insert',
+      ns: { coll: 'player_Tickets' }
+    });
+    const ticketUpdate = await readUntil(/event: tickets-resync/);
+    assert.match(ticketUpdate, /event: tickets-resync/);
     await reader.cancel();
-  }, { memberChangeStream, avoidsChangeStream });
+  }, { memberChangeStream, avoidsChangeStream, ticketDatabase });
 });
 
 test('admin temporary passwords require a password change before a session is granted', async () => {

@@ -33,6 +33,12 @@ contextBridge.exposeInMainWorld('hoedown', {
     ipcRenderer.on('avoids:resync', listener);
     return () => ipcRenderer.removeListener('avoids:resync', listener);
   },
+  onTicketsResync: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Tickets resync callback must be a function.');
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on('tickets:resync', listener);
+    return () => ipcRenderer.removeListener('tickets:resync', listener);
+  },
   onMembersLiveStatus: (callback) => {
     if (typeof callback !== 'function') throw new TypeError('Members live-status callback must be a function.');
     const listener = (_event, state) => callback(state);

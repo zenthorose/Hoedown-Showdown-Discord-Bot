@@ -122,6 +122,7 @@ function startMembersLiveUpdates() {
       if (mainWindow && !mainWindow.isDestroyed()) {
         if (eventName === 'member') mainWindow.webContents.send('members:changed', data);
         else if (eventName === 'avoids-resync') mainWindow.webContents.send('avoids:resync', data);
+        else if (eventName === 'tickets-resync') mainWindow.webContents.send('tickets:resync', data);
         else mainWindow.webContents.send('members:resync', data);
       }
     }

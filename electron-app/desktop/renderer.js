@@ -20,11 +20,13 @@ let ticketsLoaded = false;
 let ticketsLoading = false;
 let ticketLoadError = '';
 let ticketLoadGeneration = 0;
+let ticketResyncTimer = null;
 let ticketPage = 1;
 let ticketPageSize = 50;
 let ticketTotal = 0;
 let ticketCollectionCount = null;
 let ticketDetailGeneration = 0;
+let selectedTicketSummary = null;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
 
@@ -113,10 +115,13 @@ function showSignedOut() {
   ticketLoadError = '';
   ticketLoadGeneration += 1;
   ticketDetailGeneration += 1;
+  if (ticketResyncTimer) clearTimeout(ticketResyncTimer);
+  ticketResyncTimer = null;
   ticketPage = 1;
   ticketTotal = 0;
   ticketCollectionCount = null;
   ticketRecords = [];
+  selectedTicketSummary = null;
   document.getElementById('tickets-list').replaceChildren();
   document.getElementById('tickets-summary').textContent = 'Sign in to load archived tickets.';
   document.getElementById('tickets-state').textContent = 'Tickets are not loaded.';
@@ -179,6 +184,9 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   if (isMembers && !membersLoaded && !membersLoading) void loadMembers();
   if (isAvoids && !avoidsLoaded && !avoidsLoading) void loadAvoids();
   if (isTickets && !ticketsLoaded && !ticketsLoading) void loadTickets(1);
+  else if (isTickets && selectedTicketSummary && !document.getElementById('ticket-detail-view').hidden) {
+    void openTicket(selectedTicketSummary);
+  }
 });
 
 function createMemberDetail(fieldName, label, value) {
@@ -774,11 +782,13 @@ async function loadTickets(page = ticketPage) {
 
 function showTicketList() {
   ticketDetailGeneration += 1;
+  selectedTicketSummary = null;
   document.getElementById('ticket-detail-view').hidden = true;
   document.getElementById('ticket-list-view').hidden = false;
 }
 
 async function openTicket(ticketSummary) {
+  selectedTicketSummary = ticketSummary;
   const generation = ++ticketDetailGeneration;
   const detailView = document.getElementById('ticket-detail-view');
   const content = document.getElementById('ticket-detail-content');
@@ -868,6 +878,22 @@ async function openTicket(ticketSummary) {
     state.hidden = false;
     state.textContent = error.message || 'Could not load the ticket transcript.';
   }
+}
+
+function resyncTickets() {
+  if (signedInPanel.hidden) return;
+  if (ticketResyncTimer) clearTimeout(ticketResyncTimer);
+  ticketResyncTimer = setTimeout(() => {
+    ticketResyncTimer = null;
+    ticketsLoaded = false;
+    void loadTickets(ticketPage);
+
+    const ticketsView = document.getElementById('tickets-view');
+    const detailView = document.getElementById('ticket-detail-view');
+    if (!ticketsView.hidden && !detailView.hidden && selectedTicketSummary) {
+      void openTicket(selectedTicketSummary);
+    }
+  }, 200);
 }
 
 function memberPickerLabel(member) {
@@ -1158,6 +1184,7 @@ window.hoedown.onUpdateStatus((update) => {
 window.hoedown.onMemberChange(applyMemberChange);
 window.hoedown.onMembersResync(() => { void resyncMembers(); });
 window.hoedown.onAvoidsResync(resyncAvoids);
+window.hoedown.onTicketsResync(resyncTickets);
 window.hoedown.onMembersLiveStatus((liveStatus) => {
   setLiveUpdatesStatus(liveStatus);
 });

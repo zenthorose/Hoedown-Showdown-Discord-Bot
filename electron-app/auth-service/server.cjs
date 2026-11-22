@@ -300,6 +300,9 @@ function createApp({
   let avoidsChangeStream;
   let avoidsChangeStreamRetry;
   let avoidsChangeStreamRetryDelay = 5000;
+  let ticketChangeStream;
+  let ticketChangeStreamRetry;
+  let ticketChangeStreamRetryDelay = 5000;
 
   const writeMemberEvent = (response, eventName, data) => {
     if (!response.writableEnded && !response.destroyed) {
@@ -312,6 +315,7 @@ function createApp({
     }
   };
   const broadcastAvoidsResync = () => broadcastMemberEvent('avoids-resync', {});
+  const broadcastTicketsResync = () => broadcastMemberEvent('tickets-resync', {});
   const scheduleMemberChangeStreamRestart = (error) => {
     if (memberChangeStreamStopped || memberChangeStreamRetry) return;
     console.error('Members change stream failed; reconnecting:', error);
@@ -391,12 +395,55 @@ function createApp({
   };
   startAvoidsChangeStream();
 
+  const scheduleTicketChangeStreamRestart = (error) => {
+    if (memberChangeStreamStopped || ticketChangeStreamRetry) return;
+    console.error('Ticket change stream failed; reconnecting:', error);
+    ticketChangeStreamRetry = setTimeout(() => {
+      ticketChangeStreamRetry = null;
+      startTicketChangeStream();
+      broadcastTicketsResync();
+    }, ticketChangeStreamRetryDelay);
+    ticketChangeStreamRetryDelay = Math.min(ticketChangeStreamRetryDelay * 2, 60000);
+    ticketChangeStreamRetry.unref?.();
+  };
+  const startTicketChangeStream = () => {
+    if (!ticketDatabase || typeof ticketDatabase.watch !== 'function' || memberChangeStreamStopped) return;
+    try {
+      const stream = ticketDatabase.watch([
+        { $match: { 'ns.coll': { $regex: '_Tickets$' } } }
+      ]);
+      ticketChangeStream = stream;
+      stream.on('change', () => {
+        ticketChangeStreamRetryDelay = 5000;
+        broadcastTicketsResync();
+      });
+      stream.on('error', (error) => {
+        if (ticketChangeStream !== stream || memberChangeStreamStopped) return;
+        ticketChangeStream = null;
+        stream.close().catch((closeError) => {
+          console.error('Could not close the failed Tickets change stream:', closeError);
+        });
+        scheduleTicketChangeStreamRestart(error);
+      });
+      stream.on('close', () => {
+        if (ticketChangeStream !== stream || memberChangeStreamStopped) return;
+        ticketChangeStream = null;
+        scheduleTicketChangeStreamRestart(new Error('Tickets change stream closed unexpectedly.'));
+      });
+    } catch (error) {
+      scheduleTicketChangeStreamRestart(error);
+    }
+  };
+  startTicketChangeStream();
+
   app.locals.closeMembersLiveUpdates = async () => {
     memberChangeStreamStopped = true;
     if (memberChangeStreamRetry) clearTimeout(memberChangeStreamRetry);
     memberChangeStreamRetry = null;
     if (avoidsChangeStreamRetry) clearTimeout(avoidsChangeStreamRetry);
     avoidsChangeStreamRetry = null;
+    if (ticketChangeStreamRetry) clearTimeout(ticketChangeStreamRetry);
+    ticketChangeStreamRetry = null;
     for (const stream of memberStreams) {
       clearInterval(stream.heartbeat);
       clearInterval(stream.sessionCheck);
@@ -413,14 +460,21 @@ function createApp({
       avoidsChangeStream = null;
       await stream.close();
     }
+    if (ticketChangeStream) {
+      const stream = ticketChangeStream;
+      ticketChangeStream = null;
+      await stream.close();
+    }
   };
 
   app.get('/api/members/stream', async (req, res) => {
     try {
       const session = await readSession(req, res);
       if (!session) return;
-      if (!members || typeof members.watch !== 'function') {
-        return res.status(503).json({ error: 'Live member updates are not available.' });
+      if ((!members || typeof members.watch !== 'function') &&
+          (!avoids || typeof avoids.watch !== 'function') &&
+          (!ticketDatabase || typeof ticketDatabase.watch !== 'function')) {
+        return res.status(503).json({ error: 'Live updates are not available.' });
       }
 
       res.status(200).set({
@@ -440,6 +494,7 @@ function createApp({
       memberStreams.add(stream);
       writeMemberEvent(res, 'resync', {});
       writeMemberEvent(res, 'avoids-resync', {});
+      writeMemberEvent(res, 'tickets-resync', {});
 
       const removeStream = () => {
         if (!memberStreams.delete(stream)) return;
