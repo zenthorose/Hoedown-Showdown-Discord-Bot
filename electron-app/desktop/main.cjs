@@ -806,6 +806,50 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('tickets:close', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted ticket close request.');
+    }
+    if (!input || typeof input.collectionName !== 'string' ||
+        !input.collectionName.endsWith('_Tickets') ||
+        Buffer.byteLength(input.collectionName, 'utf8') > 120 ||
+        input.collectionName.includes('\0') ||
+        input.collectionName.includes('$') ||
+        input.collectionName.startsWith('system.') ||
+        typeof input.ticketId !== 'string' || !/^[a-f\d]{24}$/i.test(input.ticketId) ||
+        !['normal', 'silent'].includes(input.mode)) {
+      return { ok: false, error: 'Select a valid ticket and close mode.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const route = `/api/tickets/${encodeURIComponent(input.collectionName)}/${encodeURIComponent(input.ticketId)}/close`;
+      const { response, data } = await requestApi(route, {
+        method: 'POST',
+        token: sessionToken,
+        body: { mode: input.mode }
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: data.error || 'Could not close this ticket.',
+          partial: data.partial === true
+        };
+      }
+      if (data.mode !== input.mode || typeof data.warning !== 'string') {
+        throw new Error('The service returned an invalid ticket close result.');
+      }
+      return { ok: true, mode: data.mode, warning: data.warning };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the ticket service.' };
+    }
+  });
+
   ipcMain.handle('app:install-update', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted update install request.');
     if (!updateProvider || !updateDownloaded) throw new Error('There is no downloaded update ready to install.');

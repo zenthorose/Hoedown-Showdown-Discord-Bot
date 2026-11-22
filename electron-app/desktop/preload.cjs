@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('hoedown', {
     ipcRenderer.invoke('tickets:get', { collectionName, ticketId }),
   sendTicketReply: (input) => ipcRenderer.invoke('tickets:reply', input),
   editTicketReply: (input) => ipcRenderer.invoke('tickets:edit-reply', input),
+  closeTicket: (input) => ipcRenderer.invoke('tickets:close', input),
   updateMember: (discordId, fields) =>
     ipcRenderer.invoke('members:update', { discordId, fields }),
   createAvoids: (input) => ipcRenderer.invoke('avoids:create', input),

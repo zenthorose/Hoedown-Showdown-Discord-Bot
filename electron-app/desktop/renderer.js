@@ -986,6 +986,7 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
   const replyForm = document.getElementById('ticket-reply-form');
   const replyUnavailable = document.getElementById('ticket-reply-unavailable');
   const replyStatus = document.getElementById('ticket-reply-status');
+  const closeStatus = document.getElementById('ticket-close-status');
   document.getElementById('ticket-list-view').hidden = true;
   document.getElementById('person-tickets-view').hidden = true;
   detailView.hidden = false;
@@ -998,6 +999,9 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     document.getElementById('ticket-reply-input').value = '';
     replyStatus.textContent = '';
     replyStatus.dataset.error = 'false';
+    closeStatus.hidden = true;
+    closeStatus.textContent = '';
+    closeStatus.dataset.error = 'false';
     state.hidden = false;
     state.textContent = 'Loading ticket transcript…';
   }
@@ -1374,6 +1378,63 @@ document.getElementById('refresh-person-tickets').addEventListener('click', () =
 });
 document.getElementById('back-to-people').addEventListener('click', showTicketPeople);
 document.getElementById('back-to-tickets').addEventListener('click', showPersonTickets);
+
+document.getElementById('close-ticket-button').addEventListener('click', () => {
+  const dialog = document.getElementById('ticket-close-options');
+  if (selectedTicketSummary && !dialog.open) dialog.showModal();
+});
+document.getElementById('cancel-ticket-close').addEventListener('click', () => {
+  document.getElementById('ticket-close-options').close();
+});
+document.querySelectorAll('[data-close-mode]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const mode = button.dataset.closeMode;
+    const modeLabel = mode === 'normal' ? 'normally' : 'silently';
+    document.getElementById('ticket-close-options').close();
+    if (!window.confirm(`Are you sure you want to close this ticket ${modeLabel}?`)) return;
+
+    const ticket = selectedTicketSummary;
+    const status = document.getElementById('ticket-close-status');
+    const closeButton = document.getElementById('close-ticket-button');
+    if (!ticket) return;
+    closeButton.disabled = true;
+    document.querySelectorAll('[data-close-mode]').forEach((option) => { option.disabled = true; });
+    status.hidden = false;
+    status.dataset.error = 'false';
+    status.textContent = `Closing ticket ${modeLabel}…`;
+    try {
+      const result = await window.hoedown.closeTicket({
+        collectionName: ticket.collectionName,
+        ticketId: ticket.ticketId,
+        mode
+      });
+      if (!result.ok && !result.partial) throw new Error(result.error || 'Could not close this ticket.');
+
+      if (selectedPersonSummary) {
+        await loadPersonTickets(selectedPersonSummary, { preserve: true });
+      }
+      if (selectedTicketSummary?.collectionName === ticket.collectionName &&
+          selectedTicketSummary?.ticketId === ticket.ticketId &&
+          !document.getElementById('ticket-detail-view').hidden) {
+        await openTicket(selectedTicketSummary, { preserveScroll: true });
+      }
+
+      if (!result.ok) {
+        status.dataset.error = 'true';
+        status.textContent = result.error || 'The ticket was only partially closed.';
+        return;
+      }
+      status.dataset.error = result.warning ? 'true' : 'false';
+      status.textContent = result.warning || `Ticket closed ${modeLabel}.`;
+    } catch (error) {
+      status.dataset.error = 'true';
+      status.textContent = error.message || 'Could not close this ticket.';
+    } finally {
+      closeButton.disabled = false;
+      document.querySelectorAll('[data-close-mode]').forEach((option) => { option.disabled = false; });
+    }
+  });
+});
 
 document.getElementById('ticket-reply-form').addEventListener('submit', async (event) => {
   event.preventDefault();

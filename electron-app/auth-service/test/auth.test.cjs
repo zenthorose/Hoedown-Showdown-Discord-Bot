@@ -169,6 +169,7 @@ async function withServer(run, options = {}) {
     getDiscordProfile: options.getDiscordProfile,
     sendTicketReply: options.sendTicketReply,
     editTicketReply: options.editTicketReply,
+    closeTicket: options.closeTicket,
     updateAvoidsInGoogleSheets,
     saveAvoidRelationships
   });
@@ -699,6 +700,113 @@ test('ticket replies require an administrator-linked Discord account', async () 
     ticketDatabase,
     sendTicketReply: async () => {
       sendCalls += 1;
+      return { ok: true };
+    }
+  });
+});
+
+test('open tickets can be closed normally or silently by linked staff', async () => {
+  const normalTicketId = new ObjectId();
+  const silentTicketId = new ObjectId();
+  const ticketDatabase = new MemoryTicketDatabase({
+    player_Tickets: [
+      {
+        _id: normalTicketId,
+        username: 'player',
+        userID: '123456789012345678',
+        ticketChannelID: '234567890123456789',
+        status: 'Open'
+      },
+      {
+        _id: silentTicketId,
+        username: 'player',
+        userID: '123456789012345678',
+        ticketChannelID: '345678901234567890',
+        status: 'Open'
+      }
+    ]
+  });
+  const closeCalls = [];
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const close = async (ticketId, mode) => fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}/close`,
+      { method: 'POST', headers, body: JSON.stringify({ mode }) }
+    );
+
+    const invalidMode = await close(normalTicketId, 'unexpected');
+    assert.equal(invalidMode.status, 400);
+    const normalResponse = await close(normalTicketId, 'normal');
+    assert.equal(normalResponse.status, 200);
+    assert.deepEqual(await normalResponse.json(), { mode: 'normal', warning: '' });
+    const silentResponse = await close(silentTicketId, 'silent');
+    assert.equal(silentResponse.status, 200);
+    assert.deepEqual(await silentResponse.json(), { mode: 'silent', warning: '' });
+    assert.deepEqual(closeCalls.map(({ mode }) => mode), ['normal', 'silent']);
+    assert.ok(closeCalls.every(({ closedByID }) => closedByID === '123456789012345678'));
+    assert.equal(ticketDatabase.collection('player_Tickets').items.every((ticket) => ticket.status === 'Closed'), true);
+
+    const alreadyClosed = await close(normalTicketId, 'normal');
+    assert.equal(alreadyClosed.status, 409);
+    assert.equal(closeCalls.length, 2);
+  }, {
+    ticketDatabase,
+    discordId: '123456789012345678',
+    closeTicket: async ({ ticket, collectionName, mode, closedByID }) => {
+      closeCalls.push({ ticket, collectionName, mode, closedByID });
+      ticket.status = 'Closed';
+      return { ok: true };
+    }
+  });
+});
+
+test('ticket closing requires an administrator-linked Discord account', async () => {
+  const ticketId = new ObjectId();
+  const ticketDatabase = new MemoryTicketDatabase({
+    player_Tickets: [{
+      _id: ticketId,
+      userID: '123456789012345678',
+      ticketChannelID: '234567890123456789',
+      status: 'Open'
+    }]
+  });
+  let closeCalls = 0;
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const response = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}/close`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'silent' })
+      }
+    );
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /administrator must link/i);
+    assert.equal(closeCalls, 0);
+  }, {
+    ticketDatabase,
+    closeTicket: async () => {
+      closeCalls += 1;
       return { ok: true };
     }
   });

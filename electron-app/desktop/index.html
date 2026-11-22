@@ -186,7 +186,7 @@
                 <div id="ticket-detail-content"></div>
                 <p id="ticket-detail-state" class="members-state" role="status" aria-live="polite" hidden></p>
                 <p id="ticket-reply-unavailable" class="ticket-reply-unavailable" hidden>
-                  An administrator must link your Discord account before you can reply.
+                  An administrator must link your Discord account before you can reply or close a ticket.
                 </p>
                 <form id="ticket-reply-form" class="ticket-reply-form" hidden>
                   <label for="ticket-reply-input">Reply as your app account</label>
@@ -195,9 +195,22 @@
                     placeholder="Write a reply…"></textarea>
                   <div class="ticket-reply-actions">
                     <p id="ticket-reply-status" class="ticket-reply-status" role="status" aria-live="polite"></p>
-                    <button type="submit">Send reply</button>
+                    <div class="ticket-reply-buttons">
+                      <button type="submit">Send reply</button>
+                      <button id="close-ticket-button" class="danger" type="button">Close ticket</button>
+                    </div>
                   </div>
                 </form>
+                <p id="ticket-close-status" class="ticket-close-status" role="status" aria-live="polite" hidden></p>
+                <dialog id="ticket-close-options" class="ticket-close-dialog">
+                  <h2>Close ticket</h2>
+                  <p>Choose how this ticket should be closed.</p>
+                  <div class="ticket-close-options">
+                    <button type="button" data-close-mode="normal">Close Normally</button>
+                    <button class="danger" type="button" data-close-mode="silent">Close Silently</button>
+                  </div>
+                  <button id="cancel-ticket-close" class="secondary" type="button">Cancel</button>
+                </dialog>
               </section>
             </section>
             <form id="self-password-form" class="password-card" hidden>

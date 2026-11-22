@@ -250,6 +250,7 @@ function createApp({
   getDiscordProfile,
   sendTicketReply: sendTicketReplyCallback,
   editTicketReply: editTicketReplyCallback,
+  closeTicket: closeTicketCallback,
   updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
   saveAvoidRelationships
 }) {
@@ -1252,6 +1253,59 @@ function createApp({
     }
   });
 
+  app.post('/api/tickets/:collectionName/:ticketId/close', limited(10), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+      if (typeof closeTicketCallback !== 'function') {
+        return res.status(503).json({ error: 'Ticket closing is not available.' });
+      }
+
+      const { collectionName, ticketId } = req.params;
+      const mode = req.body?.mode;
+      if (!isTicketCollectionName(collectionName) ||
+          !/^[a-f\d]{24}$/i.test(ticketId) ||
+          !['normal', 'silent'].includes(mode)) {
+        return res.status(400).json({ error: 'A valid ticket and close mode are required.' });
+      }
+      if (!MEMBER_ID_PATTERN.test(session.user.discordId || '')) {
+        return res.status(409).json({ error: 'An administrator must link a Discord account before you can close tickets.' });
+      }
+
+      const ticket = await ticketDatabase.collection(collectionName).findOne({
+        _id: new ObjectId(ticketId)
+      });
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+      if (typeof ticket.status !== 'string' || ticket.status.toLocaleLowerCase('en') !== 'open') {
+        return res.status(409).json({ error: 'This ticket is already closed.' });
+      }
+      if (!MEMBER_ID_PATTERN.test(ticket.userID || '') ||
+          typeof ticket.ticketChannelID !== 'string' || !ticket.ticketChannelID) {
+        return res.status(409).json({ error: 'This ticket is missing its Discord recipient or channel.' });
+      }
+
+      const result = await closeTicketCallback({
+        ticket,
+        collectionName,
+        mode,
+        closedByID: session.user.discordId
+      });
+      if (!result || result.ok !== true) {
+        return res.status(result?.partial ? 502 : 503).json({
+          error: result?.error || 'The ticket could not be closed.',
+          partial: result?.partial === true
+        });
+      }
+      return res.status(200).json({
+        mode,
+        warning: typeof result.warning === 'string' ? result.warning : ''
+      });
+    } catch (error) {
+      return sendError(res, error, 'Ticket close failed:');
+    }
+  });
+
   app.patch('/api/tickets/:collectionName/:ticketId/messages/:mirrorMessageID', limited(30), async (req, res) => {
     try {
       const session = await readSession(req, res);
@@ -2079,6 +2133,67 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         };
       }
       : null;
+    const closeTicketAndSave = discordClient && ticketDatabase
+      ? require('../../database/ticketManager').closeTicketAndSave
+      : null;
+    const closeTicket = typeof closeTicketAndSave === 'function'
+      ? async ({ ticket, collectionName, mode, closedByID }) => {
+        if (!discordClient.isReady()) {
+          return { ok: false, error: 'The Discord bot is not ready to close tickets.' };
+        }
+
+        let recipient;
+        let channel;
+        try {
+          [recipient, channel] = await Promise.all([
+            discordClient.users.fetch(ticket.userID),
+            discordClient.channels.fetch(ticket.ticketChannelID)
+          ]);
+        } catch (error) {
+          console.error('Could not load a Discord account or channel for ticket closure:', error);
+          return { ok: false, error: 'Could not access the ticket recipient or channel.' };
+        }
+        if (!recipient || !channel || typeof channel.delete !== 'function' ||
+            !channel.messages?.fetch) {
+          return { ok: false, error: 'The ticket recipient or channel is unavailable.' };
+        }
+
+        const collectionSuffix = '_Tickets';
+        const username = typeof ticket.username === 'string' && ticket.username
+          ? ticket.username
+          : collectionName.slice(0, -collectionSuffix.length);
+        try {
+          await closeTicketAndSave(channel, { id: recipient.id, username }, closedByID);
+        } catch (error) {
+          console.error('Could not archive a ticket before closing its channel:', error);
+          return { ok: false, error: 'Could not save the ticket transcript; the channel was left open.' };
+        }
+
+        let warning = '';
+        if (mode === 'normal') {
+          try {
+            await recipient.send('📩 Your support ticket has been closed.');
+          } catch (error) {
+            console.error('Ticket was archived, but the customer closure notice could not be sent:', error);
+            warning = 'The ticket was closed, but the customer could not be notified.';
+          }
+        }
+
+        try {
+          await channel.delete();
+        } catch (error) {
+          console.error('Ticket was archived, but its Discord channel could not be deleted:', error);
+          return {
+            ok: false,
+            partial: true,
+            error: warning
+              ? `${warning} The ticket was archived, but its Discord channel could not be deleted.`
+              : 'The ticket was archived, but its Discord channel could not be deleted.'
+          };
+        }
+        return { ok: true, warning };
+      }
+      : null;
     await users.createIndex({ username: 1 }, { unique: true });
     await users.createIndex({ discordId: 1 }, { unique: true, sparse: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
@@ -2098,6 +2213,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         : null,
       sendTicketReply,
       editTicketReply,
+      closeTicket,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,
