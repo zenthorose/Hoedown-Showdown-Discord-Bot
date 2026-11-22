@@ -464,6 +464,12 @@ function createApp({
     return { payload, user };
   };
   const memberStreams = new Set();
+  let roundsActionState = {
+    running: false,
+    lastClickedBy: null,
+    lastClickedAt: null,
+    lastOutcome: 'none'
+  };
   let memberChangeStream;
   let memberChangeStreamRetry;
   let memberChangeStreamRetryDelay = 5000;
@@ -664,6 +670,7 @@ function createApp({
       writeMemberEvent(res, 'resync', {});
       writeMemberEvent(res, 'avoids-resync', {});
       writeMemberEvent(res, 'tickets-resync', {});
+      writeMemberEvent(res, 'rounds-action-status', roundsActionState);
 
       const removeStream = () => {
         if (!memberStreams.delete(stream)) return;
@@ -1811,7 +1818,19 @@ function createApp({
     }
   });
 
+  app.get('/api/rounds/grab-reactions/status', limited(60), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json(roundsActionState);
+    } catch (error) {
+      return sendError(res, error, 'Round action status lookup failed:');
+    }
+  });
+
   app.post('/api/rounds/grab-reactions', limited(3), async (req, res) => {
+    let actionLockAcquired = false;
     try {
       const session = await readSession(req, res);
       if (!session) return;
@@ -1829,24 +1848,54 @@ function createApp({
           error: 'Your linked Discord account does not have an allowed bot role.'
         });
       }
+      if (roundsActionState.running) {
+        res.set('Cache-Control', 'private, no-store');
+        return res.status(409).json({
+          error: 'Round generation is already in progress.',
+          roundActionState: roundsActionState
+        });
+      }
 
+      roundsActionState = {
+        running: true,
+        lastClickedBy: {
+          username: session.user.username,
+          discordUsername: session.user.discordUsername || session.user.discordId
+        },
+        lastClickedAt: new Date().toISOString(),
+        lastOutcome: 'running'
+      };
+      actionLockAcquired = true;
+      broadcastMemberEvent('rounds-action-status', roundsActionState);
       const { draft, postingStatus } = await grabRoundReactions();
+      roundsActionState = { ...roundsActionState, running: false, lastOutcome: 'success' };
+      broadcastMemberEvent('rounds-action-status', roundsActionState);
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
         round: draft.round,
         reactedPlayerCount: draft.reactedPlayerCount,
         eligiblePlayerCount: draft.eligiblePlayerCount,
         excludedPlayerCount: draft.excludedPlayers.length,
-        postingStatus
+        postingStatus,
+        roundActionState: roundsActionState
       });
     } catch (error) {
       if (error instanceof TeamGenerationError) {
+        if (actionLockAcquired) {
+          roundsActionState = { ...roundsActionState, running: false, lastOutcome: 'failed' };
+          broadcastMemberEvent('rounds-action-status', roundsActionState);
+        }
         console.error('Rounds-tab team generation failed:', error);
         return res.status(error.statusCode).json({
           error: error.message,
           partial: error.partial,
-          round: error.round
+          round: error.round,
+          ...(actionLockAcquired ? { roundActionState: roundsActionState } : {})
         });
+      }
+      if (actionLockAcquired) {
+        roundsActionState = { ...roundsActionState, running: false, lastOutcome: 'failed' };
+        broadcastMemberEvent('rounds-action-status', roundsActionState);
       }
       return sendError(res, error, 'Rounds-tab team generation failed:');
     }

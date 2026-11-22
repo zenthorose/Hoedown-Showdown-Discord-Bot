@@ -10,6 +10,14 @@ const selfPasswordForm = document.getElementById('self-password-form');
 const updateBox = document.getElementById('update-box');
 let resetToken = null;
 let profilePendingDeletion = null;
+let localRoundActionPending = false;
+let roundStatusRequestPending = false;
+let roundActionState = {
+  running: false,
+  lastClickedBy: null,
+  lastClickedAt: null,
+  lastOutcome: 'none'
+};
 let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
@@ -438,6 +446,60 @@ function applyAuthState(state) {
   }
 }
 
+function applyRoundActionState(state) {
+  if (!state || typeof state.running !== 'boolean') return;
+  roundActionState = state;
+  const button = document.getElementById('grab-round-reactions');
+  const indicator = document.getElementById('rounds-generation-indicator');
+  const lastClicked = document.getElementById('rounds-last-clicked');
+  const running = state.running || localRoundActionPending;
+  button.disabled = running;
+  indicator.classList.remove('loading', 'complete', 'pending');
+
+  if (running) {
+    indicator.classList.add('loading');
+    indicator.textContent = '';
+    indicator.setAttribute('aria-label', 'Round generation in progress');
+  } else if (state.lastOutcome === 'success') {
+    indicator.classList.add('complete');
+    indicator.textContent = '✓';
+    indicator.setAttribute('aria-label', 'Round generated');
+  } else {
+    indicator.classList.add('pending');
+    indicator.textContent = '✕';
+    indicator.setAttribute('aria-label', state.lastOutcome === 'failed'
+      ? 'Last round generation failed'
+      : 'Round not generated');
+  }
+
+  const actor = state.lastClickedBy;
+  const actorLabel = actor
+    ? `${actor.username || 'Unknown account'} (Discord: ${actor.discordUsername || 'unknown'})`
+    : '';
+  if (state.running) {
+    lastClicked.textContent = `Generating now${actorLabel ? ` · ${actorLabel}` : ''}`;
+  } else if (actorLabel) {
+    lastClicked.textContent = `Last clicked by ${actorLabel}`;
+  } else {
+    lastClicked.textContent = 'No one has clicked this action yet.';
+  }
+}
+
+async function refreshRoundActionStatus() {
+  if (roundStatusRequestPending || signedInPanel.hidden) return;
+  roundStatusRequestPending = true;
+  try {
+    const result = await window.hoedown.getRoundActionStatus();
+    if (!result.ok) throw new Error(result.error || 'Could not load round action status.');
+    applyRoundActionState(result.state);
+  } catch (error) {
+    document.getElementById('rounds-last-clicked').textContent =
+      `Round activity status unavailable: ${error.message || 'Could not load status.'}`;
+  } finally {
+    roundStatusRequestPending = false;
+  }
+}
+
 document.getElementById('app-navigation').addEventListener('click', (event) => {
   const button = event.target.closest('button[data-tab]');
   if (!button) return;
@@ -463,6 +525,7 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   document.getElementById('rounds-view').hidden = !isRounds;
   document.getElementById('tickets-view').hidden = !isTickets;
   document.getElementById('settings-view').hidden = !isSettings;
+  if (isRounds) void refreshRoundActionStatus();
   document.getElementById('page-card').hidden = isMembers || isAvoids || isRounds || isTickets || isSettings;
   selfPasswordForm.hidden = true;
   showStatus('');
@@ -1650,23 +1713,16 @@ document.getElementById('refresh-avoids').addEventListener('click', () => {
   void loadAvoids();
 });
 document.getElementById('grab-round-reactions').addEventListener('click', async (event) => {
-  const button = event.currentTarget;
+  if (roundActionState.running || localRoundActionPending) return;
+  localRoundActionPending = true;
   const actionStatus = document.getElementById('rounds-action-status');
-  const generationIndicator = document.getElementById('rounds-generation-indicator');
-  button.disabled = true;
-  generationIndicator.classList.remove('complete', 'pending');
-  generationIndicator.classList.add('loading');
-  generationIndicator.textContent = '';
-  generationIndicator.setAttribute('aria-label', 'Generating round');
+  applyRoundActionState(roundActionState);
   actionStatus.hidden = false;
   actionStatus.textContent = 'Searching the Opt-In channel and generating the Team Check draft…';
   try {
     const result = await window.hoedown.grabRoundReactions();
+    if (result.roundActionState) applyRoundActionState(result.roundActionState);
     if (!result.ok) throw new Error(result.error || 'Could not generate the next round draft.');
-    generationIndicator.classList.remove('loading');
-    generationIndicator.classList.add('complete');
-    generationIndicator.textContent = '✓';
-    generationIndicator.setAttribute('aria-label', 'Round generated');
     const previewMessage = result.postingStatus === 'posted'
       ? 'The Team Check preview was posted.'
       : 'Team Check posting is disabled; the draft was saved in MongoDB.';
@@ -1677,13 +1733,11 @@ document.getElementById('grab-round-reactions').addEventListener('click', async 
       `Round #${result.round} draft saved. ${result.eligiblePlayerCount} eligible players from ` +
       `${result.reactedPlayerCount} reactions.${excludedPlayers} ${previewMessage}`;
   } catch (error) {
-    generationIndicator.classList.remove('loading', 'complete');
-    generationIndicator.classList.add('pending');
-    generationIndicator.textContent = '✕';
-    generationIndicator.setAttribute('aria-label', 'Round not generated');
     actionStatus.textContent = error.message || 'Could not generate the next round draft.';
   } finally {
-    button.disabled = false;
+    localRoundActionPending = false;
+    applyRoundActionState(roundActionState);
+    void refreshRoundActionStatus();
   }
 });
 document.getElementById('ticket-filters').addEventListener('submit', (event) => {
@@ -2111,6 +2165,7 @@ window.hoedown.onTicketMessage(resyncTicketMessage);
 window.hoedown.onMembersLiveStatus((liveStatus) => {
   setLiveUpdatesStatus(liveStatus);
 });
+window.hoedown.onRoundActionStatus(applyRoundActionState);
 window.hoedown.onStatus(applyAuthState);
 window.hoedown.getStatus()
   .then(applyAuthState)

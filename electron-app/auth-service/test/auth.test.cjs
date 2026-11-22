@@ -633,12 +633,19 @@ test('Rounds action requires a session and an allowed linked Discord role', asyn
 
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
-    assert.deepEqual(result, {
+    const { roundActionState, ...roundResult } = result;
+    assert.deepEqual(roundResult, {
       round: 4,
       reactedPlayerCount: 6,
       eligiblePlayerCount: 5,
       excludedPlayerCount: 1,
       postingStatus: 'posted'
+    });
+    assert.equal(roundActionState.running, false);
+    assert.equal(roundActionState.lastOutcome, 'success');
+    assert.deepEqual(roundActionState.lastClickedBy, {
+      username: 'cowboy',
+      discordUsername: '123456789012345678'
     });
     assert.equal(generationCount, 1);
   }, {
@@ -655,6 +662,80 @@ test('Rounds action requires a session and an allowed linked Discord role', asyn
         },
         postingStatus: 'posted'
       };
+    }
+  });
+});
+
+test('round generation is locked across clients and reports the last clicker', async () => {
+  let releaseGeneration;
+  let markGenerationStarted;
+  const generationStarted = new Promise((resolve) => { markGenerationStarted = resolve; });
+  const generationResult = new Promise((resolve) => { releaseGeneration = resolve; });
+  let generationCount = 0;
+
+  await withServer(async ({ baseUrl, password, user }) => {
+    user.discordUsername = 'discord.cowboy';
+    const device = deviceInfo(
+      '01234567-89ab-42cd-8abc-0123456789ab',
+      '11234567-89ab-42cd-8abc-0123456789ab'
+    );
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'cowboy', password, ...device })
+    });
+    const { token } = await loginResponse.json();
+    const headers = { authorization: `Bearer ${token}` };
+    const outcome = {
+      draft: {
+        round: 2,
+        reactedPlayerCount: 4,
+        eligiblePlayerCount: 4,
+        excludedPlayers: []
+      },
+      postingStatus: 'disabled'
+    };
+    try {
+      const firstRequest = fetch(`${baseUrl}/api/rounds/grab-reactions`, {
+        method: 'POST',
+        headers
+      });
+      await generationStarted;
+
+      const runningStatusResponse = await fetch(`${baseUrl}/api/rounds/grab-reactions/status`, { headers });
+      const runningStatus = await runningStatusResponse.json();
+      assert.equal(runningStatus.running, true);
+      assert.deepEqual(runningStatus.lastClickedBy, {
+        username: 'cowboy',
+        discordUsername: 'discord.cowboy'
+      });
+
+      const competingResponse = await fetch(`${baseUrl}/api/rounds/grab-reactions`, {
+        method: 'POST',
+        headers
+      });
+      assert.equal(competingResponse.status, 409);
+      assert.equal(generationCount, 1);
+      assert.equal((await competingResponse.json()).roundActionState.running, true);
+
+      releaseGeneration(outcome);
+      const completedResponse = await firstRequest;
+      assert.equal(completedResponse.status, 200);
+      const completedStatusResponse = await fetch(`${baseUrl}/api/rounds/grab-reactions/status`, { headers });
+      const completedStatus = await completedStatusResponse.json();
+      assert.equal(completedStatus.running, false);
+      assert.equal(completedStatus.lastOutcome, 'success');
+      assert.equal(completedStatus.lastClickedBy.discordUsername, 'discord.cowboy');
+    } finally {
+      releaseGeneration(outcome);
+    }
+  }, {
+    discordId: '123456789012345678',
+    canGrabRoundReactions: async () => true,
+    grabRoundReactions: async () => {
+      generationCount += 1;
+      markGenerationStarted();
+      return generationResult;
     }
   });
 });

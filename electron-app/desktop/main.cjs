@@ -36,6 +36,16 @@ function normalizeDiscordAvatarUrl(value) {
     : '';
 }
 
+function isRoundActionState(value) {
+  return value && typeof value === 'object' &&
+    typeof value.running === 'boolean' &&
+    (value.lastClickedBy === null ||
+      value.lastClickedBy && typeof value.lastClickedBy.username === 'string' &&
+      typeof value.lastClickedBy.discordUsername === 'string') &&
+    (value.lastClickedAt === null || typeof value.lastClickedAt === 'string') &&
+    ['none', 'running', 'success', 'failed'].includes(value.lastOutcome);
+}
+
 function isThemeColorSet(colors) {
   return colors && typeof colors === 'object' && !Array.isArray(colors) &&
     Object.keys(colors).length === THEME_COLOR_FIELDS.length &&
@@ -150,6 +160,10 @@ function startMembersLiveUpdates() {
     if (eventName === 'session-expired') {
       await clearToken();
       sendStatus({ signedIn: false, error: data.error || 'Session expired. Please sign in again.' });
+    } else if (eventName === 'rounds-action-status') {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('rounds:action-status', data);
+      }
     } else if (
       eventName === 'member' ||
       eventName === 'resync' ||
@@ -774,14 +788,16 @@ app.whenReady().then(async () => {
           ok: false,
           error: data.error || 'Could not generate the next round draft.',
           partial: data.partial === true,
-          round: Number.isSafeInteger(data.round) ? data.round : null
+          round: Number.isSafeInteger(data.round) ? data.round : null,
+          roundActionState: isRoundActionState(data.roundActionState) ? data.roundActionState : null
         };
       }
       if (!Number.isSafeInteger(data.round) ||
           !Number.isSafeInteger(data.reactedPlayerCount) ||
           !Number.isSafeInteger(data.eligiblePlayerCount) ||
           !Number.isSafeInteger(data.excludedPlayerCount) ||
-          !['posted', 'disabled'].includes(data.postingStatus)) {
+          !['posted', 'disabled'].includes(data.postingStatus) ||
+          !isRoundActionState(data.roundActionState)) {
         throw new Error('The service returned an invalid round-generation result.');
       }
       return {
@@ -790,10 +806,34 @@ app.whenReady().then(async () => {
         reactedPlayerCount: data.reactedPlayerCount,
         eligiblePlayerCount: data.eligiblePlayerCount,
         excludedPlayerCount: data.excludedPlayerCount,
-        postingStatus: data.postingStatus
+        postingStatus: data.postingStatus,
+        roundActionState: data.roundActionState
       };
     } catch (error) {
       return { ok: false, error: error.message || 'Could not reach the round service.' };
+    }
+  });
+
+  ipcMain.handle('rounds:get-status', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted round action status request.');
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi('/api/rounds/grab-reactions/status', {
+        token: sessionToken
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not load round action status.' };
+      if (!isRoundActionState(data)) throw new Error('The service returned an invalid round action status.');
+      return { ok: true, state: data };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not load round action status.' };
     }
   });
 

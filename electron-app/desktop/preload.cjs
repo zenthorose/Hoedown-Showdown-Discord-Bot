@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('hoedown', {
   getMembers: () => ipcRenderer.invoke('members:list'),
   getAvoids: () => ipcRenderer.invoke('avoids:list'),
   grabRoundReactions: () => ipcRenderer.invoke('rounds:grab-reactions'),
+  getRoundActionStatus: () => ipcRenderer.invoke('rounds:get-status'),
   getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),
   getTicketPeople: (filters) => ipcRenderer.invoke('tickets:people', filters),
   getTicketsForPerson: (personId) => ipcRenderer.invoke('tickets:person', personId),
@@ -64,6 +65,12 @@ contextBridge.exposeInMainWorld('hoedown', {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('members:live-status', listener);
     return () => ipcRenderer.removeListener('members:live-status', listener);
+  },
+  onRoundActionStatus: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Round action status callback must be a function.');
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('rounds:action-status', listener);
+    return () => ipcRenderer.removeListener('rounds:action-status', listener);
   },
   logout: () => ipcRenderer.invoke('auth:logout'),
   installUpdate: () => ipcRenderer.invoke('app:install-update'),
