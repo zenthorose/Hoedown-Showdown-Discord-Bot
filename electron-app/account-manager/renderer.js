@@ -2,6 +2,7 @@ const byId = (id) => document.getElementById(id);
 let latestAudit = [];
 let currentSettings = { configured: false, serviceUrl: '', hasR2: false };
 let discordLinkUsername = '';
+let botSettingsLoaded = false;
 
 function showStatus(id, message) {
   byId(id).textContent = message || '';
@@ -116,6 +117,65 @@ async function loadReleaseInfo() {
     showStatus('release-status', error.message || 'Could not read release information.');
   }
 }
+
+function applyBotSettings(result) {
+  for (const input of document.querySelectorAll('[data-bot-settings-group][data-bot-settings-field]')) {
+    const value = result.settings[input.dataset.botSettingsGroup]?.[input.dataset.botSettingsField];
+    if (typeof value !== 'boolean') throw new Error('Render returned incomplete bot settings.');
+    input.checked = value;
+  }
+  byId('bot-settings-updated').textContent = result.updatedAt
+    ? `Last updated ${displayDate(result.updatedAt)}${result.updatedBy ? ` by ${result.updatedBy}` : ''}.`
+    : 'No saved changes. The bot is using its built-in defaults.';
+}
+
+async function loadBotSettings() {
+  const saveButton = byId('bot-settings-form').querySelector('button[type="submit"]');
+  const refreshButton = byId('refresh-bot-settings');
+  saveButton.disabled = true;
+  refreshButton.disabled = true;
+  botSettingsLoaded = false;
+  showStatus('bot-settings-status', 'Loading bot settings…');
+  try {
+    const result = await window.admin.getBotSettings();
+    applyBotSettings(result);
+    botSettingsLoaded = true;
+    showStatus('bot-settings-status', 'Bot settings loaded.');
+  } catch (error) {
+    showStatus('bot-settings-status', error.message || 'Could not load bot settings.');
+  } finally {
+    saveButton.disabled = !botSettingsLoaded;
+    refreshButton.disabled = false;
+  }
+}
+
+byId('bot-settings-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!botSettingsLoaded) return;
+  const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+  const refreshButton = byId('refresh-bot-settings');
+  submitButton.disabled = true;
+  refreshButton.disabled = true;
+  try {
+    const settings = { approveRound: {}, hoedownReset: {} };
+    for (const input of document.querySelectorAll('[data-bot-settings-group][data-bot-settings-field]')) {
+      settings[input.dataset.botSettingsGroup][input.dataset.botSettingsField] = input.checked;
+    }
+    const result = await window.admin.saveBotSettings(settings);
+    applyBotSettings(result);
+    showStatus('bot-settings-status', result.auditLogged
+      ? 'Bot settings saved and recorded in the admin audit log.'
+      : 'Bot settings saved. The admin audit log could not be updated.');
+    await loadAudit();
+  } catch (error) {
+    showStatus('bot-settings-status', error.message || 'Could not save bot settings.');
+  } finally {
+    submitButton.disabled = !botSettingsLoaded;
+    refreshButton.disabled = false;
+  }
+});
+
+byId('refresh-bot-settings').addEventListener('click', loadBotSettings);
 
 byId('settings-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -441,6 +501,6 @@ window.admin.onOutput((text) => {
   byId('build-output').scrollTop = byId('build-output').scrollHeight;
 });
 
-Promise.all([loadSettings(), loadReleaseInfo()]).catch((error) => {
+Promise.all([loadSettings(), loadReleaseInfo(), loadBotSettings()]).catch((error) => {
   showStatus('global-status', error.message || 'Could not load account manager.');
 });

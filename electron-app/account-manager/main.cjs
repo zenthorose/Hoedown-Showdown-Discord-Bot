@@ -199,6 +199,27 @@ app.whenReady().then(() => {
     return data.accounts;
   });
 
+  ipcMain.handle('admin:get-bot-settings', async (event) => {
+    requireTrusted(event);
+    const data = await requestAdmin(await loadSettings(), '/api/admin/bot-settings');
+    if (!data.settings || typeof data.settings !== 'object') {
+      throw new Error('Render returned invalid bot settings.');
+    }
+    return data;
+  });
+
+  ipcMain.handle('admin:save-bot-settings', async (event, settings) => {
+    requireTrusted(event);
+    const data = await requestAdmin(await loadSettings(), '/api/admin/bot-settings', {
+      method: 'PUT',
+      body: { settings }
+    });
+    if (!data.settings || typeof data.settings !== 'object') {
+      throw new Error('Render returned invalid bot settings.');
+    }
+    return data;
+  });
+
   ipcMain.handle('admin:create-user', async (event, value) => {
     requireTrusted(event);
     const username = String(value && value.username || '').trim().toLowerCase();

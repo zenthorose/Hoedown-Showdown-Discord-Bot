@@ -73,6 +73,15 @@ async function connectHoedownInfoDatabase() {
   return client.db(databaseName.trim());
 }
 
+async function connectAdminDatabase() {
+  const databaseName = process.env.MONGODB_ADMIN;
+  if (!databaseName || !databaseName.trim()) {
+    throw new Error('Set MONGODB_ADMIN to the admin database name.');
+  }
+  const client = await connectMongoClient();
+  return client.db(databaseName.trim());
+}
+
 async function closeHoedownInfo() {
   if (!clientPromise) return;
   const client = await clientPromise;
@@ -80,4 +89,9 @@ async function closeHoedownInfo() {
   await client.close();
 }
 
-module.exports = { closeHoedownInfo, connectHoedownInfo, connectHoedownInfoDatabase };
+module.exports = {
+  closeHoedownInfo,
+  connectAdminDatabase,
+  connectHoedownInfo,
+  connectHoedownInfoDatabase
+};

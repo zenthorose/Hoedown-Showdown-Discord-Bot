@@ -4,6 +4,7 @@ const { ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const test = require('node:test');
 const { createApp, makeToken, normalizeUsername, readToken, validPassword } = require('../server.cjs');
+const { DEFAULT_BOT_SETTINGS } = require('../../../database/botSettings');
 
 class MemoryCollection {
   constructor(items = []) {
@@ -138,6 +139,7 @@ async function withServer(run, options = {}) {
   const users = new MemoryCollection([user]);
   const devices = new MemoryCollection();
   const audit = new MemoryCollection();
+  const botSettings = new MemoryCollection(options.botSettingsDocuments || []);
   const members = new MemoryCollection(options.memberRecords || [{
     _id: '123456789012345678',
     discordId: '123456789012345678',
@@ -176,6 +178,7 @@ async function withServer(run, options = {}) {
     members,
     avoids,
     ticketDatabase,
+    botSettings,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
@@ -198,6 +201,8 @@ async function withServer(run, options = {}) {
       user,
       users,
       devices,
+      audit,
+      botSettings,
       members,
       avoids,
       ticketDatabase,
@@ -214,6 +219,73 @@ async function withServer(run, options = {}) {
     await new Promise((resolve) => server.close(resolve));
   }
 }
+
+test('admin bot settings require authorization and return the built-in defaults', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/bot-settings`);
+    assert.equal(unauthorized.status, 401);
+
+    const response = await fetch(`${baseUrl}/api/admin/bot-settings`, {
+      headers: { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' }
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.settings, DEFAULT_BOT_SETTINGS);
+    assert.equal(result.updatedAt, null);
+    assert.equal(result.updatedBy, null);
+  });
+});
+
+test('admin bot settings save complete boolean values and record an audit event', async () => {
+  await withServer(async ({ baseUrl, audit, botSettings }) => {
+    const settings = {
+      approveRound: { ...DEFAULT_BOT_SETTINGS.approveRound, ENABLE_DISCORD_POSTING: false },
+      hoedownReset: { ...DEFAULT_BOT_SETTINGS.hoedownReset, ENABLE_LOGGING: true }
+    };
+    const response = await fetch(`${baseUrl}/api/admin/bot-settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ settings })
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.settings, settings);
+    assert.equal(result.auditLogged, true);
+    assert.equal(botSettings.items[0]._id, 'global');
+    assert.deepEqual(botSettings.items[0].settings, settings);
+    assert.equal(audit.items.some((entry) =>
+      entry.action === 'update-bot-settings' && entry.username === 'global'), true);
+
+    const loaded = await fetch(`${baseUrl}/api/admin/bot-settings`, {
+      headers: { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' }
+    });
+    assert.deepEqual((await loaded.json()).settings, settings);
+  });
+});
+
+test('admin bot settings reject incomplete and non-boolean updates without saving', async () => {
+  await withServer(async ({ baseUrl, audit, botSettings }) => {
+    const response = await fetch(`${baseUrl}/api/admin/bot-settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        settings: {
+          approveRound: { ...DEFAULT_BOT_SETTINGS.approveRound, ENABLE_DISCORD_POSTING: 'false' },
+          hoedownReset: DEFAULT_BOT_SETTINGS.hoedownReset
+        }
+      })
+    });
+    assert.equal(response.status, 400);
+    assert.equal(botSettings.items.length, 0);
+    assert.equal(audit.items.length, 0);
+  });
+});
 
 test('normalizes account names and enforces password requirements', () => {
   assert.equal(normalizeUsername('  CowBoy  '), 'cowboy');

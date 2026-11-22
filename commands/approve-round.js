@@ -2,18 +2,11 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
+const { getBotSettings } = require('../database/botSettings');
 
 function escapeDiscordMarkdown(value) {
   return String(value).replace(/([\\_*~`|>])/g, '\\$1');
 }
-
-// Toggle controls for permission-changing and cleanup behavior.
-// Set to `true` to allow the operation, `false` to skip it.
-const ENABLE_ROUND_CHANNEL_PERMS = true; // Step 2: update round channel permission overwrites
-const ENABLE_TEAM_CLEANUP = true;       // Step 4a: clear old messages from team text channels
-const ENABLE_VC_RESET = true;           // Step 4a: reset voice channel permission overwrites
-const ENABLE_TEAM_POSTING_PERMS = true; // Step 4b: grant players and "Fill In" role channel perms
-const ENABLE_DISCORD_POSTING = true;    // Control whether the bot actually posts teamOutput messages
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -78,6 +71,15 @@ module.exports = {
         return;
       }
 
+      let approveRoundSettings;
+      try {
+        approveRoundSettings = (await getBotSettings()).approveRound;
+      } catch (error) {
+        console.error('❌ Could not load approve-round bot settings:', error);
+        await interaction.editReply({ content: '❌ Could not load bot settings. No team updates were made.' });
+        return;
+      }
+
       console.log(`✅ Received approve-round command for Round #${round}`);
       await logUsage(`(Round: ${round})`);
 
@@ -95,7 +97,7 @@ module.exports = {
       replyMessage = null;
 
       // --- Step 2: Update round channel permissions (optional global perms) ---
-      if (ENABLE_ROUND_CHANNEL_PERMS) {
+      if (approveRoundSettings.ENABLE_ROUND_CHANNEL_PERMS) {
         try {
           const channelId = config.roundChannels[round];
           if (!channelId) throw new Error(`Round channel ID not found for round ${round}.`);
@@ -151,7 +153,7 @@ module.exports = {
 
               // Clear messages if it's a text channel
               if (channel?.isTextBased()) {
-                if (ENABLE_TEAM_CLEANUP) {
+                if (approveRoundSettings.ENABLE_TEAM_CLEANUP) {
                   let messages;
                   do {
                     messages = await channel.messages.fetch({ limit: 50 });
@@ -167,7 +169,7 @@ module.exports = {
 
               // Reset VC perms if it's a voice channel
               if (channel?.type === 2) { // 2 = GuildVoice
-                if (ENABLE_VC_RESET) {
+                if (approveRoundSettings.ENABLE_VC_RESET) {
                   const allowedIds = [interaction.guild.roles.everyone.id]; // keep @everyone
                   for (const overwrite of channel.permissionOverwrites.cache.values()) {
                     if (!allowedIds.includes(overwrite.id)) {
@@ -208,7 +210,7 @@ module.exports = {
                   if (teamChannel) {
                     // Send the team message and capture the sent message (toggle-controlled)
                     let sentMsg = null;
-                    if (ENABLE_DISCORD_POSTING) {
+                    if (approveRoundSettings.ENABLE_DISCORD_POSTING) {
                       sentMsg = await teamChannel.send(teamOutput);
                       console.log(`✅ Sent team ${teamKey} output to channel ${teamChannelId}` + (sentMsg ? ` (msg ${sentMsg.id})` : ''));
                     } else {
@@ -225,7 +227,7 @@ module.exports = {
                     }
 
                     // Grant perms to each player (and optionally the Fill In role) together
-                    if (ENABLE_TEAM_POSTING_PERMS) {
+                    if (approveRoundSettings.ENABLE_TEAM_POSTING_PERMS) {
                       for (const player of players) {
                         if (!player?.discordId) {
                           console.warn(`⚠️ No Discord ID for ${player?.name}, skipping perms.`);

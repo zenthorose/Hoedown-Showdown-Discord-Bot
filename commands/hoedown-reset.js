@@ -2,16 +2,7 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
-
-// Top-level toggles: set to `true` to perform that action, `false` to skip it.
-const ENABLE_WIPE_OPTIN = true;                    // Wipe the Opt-In text channel's messages
-const ENABLE_SET_EVERYONE_VIEW_DENY = true;         // Set @everyone ViewChannel to false on the Opt-In channel
-const ENABLE_WIPE_ROUND_CHANNELS = true;            // Wipe each channel listed in config.roundChannels
-const ENABLE_SET_EVERYONE_VIEW_DENY_ROUNDS = true;  // Set @everyone ViewChannel = false for each round channel
-const ENABLE_WIPE_TEAM_CHANNELS = true;             // Wipe each channel listed in config.teamChannels
-const ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS = true;   // Set @everyone ViewChannel = false for each team channel
-const ENABLE_REMOVE_MEMBER_OVERWRITES = true;       // Remove individual/member permission overwrites on round/team channels
-const ENABLE_LOGGING = false;                        // Post an audit message to LOG_CHANNEL_ID
+const { getBotSettings } = require('../database/botSettings');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -20,8 +11,9 @@ module.exports = {
     .setDefaultMemberPermissions(0),
 
   async execute(interaction) {
+    let resetSettings;
     async function logUsage(msg = '') {
-      if (!ENABLE_LOGGING) return;
+      if (!resetSettings?.ENABLE_LOGGING) return;
       try {
         const logChannel = await interaction.client.channels.fetch(config.LOG_CHANNEL_ID);
         if (logChannel) await logChannel.send(`📝 **/hoedown-reset** used by **${interaction.user.tag}** ${msg}`);
@@ -31,6 +23,16 @@ module.exports = {
     }
 
     try {
+      try {
+        resetSettings = (await getBotSettings()).hoedownReset;
+      } catch (error) {
+        console.error('Could not load hoedown-reset bot settings:', error);
+        return interaction.reply({
+          content: '❌ Could not load bot settings. The reset was not started.',
+          ephemeral: true
+        });
+      }
+
       // Permission gate
       const hasPermission = await checkPermissions(interaction);
       await logUsage('(attempt)');
@@ -80,7 +82,7 @@ module.exports = {
           }
 
           // Action 1: Wipe messages
-          if (ENABLE_WIPE_OPTIN) {
+          if (resetSettings.ENABLE_WIPE_OPTIN) {
             try {
               if (optInChannel && optInChannel.isTextBased && optInChannel.isTextBased()) {
                 let fetched;
@@ -106,7 +108,7 @@ module.exports = {
           }
 
           // Action 2: Set @everyone ViewChannel = false
-          if (ENABLE_SET_EVERYONE_VIEW_DENY) {
+          if (resetSettings.ENABLE_SET_EVERYONE_VIEW_DENY) {
             try {
               if (!interaction.guild) throw new Error('Not in a guild');
               await optInChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
@@ -127,7 +129,7 @@ module.exports = {
               try {
                 const roundChannel = await interaction.client.channels.fetch(roundChannelId);
 
-                if (ENABLE_WIPE_ROUND_CHANNELS) {
+                if (resetSettings.ENABLE_WIPE_ROUND_CHANNELS) {
                   try {
                     if (roundChannel && roundChannel.isTextBased && roundChannel.isTextBased()) {
                       let fetched;
@@ -151,7 +153,7 @@ module.exports = {
                   await logUsage(`(skip wipe round ${roundKey}: toggle disabled)`);
                 }
                 // Remove individual/member permission overwrites (e.g., specific users)
-                if (ENABLE_REMOVE_MEMBER_OVERWRITES) {
+                if (resetSettings.ENABLE_REMOVE_MEMBER_OVERWRITES) {
                   try {
                     if (roundChannel && roundChannel.permissionOverwrites && roundChannel.permissionOverwrites.cache) {
                       const memberOverwrites = roundChannel.permissionOverwrites.cache.filter(ov => ov.type === 1 || String(ov.type).toLowerCase() === 'member' || String(ov.type).toLowerCase() === 'user');
@@ -172,7 +174,7 @@ module.exports = {
                   }
                 }
 
-                if (ENABLE_SET_EVERYONE_VIEW_DENY_ROUNDS) {
+                if (resetSettings.ENABLE_SET_EVERYONE_VIEW_DENY_ROUNDS) {
                   try {
                     if (!interaction.guild) throw new Error('Not in a guild');
                     await roundChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });
@@ -202,7 +204,7 @@ module.exports = {
               try {
                 const teamChannel = await interaction.client.channels.fetch(teamChannelId);
 
-                if (ENABLE_WIPE_TEAM_CHANNELS) {
+                if (resetSettings.ENABLE_WIPE_TEAM_CHANNELS) {
                   try {
                     if (teamChannel && teamChannel.isTextBased && teamChannel.isTextBased()) {
                       let fetched;
@@ -227,7 +229,7 @@ module.exports = {
                 }
 
                 // Remove individual/member permission overwrites (e.g., specific users)
-                if (ENABLE_REMOVE_MEMBER_OVERWRITES) {
+                if (resetSettings.ENABLE_REMOVE_MEMBER_OVERWRITES) {
                   try {
                     if (teamChannel && teamChannel.permissionOverwrites && teamChannel.permissionOverwrites.cache) {
                       const memberOverwrites = teamChannel.permissionOverwrites.cache.filter(ov => ov.type === 1 || String(ov.type).toLowerCase() === 'member' || String(ov.type).toLowerCase() === 'user');
@@ -248,7 +250,7 @@ module.exports = {
                   }
                 }
 
-                if (ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS) {
+                if (resetSettings.ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS) {
                   try {
                     if (!interaction.guild) throw new Error('Not in a guild');
                     await teamChannel.permissionOverwrites.edit(interaction.guild.roles.everyone, { ViewChannel: false });

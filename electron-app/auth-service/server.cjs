@@ -7,6 +7,12 @@ const bcrypt = require('bcryptjs');
 const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
 const { addAvoidRelationships } = require('../../database/pairingImport');
+const {
+  BOT_SETTINGS_COLLECTION,
+  BOT_SETTINGS_ID,
+  normalizeStoredBotSettings,
+  validateBotSettings
+} = require('../../database/botSettings');
 
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESET_TTL_SECONDS = 15 * 60;
@@ -275,6 +281,7 @@ function createApp({
   members,
   avoids,
   ticketDatabase,
+  botSettings,
   jwtSecret,
   adminApiKey,
   dummyPasswordHash,
@@ -327,6 +334,50 @@ function createApp({
     }
     return true;
   };
+  const adminMutationLimit = limited(10);
+  app.get('/api/admin/bot-settings', limited(60), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    if (!botSettings) return res.status(503).json({ error: 'Bot settings are not configured.' });
+    try {
+      const document = await botSettings.findOne({ _id: BOT_SETTINGS_ID });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        settings: normalizeStoredBotSettings(document && document.settings),
+        updatedAt: document?.updatedAt instanceof Date ? document.updatedAt.toISOString() : null,
+        updatedBy: typeof document?.updatedBy === 'string' ? document.updatedBy : null
+      });
+    } catch (error) {
+      return sendError(res, error, 'Admin bot settings lookup failed:');
+    }
+  });
+  app.put('/api/admin/bot-settings', adminMutationLimit, async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    if (!botSettings) return res.status(503).json({ error: 'Bot settings are not configured.' });
+    let settings;
+    try {
+      settings = validateBotSettings(req.body && req.body.settings);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    try {
+      const updatedAt = new Date();
+      await botSettings.updateOne(
+        { _id: BOT_SETTINGS_ID },
+        { $set: { settings, updatedAt, updatedBy: 'admin' } },
+        { upsert: true }
+      );
+      const auditLogged = await recordAdminAction('update-bot-settings', 'global');
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        settings,
+        updatedAt: updatedAt.toISOString(),
+        updatedBy: 'admin',
+        auditLogged
+      });
+    } catch (error) {
+      return sendError(res, error, 'Admin bot settings save failed:');
+    }
+  });
   const readSession = async (req, res, allowPasswordChange = false) => {
     const payload = readToken(bearerToken(req), jwtSecret);
     if (!payload || (!allowPasswordChange && payload.purpose !== 'session')) {
@@ -341,7 +392,6 @@ function createApp({
     }
     return { payload, user };
   };
-  const adminMutationLimit = limited(10);
   const memberStreams = new Set();
   let memberChangeStream;
   let memberChangeStreamRetry;
@@ -2108,6 +2158,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     const users = database.collection('users');
     const devices = database.collection('userDevices');
     const audit = database.collection('adminAudit');
+    const botSettingsCollection = database.collection(BOT_SETTINGS_COLLECTION);
     const hoedownDatabaseName = typeof MONGODB_HOEDOWNINFO === 'string'
       ? MONGODB_HOEDOWNINFO.trim()
       : '';
@@ -2555,6 +2606,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       members,
       avoids,
       ticketDatabase,
+      botSettings: botSettingsCollection,
       updateAvoidsInGoogleSheets,
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)

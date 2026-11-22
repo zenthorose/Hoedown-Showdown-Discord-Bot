@@ -14,6 +14,7 @@
       </div>
       <nav>
         <button class="tab active" data-tab="accounts">Accounts</button>
+        <button class="tab" data-tab="bot-settings">Bot Settings</button>
         <button class="tab" data-tab="releases">Releases</button>
       </nav>
     </header>
@@ -77,6 +78,89 @@
           <div class="table-wrap">
             <table><thead><tr><th>Device</th><th>Platform</th><th>Last seen</th><th>IP address</th><th>Activity</th></tr></thead><tbody id="device-rows"></tbody></table>
           </div>
+        </section>
+      </section>
+
+      <section id="bot-settings" class="tab-page" hidden>
+        <section class="card">
+          <div class="section-heading">
+            <h2>Global Discord bot settings</h2>
+            <button id="refresh-bot-settings" class="secondary" type="button">Refresh</button>
+          </div>
+          <p class="muted">
+            These values are shared by the bot and stored in MongoDB. Changes apply the next time a command runs;
+            saving does not run any Discord actions. False skips the matching action.
+          </p>
+          <p class="bot-settings-warning">
+            Hoedown reset can delete channel messages and change permissions. Its Discord confirmation and permission checks still apply.
+          </p>
+          <form id="bot-settings-form">
+            <div class="bot-settings-groups">
+              <fieldset class="bot-settings-group">
+                <legend>/approve-round</legend>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="approveRound" data-bot-settings-field="ENABLE_ROUND_CHANNEL_PERMS">
+                  <span><strong>Update round channel permissions</strong><small>Allow the bot to update visibility and posting permissions on the approved round channel.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="approveRound" data-bot-settings-field="ENABLE_TEAM_CLEANUP">
+                  <span><strong>Clear old team-channel messages</strong><small>Delete previous messages from team text channels before posting the new teams.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="approveRound" data-bot-settings-field="ENABLE_VC_RESET">
+                  <span><strong>Reset team voice-channel permissions</strong><small>Remove existing member and role overwrites from team voice channels.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="approveRound" data-bot-settings-field="ENABLE_TEAM_POSTING_PERMS">
+                  <span><strong>Grant team access permissions</strong><small>Grant channel and voice access to team members and the Fill In role.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="approveRound" data-bot-settings-field="ENABLE_DISCORD_POSTING">
+                  <span><strong>Post approved teams in Discord</strong><small>Send team lists to their configured team channels.</small></span>
+                </label>
+              </fieldset>
+              <fieldset class="bot-settings-group">
+                <legend>/hoedown-reset</legend>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_WIPE_OPTIN">
+                  <span><strong>Wipe Opt-In channel messages</strong><small>Delete messages from the configured Opt-In channel.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_SET_EVERYONE_VIEW_DENY">
+                  <span><strong>Hide the Opt-In channel from everyone</strong><small>Set @everyone ViewChannel to false in the Opt-In channel.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_WIPE_ROUND_CHANNELS">
+                  <span><strong>Wipe round-channel messages</strong><small>Delete messages from all configured round channels.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_SET_EVERYONE_VIEW_DENY_ROUNDS">
+                  <span><strong>Hide round channels from everyone</strong><small>Set @everyone ViewChannel to false in each round channel.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_WIPE_TEAM_CHANNELS">
+                  <span><strong>Wipe team-channel messages</strong><small>Delete messages from all configured team channels.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_SET_EVERYONE_VIEW_DENY_TEAMS">
+                  <span><strong>Hide team channels from everyone</strong><small>Set @everyone ViewChannel to false in each team channel.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_REMOVE_MEMBER_OVERWRITES">
+                  <span><strong>Remove member-specific overwrites</strong><small>Remove individual member permission overwrites from round and team channels.</small></span>
+                </label>
+                <label class="bot-setting">
+                  <input type="checkbox" data-bot-settings-group="hoedownReset" data-bot-settings-field="ENABLE_LOGGING">
+                  <span><strong>Log reset actions in Discord</strong><small>Post reset activity to the configured log channel.</small></span>
+                </label>
+              </fieldset>
+            </div>
+            <div class="actions">
+              <button type="submit" disabled>Save bot settings</button>
+            </div>
+          </form>
+          <p id="bot-settings-updated" class="muted"></p>
+          <p id="bot-settings-status" class="status" role="status" aria-live="polite"></p>
         </section>
       </section>
 
