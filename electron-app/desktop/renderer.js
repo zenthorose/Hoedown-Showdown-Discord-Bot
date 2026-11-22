@@ -1056,6 +1056,8 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
     const transcript = document.createElement('ol');
     transcript.className = 'ticket-transcript';
     transcript.setAttribute('aria-label', 'Ticket messages');
+    const ticketIsOpen = ticket.status?.toLocaleLowerCase('en') === 'open';
+    const canReply = result.canReply === true;
     for (const message of ticket.messages) {
       const item = document.createElement('li');
       item.className = 'ticket-message';
@@ -1085,13 +1087,95 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
       body.className = 'ticket-message-content';
       body.textContent = message.content || '[No message content]';
       item.append(messageHeader, authorId, body);
+      if (ticketIsOpen && canReply && message.canEdit === true && message.mirrorMessageID) {
+        const actions = document.createElement('div');
+        actions.className = 'ticket-message-actions';
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.className = 'secondary ticket-message-edit';
+        editButton.textContent = 'Edit reply';
+        const editor = document.createElement('form');
+        editor.className = 'ticket-message-editor';
+        editor.hidden = true;
+        const editInput = document.createElement('textarea');
+        editInput.maxLength = 1800;
+        editInput.rows = 3;
+        editInput.required = true;
+        editInput.value = message.content || '';
+        const editActions = document.createElement('div');
+        editActions.className = 'ticket-message-editor-actions';
+        const editStatus = document.createElement('p');
+        editStatus.className = 'ticket-message-editor-status';
+        editStatus.setAttribute('role', 'status');
+        editStatus.setAttribute('aria-live', 'polite');
+        const saveButton = document.createElement('button');
+        saveButton.type = 'submit';
+        saveButton.textContent = 'Save edit';
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'secondary';
+        cancelButton.textContent = 'Cancel';
+        editActions.append(saveButton, cancelButton);
+        editor.append(editInput, editActions, editStatus);
+        editButton.addEventListener('click', () => {
+          editor.hidden = false;
+          editButton.hidden = true;
+          editInput.focus();
+        });
+        cancelButton.addEventListener('click', () => {
+          editInput.value = message.content || '';
+          editStatus.textContent = '';
+          editStatus.dataset.error = 'false';
+          editor.hidden = true;
+          editButton.hidden = false;
+        });
+        editor.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const replyText = editInput.value.trim();
+          if (!replyText) {
+            editStatus.dataset.error = 'true';
+            editStatus.textContent = 'A reply cannot be empty.';
+            return;
+          }
+          saveButton.disabled = true;
+          cancelButton.disabled = true;
+          editInput.disabled = true;
+          editStatus.dataset.error = 'false';
+          editStatus.textContent = 'Updating Discord messages…';
+          try {
+            const result = await window.hoedown.editTicketReply({
+              collectionName: ticketSummary.collectionName,
+              ticketId: ticketSummary.ticketId,
+              mirrorMessageID: message.mirrorMessageID,
+              replyText
+            });
+            if (!result.ok) {
+              editStatus.dataset.error = 'true';
+              editStatus.textContent = result.error || 'Could not edit this reply.';
+              return;
+            }
+            if (selectedTicketSummary?.collectionName === ticketSummary.collectionName &&
+                selectedTicketSummary?.ticketId === ticketSummary.ticketId &&
+                !document.getElementById('ticket-detail-view').hidden) {
+              void openTicket(ticketSummary, { preserveScroll: true });
+            }
+          } catch (error) {
+            editStatus.dataset.error = 'true';
+            editStatus.textContent = error.message || 'Could not edit this reply.';
+          } finally {
+            saveButton.disabled = false;
+            cancelButton.disabled = false;
+            editInput.disabled = false;
+          }
+        });
+        actions.append(editButton, editor);
+        item.append(actions);
+      }
       transcript.append(item);
     }
     const previousScrollTop = detailView.scrollTop;
     const wasAtBottom = detailView.scrollHeight - detailView.clientHeight - previousScrollTop <= 32;
     state.hidden = true;
-    const ticketIsOpen = ticket.status?.toLocaleLowerCase('en') === 'open';
-    const canReply = result.canReply === true;
     replyForm.hidden = !ticketIsOpen || !canReply;
     replyUnavailable.hidden = !ticketIsOpen || canReply;
     content.replaceChildren(heading, summary, metadata, staffHeading, staffList, transcriptHeading, transcript);

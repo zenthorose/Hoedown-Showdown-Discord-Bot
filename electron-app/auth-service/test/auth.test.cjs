@@ -38,10 +38,30 @@ class MemoryCollection {
       this.items.push(item);
     }
     if (!item) return { matchedCount: 0 };
-    Object.assign(item, update.$set || {});
+    let modifiedCount = 0;
+    for (const [key, value] of Object.entries(update.$set || {})) {
+      if (key.startsWith('messages.$[message].')) {
+        const field = key.slice('messages.$[message].'.length);
+        const arrayFilter = options.arrayFilters && options.arrayFilters[0] || {};
+        const target = Array.isArray(item.messages)
+          ? item.messages.find((message) => Object.entries(arrayFilter).every(([filterKey, filterValue]) =>
+            message[filterKey.replace(/^message\./, '')] === filterValue))
+          : null;
+        if (target && target[field] !== value) {
+          target[field] = value;
+          modifiedCount += 1;
+        }
+      } else {
+        if (item[key] !== value) modifiedCount += 1;
+        item[key] = value;
+      }
+    }
     for (const key of Object.keys(update.$unset || {})) delete item[key];
-    for (const [key, value] of Object.entries(update.$inc || {})) item[key] = (item[key] || 0) + value;
-    return { matchedCount: 1 };
+    for (const [key, value] of Object.entries(update.$inc || {})) {
+      item[key] = (item[key] || 0) + value;
+      modifiedCount += 1;
+    }
+    return { matchedCount: 1, modifiedCount };
   }
 
   find(filter = {}) {
@@ -148,6 +168,7 @@ async function withServer(run, options = {}) {
     updateDiscordNickname,
     getDiscordProfile: options.getDiscordProfile,
     sendTicketReply: options.sendTicketReply,
+    editTicketReply: options.editTicketReply,
     updateAvoidsInGoogleSheets,
     saveAvoidRelationships
   });
@@ -532,7 +553,9 @@ test('ticket archive requires a session, filters summaries, and returns selected
       authorName: 'Cowboy',
       content: 'I need help.',
       timestamp: '11/21/2026, 03:00 PM',
-      authorAvatarUrl: ''
+      authorAvatarUrl: '',
+      mirrorMessageID: '',
+      canEdit: false
     }]);
 
     const invalidCollection = await fetch(
@@ -673,6 +696,94 @@ test('ticket replies require an administrator-linked Discord account', async () 
     ticketDatabase,
     sendTicketReply: async () => {
       sendCalls += 1;
+      return { ok: true };
+    }
+  });
+});
+
+test('staff replies can be edited in place, but customer messages cannot', async () => {
+  const ticketId = new ObjectId();
+  const staffId = '987654321098765432';
+  const customerId = '123456789012345678';
+  const staffMirrorId = '234567890123456789';
+  const customerMirrorId = '345678901234567890';
+  const ticket = {
+    _id: ticketId,
+    ticketID: 'player ticket',
+    username: 'player',
+    userID: customerId,
+    ticketChannelID: '876543210987654321',
+    status: 'Open',
+    staffIDs: [staffId],
+    messages: [
+      {
+        sourceMessageID: '456789012345678901',
+        mirrorMessageID: staffMirrorId,
+        authorID: staffId,
+        authorName: 'helper#0001',
+        content: 'Original staff reply',
+        timestamp: '11/21/2026, 01:00 PM'
+      },
+      {
+        sourceMessageID: '567890123456789012',
+        mirrorMessageID: customerMirrorId,
+        authorID: customerId,
+        authorName: 'player#0001',
+        content: 'Customer message',
+        timestamp: '11/21/2026, 01:01 PM'
+      }
+    ]
+  };
+  const ticketDatabase = new MemoryTicketDatabase({ player_Tickets: [ticket] });
+  const editCalls = [];
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const detailResponse = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}`,
+      { headers }
+    );
+    const detail = await detailResponse.json();
+    assert.equal(detail.ticket.messages[0].canEdit, true);
+    assert.equal(detail.ticket.messages[1].canEdit, false);
+
+    const edited = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}/messages/${staffMirrorId}`,
+      {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ replyText: 'Corrected staff reply' })
+      }
+    );
+    assert.equal(edited.status, 200);
+    assert.equal(ticket.messages[0].content, 'Corrected staff reply');
+    assert.equal(editCalls.length, 1);
+    assert.equal(editCalls[0].message.mirrorMessageID, staffMirrorId);
+
+    const customerEdit = await fetch(
+      `${baseUrl}/api/tickets/player_Tickets/${ticketId.toHexString()}/messages/${customerMirrorId}`,
+      {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ replyText: 'Attempt to edit customer' })
+      }
+    );
+    assert.equal(customerEdit.status, 403);
+    assert.equal(editCalls.length, 1);
+  }, {
+    ticketDatabase,
+    discordId: staffId,
+    editTicketReply: async (input) => {
+      editCalls.push(input);
       return { ok: true };
     }
   });

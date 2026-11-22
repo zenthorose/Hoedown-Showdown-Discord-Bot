@@ -396,6 +396,13 @@ footer { margin-top: 20px; font-size: 12px; }
 .ticket-message-author-avatar { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; object-fit: cover; }
 .ticket-message time, .ticket-message small { overflow-wrap: anywhere; color: #879389; font-size: 10px; }
 .ticket-message-content { margin: 8px 0 0; overflow-wrap: anywhere; color: #d3dbd3; font-size: 12px; white-space: pre-wrap; }
+.ticket-message-actions { display: grid; justify-items: end; gap: 8px; margin-top: 8px; }
+.ticket-message-edit { padding: 6px 9px; font-size: 11px; }
+.ticket-message-editor { display: grid; width: 100%; gap: 7px; }
+.ticket-message-editor textarea { width: 100%; min-height: 68px; resize: vertical; padding: 9px; border: 1px solid #48564b; border-radius: 5px; background: #0e130f; color: #eef1eb; font: inherit; }
+.ticket-message-editor-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.ticket-message-editor-status { justify-self: stretch; min-height: 1em; margin: 0; color: #9dc79d; font-size: 11px; }
+.ticket-message-editor-status[data-error="true"] { color: #e99b9b; }
 .visually-hidden {
   position: absolute;
   width: 1px;

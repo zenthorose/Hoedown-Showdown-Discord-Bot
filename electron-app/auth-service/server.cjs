@@ -14,6 +14,7 @@ const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBER_ID_PATTERN = /^\d{17,20}$/;
+const SUPPORT_REPLY_PREFIX = '📩 **Support Reply:** ';
 const TICKET_PAGE_SIZE = 50;
 const MEMBER_FIELD_LIMITS = {
   nickname: 32,
@@ -248,6 +249,7 @@ function createApp({
   updateDiscordNickname,
   getDiscordProfile,
   sendTicketReply: sendTicketReplyCallback,
+  editTicketReply: editTicketReplyCallback,
   updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
   saveAvoidRelationships
 }) {
@@ -1157,15 +1159,26 @@ function createApp({
       });
       if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
 
-      const messages = Array.isArray(ticket.messages) ? ticket.messages.map((message) => ({
-        authorID: typeof message.authorID === 'string' ? message.authorID : '',
-        authorName: typeof message.authorName === 'string' ? message.authorName : '',
-        content: typeof message.content === 'string' ? message.content : '',
-        timestamp: typeof message.timestamp === 'string' ? message.timestamp : '',
-        authorAvatarUrl: validDiscordAvatarUrl(message.authorAvatarUrl)
-          ? message.authorAvatarUrl
-          : ''
-      })) : [];
+      const ticketIsOpen = typeof ticket.status === 'string' &&
+        ticket.status.toLocaleLowerCase('en') === 'open';
+      const staffIDs = Array.isArray(ticket.staffIDs) ? ticket.staffIDs : [];
+      const messages = Array.isArray(ticket.messages) ? ticket.messages.map((message) => {
+        const authorID = typeof message.authorID === 'string' ? message.authorID : '';
+        const isStaffReply = staffIDs.includes(authorID) || authorID.startsWith('app:');
+        return {
+          authorID,
+          authorName: typeof message.authorName === 'string' ? message.authorName : '',
+          content: typeof message.content === 'string' ? message.content : '',
+          timestamp: typeof message.timestamp === 'string' ? message.timestamp : '',
+          authorAvatarUrl: validDiscordAvatarUrl(message.authorAvatarUrl)
+            ? message.authorAvatarUrl
+            : '',
+          mirrorMessageID: typeof message.mirrorMessageID === 'string' ? message.mirrorMessageID : '',
+          canEdit: ticketIsOpen && isStaffReply &&
+            MEMBER_ID_PATTERN.test(message.sourceMessageID || '') &&
+            MEMBER_ID_PATTERN.test(message.mirrorMessageID || '')
+        };
+      }) : [];
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
         ticket: {
@@ -1232,6 +1245,80 @@ function createApp({
       });
     } catch (error) {
       return sendError(res, error, 'Ticket reply delivery failed:');
+    }
+  });
+
+  app.patch('/api/tickets/:collectionName/:ticketId/messages/:mirrorMessageID', limited(30), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!ticketDatabase) return res.status(503).json({ error: 'Ticket data is not configured.' });
+      if (typeof editTicketReplyCallback !== 'function') {
+        return res.status(503).json({ error: 'Ticket reply editing is not available.' });
+      }
+
+      const { collectionName, ticketId, mirrorMessageID } = req.params;
+      if (!isTicketCollectionName(collectionName) ||
+          !/^[a-f\d]{24}$/i.test(ticketId) ||
+          !MEMBER_ID_PATTERN.test(mirrorMessageID)) {
+        return res.status(400).json({ error: 'A valid ticket message reference is required.' });
+      }
+      const replyText = typeof req.body?.replyText === 'string' ? req.body.replyText.trim() : '';
+      if (!replyText || replyText.length > 1800) {
+        return res.status(400).json({ error: 'Edited replies must contain 1–1800 characters.' });
+      }
+      if (!MEMBER_ID_PATTERN.test(session.user.discordId || '')) {
+        return res.status(409).json({ error: 'An administrator must link a Discord account before you can edit replies.' });
+      }
+
+      const tickets = ticketDatabase.collection(collectionName);
+      const ticket = await tickets.findOne({ _id: new ObjectId(ticketId) });
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+      if (typeof ticket.status !== 'string' || ticket.status.toLocaleLowerCase('en') !== 'open') {
+        return res.status(409).json({ error: 'Replies can only be edited on open tickets.' });
+      }
+      const message = Array.isArray(ticket.messages)
+        ? ticket.messages.find((item) => item.mirrorMessageID === mirrorMessageID)
+        : null;
+      if (!message) return res.status(404).json({ error: 'Ticket reply was not found.' });
+      const isStaffReply = (Array.isArray(ticket.staffIDs) && ticket.staffIDs.includes(message.authorID)) ||
+        (typeof message.authorID === 'string' && message.authorID.startsWith('app:'));
+      if (!isStaffReply ||
+          !MEMBER_ID_PATTERN.test(message.sourceMessageID || '') ||
+          !MEMBER_ID_PATTERN.test(message.mirrorMessageID || '')) {
+        return res.status(403).json({ error: 'Only staff replies can be edited.' });
+      }
+      if (message.content === replyText) {
+        return res.status(200).json({ authorName: message.authorName || '' });
+      }
+
+      const result = await editTicketReplyCallback({
+        ticket,
+        collectionName,
+        message,
+        replyText
+      });
+      if (!result || result.ok !== true) {
+        return res.status(result?.partial ? 502 : 503).json({
+          error: result?.error || 'The reply could not be edited.',
+          partial: result?.partial === true
+        });
+      }
+
+      const saved = await tickets.updateOne(
+        { _id: ticket._id, status: ticket.status },
+        { $set: { 'messages.$[message].content': replyText } },
+        { arrayFilters: [{ 'message.mirrorMessageID': mirrorMessageID, 'message.authorID': message.authorID }] }
+      );
+      if (saved.matchedCount !== 1 || saved.modifiedCount !== 1) {
+        return res.status(502).json({
+          error: 'The Discord messages were edited, but the ticket transcript could not be updated.',
+          partial: true
+        });
+      }
+      return res.status(200).json({ authorName: message.authorName || '' });
+    } catch (error) {
+      return sendError(res, error, 'Ticket reply edit failed:');
     }
   });
 
@@ -1790,7 +1877,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
 
         let dmMessage;
         try {
-          dmMessage = await recipient.send(`📩 **Support Reply:** ${replyText}`);
+          dmMessage = await recipient.send(`${SUPPORT_REPLY_PREFIX}${replyText}`);
         } catch (error) {
           console.error('Could not send a ticket reply to the customer DM:', error);
           return { ok: false, error: 'Could not send the reply to the customer’s DMs.' };
@@ -1858,6 +1945,83 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         return { ok: true, authorName: staffName };
       }
       : null;
+    const editTicketReply = discordClient && ticketDatabase
+      ? async ({ ticket, message, replyText }) => {
+        if (!discordClient.isReady()) {
+          return { ok: false, error: 'The Discord bot is not ready to edit replies.' };
+        }
+
+        let recipient;
+        let channel;
+        try {
+          [recipient, channel] = await Promise.all([
+            discordClient.users.fetch(ticket.userID),
+            discordClient.channels.fetch(ticket.ticketChannelID)
+          ]);
+        } catch (error) {
+          console.error('Could not load a Discord destination for a ticket reply edit:', error);
+          return { ok: false, error: 'Could not access the ticket recipient or channel.' };
+        }
+        if (!recipient || !channel || typeof channel.isTextBased !== 'function' ||
+            !channel.isTextBased() || !channel.messages?.fetch) {
+          return { ok: false, error: 'The ticket recipient or text channel is unavailable.' };
+        }
+
+        let dmMessage;
+        let mirroredMessage;
+        try {
+          const dmChannel = recipient.dmChannel || await recipient.createDM();
+          [dmMessage, mirroredMessage] = await Promise.all([
+            dmChannel.messages.fetch(message.sourceMessageID),
+            channel.messages.fetch(message.mirrorMessageID)
+          ]);
+        } catch (error) {
+          console.error('Could not load the Discord messages for a ticket reply edit:', error);
+          return { ok: false, error: 'Could not find both original reply messages to edit.' };
+        }
+
+        const botId = discordClient.user && discordClient.user.id;
+        const mirrorEmbed = mirroredMessage.embeds[0];
+        const mirrorFooter = mirrorEmbed?.footer?.text || '';
+        const footerStaffId = /Staff ID:\s*(\d+)/.exec(mirrorFooter)?.[1] || '';
+        const footerAppUsername = /App Username:\s*([A-Za-z0-9._-]{1,64})/.exec(mirrorFooter)?.[1] || '';
+        const expectedAttribution = message.authorID.startsWith('app:')
+          ? footerAppUsername === message.authorID.slice('app:'.length)
+          : footerStaffId === message.authorID;
+        if (!botId || dmMessage.author.id !== botId || mirroredMessage.author.id !== botId ||
+            !dmMessage.content.startsWith(SUPPORT_REPLY_PREFIX) ||
+            dmMessage.content !== `${SUPPORT_REPLY_PREFIX}${message.content}` ||
+            !mirrorEmbed || typeof mirrorEmbed.toJSON !== 'function' ||
+            mirrorEmbed.description !== message.content || !expectedAttribution) {
+          return { ok: false, error: 'The original Discord messages no longer match this archived support reply.' };
+        }
+
+        const previousDmContent = dmMessage.content;
+        const updatedEmbed = { ...mirrorEmbed.toJSON(), description: replyText };
+        let dmUpdated = false;
+        try {
+          await dmMessage.edit({ content: `${SUPPORT_REPLY_PREFIX}${replyText}` });
+          dmUpdated = true;
+          await mirroredMessage.edit({ embeds: [updatedEmbed] });
+        } catch (error) {
+          console.error('Could not edit a Discord ticket reply:', error);
+          if (dmUpdated) {
+            try {
+              await dmMessage.edit({ content: previousDmContent });
+            } catch (rollbackError) {
+              console.error('Could not restore the customer DM after a partial ticket reply edit:', rollbackError);
+              return {
+                ok: false,
+                partial: true,
+                error: 'The DM was edited, but the channel mirror failed and the original DM could not be restored.'
+              };
+            }
+          }
+          return { ok: false, error: 'Could not update both original Discord messages; no transcript change was saved.' };
+        }
+        return { ok: true };
+      }
+      : null;
     await users.createIndex({ username: 1 }, { unique: true });
     await users.createIndex({ discordId: 1 }, { unique: true, sparse: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
@@ -1876,6 +2040,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         ? (users) => addAvoidRelationships(hoedownDatabase, users)
         : null,
       sendTicketReply,
+      editTicketReply,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,

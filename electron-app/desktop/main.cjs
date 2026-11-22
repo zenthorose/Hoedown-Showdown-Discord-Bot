@@ -760,6 +760,52 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('tickets:edit-reply', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted ticket reply edit request.');
+    }
+    if (!input || typeof input.collectionName !== 'string' ||
+        !input.collectionName.endsWith('_Tickets') ||
+        Buffer.byteLength(input.collectionName, 'utf8') > 120 ||
+        input.collectionName.includes('\0') ||
+        input.collectionName.includes('$') ||
+        input.collectionName.startsWith('system.') ||
+        typeof input.ticketId !== 'string' || !/^[a-f\d]{24}$/i.test(input.ticketId) ||
+        typeof input.mirrorMessageID !== 'string' || !/^\d{17,20}$/.test(input.mirrorMessageID) ||
+        typeof input.replyText !== 'string' || !input.replyText.trim() ||
+        input.replyText.trim().length > 1800) {
+      return { ok: false, error: 'Enter a valid ticket reply edit.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const route = `/api/tickets/${encodeURIComponent(input.collectionName)}/${encodeURIComponent(input.ticketId)}/messages/${encodeURIComponent(input.mirrorMessageID)}`;
+      const { response, data } = await requestApi(route, {
+        method: 'PATCH',
+        token: sessionToken,
+        body: { replyText: input.replyText.trim() }
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: data.error || 'Could not edit this ticket reply.',
+          partial: data.partial === true
+        };
+      }
+      if (typeof data.authorName !== 'string') {
+        throw new Error('The service returned an invalid ticket reply edit result.');
+      }
+      return { ok: true, authorName: data.authorName };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the ticket service.' };
+    }
+  });
+
   ipcMain.handle('app:install-update', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted update install request.');
     if (!updateProvider || !updateDownloaded) throw new Error('There is no downloaded update ready to install.');
