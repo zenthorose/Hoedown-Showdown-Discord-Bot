@@ -404,6 +404,7 @@ function createApp({
   const scheduleTicketChangeStreamRestart = (error) => {
     if (memberChangeStreamStopped || ticketChangeStreamRetry) return;
     console.error('Ticket change stream failed; reconnecting:', error);
+    broadcastTicketsResync();
     ticketChangeStreamRetry = setTimeout(() => {
       ticketChangeStreamRetry = null;
       startTicketChangeStream();
@@ -445,7 +446,7 @@ function createApp({
       stream.on('close', () => {
         if (ticketChangeStream !== stream || memberChangeStreamStopped) return;
         ticketChangeStream = null;
-        scheduleTicketChangeStreamRestart(new Error('Tickets change stream closed unexpectedly.'));
+        scheduleTicketChangeStreamRestart('MongoDB closed the ticket change stream without an error event.');
       });
     } catch (error) {
       scheduleTicketChangeStreamRestart(error);

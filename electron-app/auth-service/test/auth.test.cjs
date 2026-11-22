@@ -843,6 +843,10 @@ test('authenticated event stream publishes member changes and Avoids and Tickets
     const messageUpdate = await readUntil(/event: ticket-message/);
     assert.match(messageUpdate, /event: ticket-message/);
     assert.match(messageUpdate, /"collectionName":"player_Tickets"/);
+
+    ticketChangeStream.emit('close');
+    const closedStreamResync = await readUntil(/event: tickets-resync/);
+    assert.match(closedStreamResync, /event: tickets-resync/);
     await reader.cancel();
   }, { memberChangeStream, avoidsChangeStream, ticketDatabase });
 });
