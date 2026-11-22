@@ -2030,8 +2030,13 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         const previousFooter = mirrorFooter
           .replace(/\s*\|\s*Edited by:\s*[^|]*/g, '')
           .replace(/\s*\|\s*Edited by ID:\s*\d+/g, '')
+          .replace(/\s*\|\s*Edited at ISO:\s*[^|]*/g, '')
           .replace(/\s*\|\s*Edited at:\s*[^|]*/g, '')
           .trim();
+        const editedAtDisplay = new Date(editedAt).toLocaleString('en-US', {
+          timeZone: 'America/New_York',
+          timeZoneName: 'short'
+        });
         const updatedEmbed = {
           ...embedData,
           description: replyText,
@@ -2041,7 +2046,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
               previousFooter,
               `Edited by: ${editorProfile.tag}`,
               `Edited by ID: ${editorDiscordId}`,
-              `Edited at: ${editedAt}`
+              `Edited at: ${editedAtDisplay}`
             ].filter(Boolean).join(' | ')
           }
         };

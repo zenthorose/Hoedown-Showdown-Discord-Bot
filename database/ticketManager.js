@@ -136,7 +136,14 @@ function getEmbedAttribution(message, user) {
   const staffIDMatch = footer.match(/Staff ID:\s*(\d+)/);
   const editedByIDMatch = footer.match(/Edited by ID:\s*(\d+)/);
   const editedByNameMatch = footer.match(/Edited by:\s*([^|]+)/);
-  const editedAtMatch = footer.match(/Edited at:\s*([^|]+)/);
+  const editedAtMatch = footer.match(/Edited at ISO:\s*([^|]+)/) ||
+    footer.match(/Edited at:\s*([^|]+)/);
+  const editedAtDate = typeof message.editedTimestamp === 'number'
+    ? new Date(message.editedTimestamp)
+    : message.editedAt instanceof Date ? message.editedAt : null;
+  const editedAt = editedAtDate && !Number.isNaN(editedAtDate.getTime())
+    ? editedAtDate.toISOString()
+    : editedAtMatch?.[1]?.trim() || '';
   const isUserDM = /DM Message ID:\s*\d+/.test(footer);
   const embedAuthor = message.embeds.find(embed => embed.author?.name)?.author?.name;
   const authorAvatarUrl = message.embeds.find(embed => embed.author?.iconURL)?.author?.iconURL || '';
@@ -148,7 +155,7 @@ function getEmbedAttribution(message, user) {
     authorAvatarUrl,
     editedByID: editedByIDMatch?.[1] || '',
     editedByName: editedByNameMatch?.[1]?.trim() || '',
-    editedAt: editedAtMatch?.[1]?.trim() || '',
+    editedAt,
     sourceMessageID: sourceMessageIDMatch?.[1] || message.id,
     staffID: staffIDMatch?.[1] || '',
   };
@@ -170,7 +177,7 @@ function formatTicketMessage(message, user) {
         }
         if (embed.footer?.text) {
           const visibleFooter = embed.footer.text.replace(
-            /\s*\|\s*(?:(?:Author|Staff|Edited by) ID:\s*\d+|App Username:\s*[A-Za-z0-9._-]{1,64}|Edited by:\s*[^|]+|Edited at:\s*[^|]+)/g,
+            /\s*\|\s*(?:(?:Author|Staff|Edited by) ID:\s*\d+|App Username:\s*[A-Za-z0-9._-]{1,64}|Edited by:\s*[^|]+|Edited at(?: ISO)?:\s*[^|]+)/g,
             ''
           );
           if (visibleFooter) embedParts.push(`_Footer: ${visibleFooter}_`);

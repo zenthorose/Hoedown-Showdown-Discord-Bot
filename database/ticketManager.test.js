@@ -160,11 +160,12 @@ test('closing reconciles live messages with their human authors and closes the r
       author: { name: 'cowboy', iconURL: 'https://cdn.discordapp.com/avatars/345678901234567890/cowboy.png' },
       description: 'I can help with that.',
       footer: {
-        text: 'Sent DM Message ID: app-dm-1 | Staff ID: 345678901234567890 | App Username: cowboy | Edited by: helper#0001 | Edited by ID: 987654321098765432 | Edited at: 2026-11-22T18:04:00.000Z'
+        text: 'Sent DM Message ID: app-dm-1 | Staff ID: 345678901234567890 | App Username: cowboy | Edited by: helper#0001 | Edited by ID: 987654321098765432 | Edited at: 11/22/2026, 1:04 PM EST'
       }
     }],
     attachments: new Map(),
-    createdAt: new Date('2026-11-22T18:03:00.000Z')
+    createdAt: new Date('2026-11-22T18:03:00.000Z'),
+    editedTimestamp: new Date('2026-11-22T18:04:00.000Z').getTime()
   };
   const legacyAppMessage = {
     id: 'mirror-legacy-app-1',

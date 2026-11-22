@@ -1092,7 +1092,10 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
         editNote.className = 'ticket-message-edit-note';
         const editedAt = message.editedAt ? new Date(message.editedAt) : null;
         const editTime = editedAt && !Number.isNaN(editedAt.getTime())
-          ? ` · ${editedAt.toLocaleString()}`
+          ? ` · ${editedAt.toLocaleString('en-US', {
+            timeZone: 'America/New_York',
+            timeZoneName: 'short'
+          })}`
           : '';
         editNote.textContent = `Last edited by ${message.editedByName}${editTime}`;
         item.append(editNote);
