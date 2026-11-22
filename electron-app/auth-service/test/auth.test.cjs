@@ -353,6 +353,36 @@ test('a later login invalidates the previously active session', async () => {
   });
 });
 
+test('sign-in and session responses expose only a validated linked Discord avatar URL', async () => {
+  await withServer(async ({ baseUrl, password, user }) => {
+    const device = deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab');
+    const avatarUrl = 'https://cdn.discordapp.com/avatars/123456789012345678/avatar.png';
+    user.discordId = '123456789012345678';
+    user.discordAvatarUrl = avatarUrl;
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'cowboy', password, ...device })
+    });
+    const login = await loginResponse.json();
+    assert.equal(login.avatarUrl, avatarUrl);
+
+    const sessionHeaders = {
+      authorization: `Bearer ${login.token}`,
+      'x-app-device-id': device.deviceId,
+      'x-app-launch-id': device.launchId,
+      'x-app-device-name': device.deviceName,
+      'x-app-platform': device.platform
+    };
+    const sessionResponse = await fetch(`${baseUrl}/api/auth/session`, { headers: sessionHeaders });
+    assert.equal((await sessionResponse.json()).avatarUrl, avatarUrl);
+
+    user.discordAvatarUrl = 'https://example.test/avatar.png';
+    const invalidAvatarResponse = await fetch(`${baseUrl}/api/auth/session`, { headers: sessionHeaders });
+    assert.equal((await invalidAvatarResponse.json()).avatarUrl, '');
+  });
+});
+
 test('theme colors are authenticated account settings and can be reset', async () => {
   await withServer(async ({ baseUrl, password, user }) => {
     const colors = {

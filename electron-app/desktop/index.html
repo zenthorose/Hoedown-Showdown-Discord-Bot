@@ -13,12 +13,23 @@
         <h1 id="auth-title">Welcome</h1>
       </header>
       <section id="connection" class="notice" role="status" hidden></section>
-      <section id="profile-picker" class="profile-picker" aria-labelledby="profile-picker-title" hidden>
-        <h2 id="profile-picker-title">Choose a profile</h2>
+      <section id="profile-picker" class="profile-picker" aria-labelledby="auth-title" hidden>
+        <p class="profile-picker-subtitle">Choose a saved sign-in or add another account.</p>
         <div id="profile-list" class="profile-list"></div>
         <p id="profile-empty" class="muted" hidden>No saved profiles yet.</p>
-        <button id="add-profile" type="button">Sign in with another account</button>
+        <button id="add-profile" class="profile-add" type="button" aria-label="Add another account">
+          <span class="profile-add-mark" aria-hidden="true">+</span>
+          <span>Add account</span>
+        </button>
       </section>
+      <dialog id="profile-delete-confirmation" class="ticket-dialog">
+        <h2>Delete saved profile?</h2>
+        <p id="profile-delete-confirmation-message"></p>
+        <div class="ticket-dialog-actions">
+          <button id="confirm-profile-delete" class="danger" type="button">Delete profile</button>
+          <button id="cancel-profile-delete" class="secondary" type="button" autofocus>Cancel</button>
+        </div>
+      </dialog>
       <form id="login-form" hidden>
         <p id="selected-profile-name" class="selected-profile-name" hidden></p>
         <label>Username<input id="username" name="username" autocomplete="username" maxlength="64" required></label>

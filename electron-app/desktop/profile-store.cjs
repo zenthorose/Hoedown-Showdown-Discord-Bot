@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const PROFILE_ID_PATTERN = /^(?:default|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+const DISCORD_AVATAR_URL_PATTERN = /^https:\/\/cdn\.discordapp\.com\//;
 
 function createProfileStore(userDataPath) {
   const profilesDirectory = path.join(userDataPath, 'profiles');
@@ -28,7 +29,10 @@ function createProfileStore(userDataPath) {
     try {
       const profile = JSON.parse(await fs.readFile(profilePath(profileId), 'utf8'));
       if (!profile || profile.id !== profileId ||
-          typeof profile.username !== 'string' || profile.username.length > 64) {
+          typeof profile.username !== 'string' || profile.username.length > 64 ||
+          profile.avatarUrl !== undefined &&
+            (typeof profile.avatarUrl !== 'string' || profile.avatarUrl.length > 512 ||
+              (profile.avatarUrl && !DISCORD_AVATAR_URL_PATTERN.test(profile.avatarUrl)))) {
         throw new Error('The saved app profile is invalid.');
       }
       return profile;
@@ -70,15 +74,24 @@ function createProfileStore(userDataPath) {
     return profile;
   }
 
-  async function updateUsername(profileId, username) {
-    if (typeof username !== 'string' || username.length > 64) {
-      throw new TypeError('The account username is invalid.');
+  async function updateAccount(profileId, username, avatarUrl) {
+    if (typeof username !== 'string' || username.length > 64 ||
+        typeof avatarUrl !== 'string' || avatarUrl.length > 512 ||
+        (avatarUrl && !DISCORD_AVATAR_URL_PATTERN.test(avatarUrl))) {
+      throw new TypeError('The account profile is invalid.');
     }
     const profile = await readProfile(profileId);
     if (!profile) throw new Error('The selected app profile no longer exists.');
-    const updated = { ...profile, username };
+    const updated = { ...profile, username, avatarUrl };
     await writeProfile(updated);
     return updated;
+  }
+
+  async function deleteProfile(profileId) {
+    const profile = await readProfile(profileId);
+    if (!profile) return false;
+    await fs.rm(profileDirectory(profileId), { recursive: true, force: false });
+    return true;
   }
 
   async function migrateLegacySession() {
@@ -108,7 +121,15 @@ function createProfileStore(userDataPath) {
     }
   }
 
-  return { createProfile, listProfiles, migrateLegacySession, readProfile, sessionPath, updateUsername };
+  return {
+    createProfile,
+    deleteProfile,
+    listProfiles,
+    migrateLegacySession,
+    readProfile,
+    sessionPath,
+    updateAccount
+  };
 }
 
 module.exports = { createProfileStore };

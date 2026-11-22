@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('hoedown', {
   login: (credentials) => ipcRenderer.invoke('auth:login', credentials),
   selectProfile: (profileId) => ipcRenderer.invoke('auth:select-profile', profileId),
   createProfile: () => ipcRenderer.invoke('auth:create-profile'),
+  deleteProfile: (profileId) => ipcRenderer.invoke('auth:delete-profile', profileId),
   backToProfiles: () => ipcRenderer.invoke('auth:back-to-profiles'),
   changePassword: (token, password) =>
     ipcRenderer.invoke('auth:change-password', { token, password }),

@@ -29,6 +29,13 @@ const THEME_COLOR_FIELDS = [
   'border'
 ];
 
+function normalizeDiscordAvatarUrl(value) {
+  return typeof value === 'string' && value.length <= 512 &&
+    /^https:\/\/cdn\.discordapp\.com\//.test(value)
+    ? value
+    : '';
+}
+
 function isThemeColorSet(colors) {
   return colors && typeof colors === 'object' && !Array.isArray(colors) &&
     Object.keys(colors).length === THEME_COLOR_FIELDS.length &&
@@ -361,7 +368,7 @@ async function checkSession() {
     throw new Error(data.error || `The sign-in service returned HTTP ${response.status}.`);
   }
   username = data.username;
-  return { signedIn: true, username };
+  return { signedIn: true, username, avatarUrl: normalizeDiscordAvatarUrl(data.avatarUrl) };
 }
 
 async function getCurrentAuthStatus(recordLaunch = false) {
@@ -392,6 +399,7 @@ async function getCurrentAuthStatus(recordLaunch = false) {
         profileName: activeProfile?.username || ''
       };
     }
+    let avatarUrl = state.avatarUrl;
 
     if (recordLaunch) {
       const { response, data } = await requestApi('/api/auth/session', {
@@ -416,14 +424,15 @@ async function getCurrentAuthStatus(recordLaunch = false) {
       }
       if (!response.ok) throw new Error(data.error || 'Session check failed.');
       username = data.username;
+      avatarUrl = normalizeDiscordAvatarUrl(data.avatarUrl);
     }
 
-    activeProfile = await profileStore.updateUsername(activeProfileId, username);
+    activeProfile = await profileStore.updateAccount(activeProfileId, username, avatarUrl);
     if (recordLaunch) {
       void checkForUpdate();
       startMembersLiveUpdates();
     }
-    return { signedIn: true, username };
+    return { signedIn: true, username, avatarUrl };
   } catch (error) {
     return {
       signedIn: false,
@@ -476,6 +485,19 @@ app.whenReady().then(async () => {
     return { signedIn: false, profileSelected: true, profileName: '' };
   });
 
+  ipcMain.handle('auth:delete-profile', async (event, profileId) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted profile deletion request.');
+    if (activeProfileId) throw new Error('Return to the profile list before deleting a profile.');
+    const deleted = await profileStore.deleteProfile(profileId);
+    if (!deleted) {
+      return {
+        ...(await getCurrentAuthStatus()),
+        error: 'That saved profile could not be found.'
+      };
+    }
+    return { ...(await getCurrentAuthStatus()), profileDeleted: true };
+  });
+
   ipcMain.handle('auth:back-to-profiles', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted profile navigation request.');
     stopMembersLiveUpdates();
@@ -510,13 +532,21 @@ app.whenReady().then(async () => {
       if (!response.ok) return { ok: false, error: data.error || 'Sign-in failed. Try again.' };
       if (data.passwordChangeRequired === true) {
         if (typeof data.resetToken !== 'string') throw new Error('The service returned an invalid password-change request.');
-        activeProfile = await profileStore.updateUsername(activeProfileId, credentials.username.trim());
+        activeProfile = await profileStore.updateAccount(
+          activeProfileId,
+          credentials.username.trim(),
+          normalizeDiscordAvatarUrl(data.avatarUrl)
+        );
         return { ok: true, passwordChangeRequired: true, resetToken: data.resetToken };
       }
       if (typeof data.token !== 'string' || typeof data.username !== 'string') {
         throw new Error('The service returned an invalid session.');
       }
-      activeProfile = await profileStore.updateUsername(activeProfileId, data.username);
+      activeProfile = await profileStore.updateAccount(
+        activeProfileId,
+        data.username,
+        normalizeDiscordAvatarUrl(data.avatarUrl)
+      );
       await saveToken(data.token);
       sessionToken = data.token;
       username = data.username;

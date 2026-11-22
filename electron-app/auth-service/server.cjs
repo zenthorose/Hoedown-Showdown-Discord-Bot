@@ -803,7 +803,11 @@ function createApp({
           deviceId: device.deviceId,
           purpose: 'password-change'
         }, jwtSecret, Math.floor(now.getTime() / 1000), RESET_TTL_SECONDS);
-        return res.status(200).json({ passwordChangeRequired: true, resetToken });
+        return res.status(200).json({
+          passwordChangeRequired: true,
+          resetToken,
+          avatarUrl: validDiscordAvatarUrl(user.discordAvatarUrl) ? user.discordAvatarUrl : ''
+        });
       }
       const token = makeToken({
         sub: user._id.toString(),
@@ -811,7 +815,12 @@ function createApp({
         deviceId: device.deviceId,
         purpose: 'session'
       }, jwtSecret, Math.floor(now.getTime() / 1000));
-      return res.status(200).json({ token, username, expiresAt: expiresAt.toISOString() });
+      return res.status(200).json({
+        token,
+        username,
+        avatarUrl: validDiscordAvatarUrl(user.discordAvatarUrl) ? user.discordAvatarUrl : '',
+        expiresAt: expiresAt.toISOString()
+      });
     } catch (error) {
       return sendError(res, error, 'Authentication lookup failed:');
     }
@@ -917,6 +926,7 @@ function createApp({
       }
       return res.status(200).json({
         username: session.user.username,
+        avatarUrl: validDiscordAvatarUrl(session.user.discordAvatarUrl) ? session.user.discordAvatarUrl : '',
         expiresAt: new Date(session.payload.exp * 1000).toISOString()
       });
     } catch (error) {

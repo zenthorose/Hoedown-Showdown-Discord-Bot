@@ -34,14 +34,34 @@ test('creates isolated profile sessions and persists account names', async () =>
     const profiles = createProfileStore(directory);
     const first = await profiles.createProfile();
     const second = await profiles.createProfile();
-    await profiles.updateUsername(first.id, 'first.account');
+    const avatarUrl = 'https://cdn.discordapp.com/avatars/123456789012345678/avatar.png';
+    await profiles.updateAccount(first.id, 'first.account', avatarUrl);
 
     assert.notEqual(profiles.sessionPath(first.id), profiles.sessionPath(second.id));
     assert.deepEqual(await profiles.listProfiles(), [
       { ...second, username: '' },
-      { ...first, username: 'first.account' }
+      { ...first, username: 'first.account', avatarUrl }
     ]);
+    await assert.rejects(
+      profiles.updateAccount(first.id, 'first.account', 'https://example.test/avatar.png'),
+      /account profile is invalid/
+    );
     assert.throws(() => profiles.sessionPath('..'), /Invalid app profile ID/);
+  });
+});
+
+test('deletes only the selected local profile', async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const profiles = createProfileStore(directory);
+    const first = await profiles.createProfile();
+    const second = await profiles.createProfile();
+    await fs.writeFile(profiles.sessionPath(first.id), 'first-profile-session', 'utf8');
+    await fs.writeFile(profiles.sessionPath(second.id), 'second-profile-session', 'utf8');
+
+    assert.equal(await profiles.deleteProfile(first.id), true);
+    assert.equal(await profiles.readProfile(first.id), null);
+    assert.equal(await fs.readFile(profiles.sessionPath(second.id), 'utf8'), 'second-profile-session');
+    assert.deepEqual(await profiles.listProfiles(), [second]);
   });
 });
 

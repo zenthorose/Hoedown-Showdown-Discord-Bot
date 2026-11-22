@@ -9,6 +9,7 @@ const profileEmpty = document.getElementById('profile-empty');
 const selfPasswordForm = document.getElementById('self-password-form');
 const updateBox = document.getElementById('update-box');
 let resetToken = null;
+let profilePendingDeletion = null;
 let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
@@ -250,7 +251,7 @@ function showSignedOut(profileSelected = true) {
   passwordForm.hidden = true;
   signedInPanel.hidden = true;
   document.getElementById('auth-header').hidden = false;
-  document.getElementById('auth-title').textContent = profileSelected ? 'Sign in' : 'Choose a profile';
+  document.getElementById('auth-title').textContent = profileSelected ? 'Sign in' : 'Select your profile';
   document.getElementById('back-to-profiles').hidden = !profileSelected;
   const profileName = document.getElementById('selected-profile-name');
   profileName.hidden = !profileSelected || !profileName.textContent;
@@ -309,7 +310,7 @@ function showSignedOut(profileSelected = true) {
   document.getElementById('ticket-to').value = '';
   document.getElementById('person-tickets-view').hidden = true;
   document.getElementById('ticket-list-view').hidden = false;
-  document.getElementById('person-tickets-summary').textContent = '';
+  document.getElementById('ticket-person-summary').textContent = '';
   document.getElementById('open-person-tickets').replaceChildren();
   document.getElementById('closed-person-tickets').replaceChildren();
   document.getElementById('ticket-detail-content').replaceChildren();
@@ -318,18 +319,47 @@ function showSignedOut(profileSelected = true) {
 }
 
 function showProfileSelection(profiles = []) {
+  const addButton = document.getElementById('add-profile');
   profileList.replaceChildren();
   for (const profile of profiles) {
+    const card = document.createElement('article');
+    card.className = 'profile-card';
     const button = document.createElement('button');
     button.className = 'profile-choice';
     button.type = 'button';
+    const avatar = document.createElement('span');
+    avatar.className = 'profile-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    const initials = (profile.username || '')
+      .split(/[.\s_-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase();
+    const avatarFallback = initials || '+';
+    avatar.textContent = avatarFallback;
+    if (typeof profile.avatarUrl === 'string' &&
+        /^https:\/\/cdn\.discordapp\.com\//.test(profile.avatarUrl)) {
+      const image = document.createElement('img');
+      image.src = profile.avatarUrl;
+      image.alt = '';
+      image.loading = 'lazy';
+      image.referrerPolicy = 'no-referrer';
+      image.addEventListener('error', () => {
+        avatar.replaceChildren();
+        avatar.textContent = avatarFallback;
+      }, { once: true });
+      avatar.replaceChildren(image);
+    }
     const name = document.createElement('span');
     name.className = 'profile-choice-name';
     name.textContent = profile.username || 'New profile';
     const detail = document.createElement('span');
     detail.className = 'profile-choice-detail';
     detail.textContent = profile.username ? 'Saved sign-in' : 'Sign-in not completed';
-    button.append(name, detail);
+    button.setAttribute('aria-label', `Select ${name.textContent}`);
+    button.append(avatar, name, detail);
     button.addEventListener('click', async () => {
       profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = true; });
       document.getElementById('add-profile').disabled = true;
@@ -342,8 +372,29 @@ function showProfileSelection(profiles = []) {
         document.getElementById('add-profile').disabled = false;
       }
     });
-    profileList.append(button);
+    const menu = document.createElement('details');
+    menu.className = 'profile-menu';
+    const menuButton = document.createElement('summary');
+    menuButton.textContent = '⋯';
+    menuButton.setAttribute('aria-label', `Actions for ${name.textContent}`);
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'profile-delete';
+    deleteButton.type = 'button';
+    deleteButton.textContent = 'Delete';
+    deleteButton.addEventListener('click', () => {
+      menu.open = false;
+      profilePendingDeletion = profile;
+      document.getElementById('profile-delete-confirmation-message').textContent =
+        `Delete ${profile.username || 'this profile'} from this device? Its saved profile and session will be removed. The account and service session will remain unchanged.`;
+      document.getElementById('profile-delete-confirmation').showModal();
+    });
+    menu.append(menuButton, deleteButton);
+    card.append(button, menu);
+    profileList.append(card);
   }
+  profileList.append(addButton);
+  addButton.disabled = false;
+  profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = false; });
   profileEmpty.hidden = profiles.length > 0;
 }
 
@@ -1918,6 +1969,36 @@ document.getElementById('add-profile').addEventListener('click', async () => {
       button.disabled = false;
       profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = false; });
     }
+  }
+});
+
+const profileDeleteDialog = document.getElementById('profile-delete-confirmation');
+profileDeleteDialog.addEventListener('close', () => {
+  profilePendingDeletion = null;
+});
+document.getElementById('cancel-profile-delete').addEventListener('click', () => {
+  profileDeleteDialog.close();
+});
+document.getElementById('confirm-profile-delete').addEventListener('click', async (event) => {
+  if (!profilePendingDeletion) return;
+  const button = event.currentTarget;
+  const profile = profilePendingDeletion;
+  profilePendingDeletion = null;
+  button.disabled = true;
+  profileDeleteDialog.close();
+  profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = true; });
+  showStatus('Deleting saved profile…');
+  try {
+    const result = await window.hoedown.deleteProfile(profile.id);
+    applyAuthState(result);
+    if (result.profileDeleted) {
+      showStatus('Profile deleted from this device. The account and service session were not changed.');
+    }
+  } catch (error) {
+    showStatus(error.message || 'Could not delete the saved profile.');
+    profileList.querySelectorAll('button').forEach((choice) => { choice.disabled = false; });
+  } finally {
+    button.disabled = false;
   }
 });
 
