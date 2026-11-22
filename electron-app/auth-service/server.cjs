@@ -408,7 +408,7 @@ function createApp({
     if (!ticketDatabase || typeof ticketDatabase.watch !== 'function' || memberChangeStreamStopped) return;
     try {
       const stream = ticketDatabase.watch([
-        { $match: { 'ns.coll': { $regex: '_Tickets$' } } }
+        { $match: { 'ns.coll': { $regex: '^.*_Tickets$' } } }
       ]);
       ticketChangeStream = stream;
       stream.on('change', (change) => {

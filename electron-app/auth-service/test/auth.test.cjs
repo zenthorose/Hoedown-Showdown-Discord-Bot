@@ -813,7 +813,7 @@ test('authenticated event stream publishes member changes and Avoids and Tickets
     assert.match(initial, /event: avoids-resync/);
     assert.match(initial, /event: tickets-resync/);
     assert.deepEqual(ticketWatchPipeline, [
-      { $match: { 'ns.coll': { $regex: '_Tickets$' } } }
+      { $match: { 'ns.coll': { $regex: '^.*_Tickets$' } } }
     ]);
 
     members.items[0].region = 'West';
