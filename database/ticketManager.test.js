@@ -63,6 +63,7 @@ mongoose.model = (name, schema, collectionName) => {
 
 const {
   closeTicketAndSave,
+  findTicketMessageBySourceID,
   recordTicketMessage,
   updateTicketMessage
 } = require('./ticketManager');
@@ -136,6 +137,51 @@ test('live staff chat messages are marked as internal', async () => {
 
   assert.equal(ticket.messages[0].messageType, 'staff-chat');
   assert.deepEqual(ticket.staffIDs, ['987654321098765432']);
+});
+
+test('deleted DM lookup finds the original ticket message and updates its original collection', async () => {
+  const channel = {
+    id: 'ticket-channel-delete',
+    name: 'renamed-player',
+    createdAt: new Date('2026-11-22T18:00:00.000Z')
+  };
+  const user = { id: '123456789012345678', username: 'original-player' };
+  const message = {
+    sourceMessageID: 'deleted-dm-message',
+    mirrorMessageID: 'deleted-mirror-message',
+    authorID: user.id,
+    authorName: 'original-player',
+    content: 'Please help.',
+    timestamp: '11/22/2026, 01:00 PM'
+  };
+  await recordTicketMessage(channel, user, message);
+
+  const database = {
+    listCollections: () => ({
+      toArray: async () => [...recordsByCollection.keys()].map(name => ({ name }))
+    }),
+    collection: name => ({
+      findOne: async filter => recordsByCollection.get(name)
+        ?.find(ticket => ticket.messages?.some(
+          item => item.sourceMessageID === filter['messages.sourceMessageID']
+        )) || null
+    })
+  };
+  const archived = await findTicketMessageBySourceID(message.sourceMessageID, database);
+
+  assert.equal(archived.collectionName, 'original-player_Tickets');
+  assert.equal(archived.ticket.userID, user.id);
+  assert.equal(archived.message.mirrorMessageID, message.mirrorMessageID);
+
+  await updateTicketMessage(
+    channel,
+    { username: 'renamed-player' },
+    message.mirrorMessageID,
+    'Please help. (Deleted)',
+    undefined,
+    archived.collectionName
+  );
+  assert.equal(archived.message.content, 'Please help. (Deleted)');
 });
 
 test('closing reconciles live messages with their human authors and closes the record', async () => {

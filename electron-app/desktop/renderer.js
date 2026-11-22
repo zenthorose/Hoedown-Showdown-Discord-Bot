@@ -35,6 +35,8 @@ let personTicketsError = '';
 let selectedPersonSummary = null;
 let selectedTicketSummary = null;
 let ticketActionInProgress = false;
+let memberReplyConfirmationResolver = null;
+let memberReplyConfirmationPromise = null;
 const memberEdits = new Map();
 const memberChangeVersions = new Map();
 
@@ -1100,7 +1102,7 @@ async function openTicket(ticketSummary, { preserveScroll = false } = {}) {
       if (isStaffChat) {
         const messageType = document.createElement('small');
         messageType.className = 'ticket-message-type';
-        messageType.textContent = 'Staff chat · not sent to the customer';
+        messageType.textContent = 'Staff chat · not sent to the member';
         item.append(messageHeader, authorId, messageType);
       } else {
         item.append(messageHeader, authorId);
@@ -1404,14 +1406,45 @@ function updateTicketMessageMode() {
   const internal = mode === 'staff-chat';
   document.getElementById('ticket-message-input-label').textContent = internal
     ? 'Staff chat message'
-    : 'Reply to customer';
+    : 'Reply to member';
   document.getElementById('ticket-message-mode-help').textContent = internal
-    ? 'This is posted only in the private staff ticket channel. It will not be sent to the customer.'
-    : 'This will be sent to the customer’s DMs and mirrored in the ticket channel.';
+    ? 'This is posted only in the private staff ticket channel. It will not be sent to the member.'
+    : 'This will be sent to the member’s DMs and mirrored in the ticket channel.';
   document.getElementById('ticket-message-submit').textContent = internal
     ? 'Send staff message'
     : 'Send reply';
 }
+
+function confirmMemberReply() {
+  if (memberReplyConfirmationPromise) return memberReplyConfirmationPromise;
+  const dialog = document.getElementById('member-reply-confirmation');
+  memberReplyConfirmationPromise = new Promise((resolve) => {
+    memberReplyConfirmationResolver = resolve;
+    dialog.showModal();
+  });
+  return memberReplyConfirmationPromise;
+}
+
+function finishMemberReplyConfirmation(confirmed) {
+  if (!memberReplyConfirmationResolver) return;
+  const resolve = memberReplyConfirmationResolver;
+  memberReplyConfirmationResolver = null;
+  memberReplyConfirmationPromise = null;
+  const dialog = document.getElementById('member-reply-confirmation');
+  if (dialog.open) dialog.close();
+  resolve(confirmed);
+}
+
+document.getElementById('confirm-member-reply').addEventListener('click', () => {
+  finishMemberReplyConfirmation(true);
+});
+document.getElementById('cancel-member-reply').addEventListener('click', () => {
+  finishMemberReplyConfirmation(false);
+});
+document.getElementById('member-reply-confirmation').addEventListener('cancel', (event) => {
+  event.preventDefault();
+  finishMemberReplyConfirmation(false);
+});
 
 document.getElementById('ticket-message-mode').addEventListener('change', () => {
   updateTicketMessageMode();
@@ -1500,6 +1533,7 @@ document.getElementById('ticket-reply-form').addEventListener('submit', async (e
   const replyText = input.value.trim();
   const mode = modeSelect.value;
   if (!ticket || !replyText || ticketActionInProgress) return;
+  if (mode === 'reply' && !await confirmMemberReply()) return;
 
   ticketActionInProgress = true;
   button.disabled = true;

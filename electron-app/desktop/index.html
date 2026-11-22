@@ -192,13 +192,13 @@
                 <form id="ticket-reply-form" class="ticket-reply-form" hidden>
                   <label for="ticket-message-mode">Message type</label>
                   <select id="ticket-message-mode">
-                    <option value="reply">Reply to customer</option>
+                    <option value="reply">Reply to member</option>
                     <option value="staff-chat">Staff chat only</option>
                   </select>
                   <p id="ticket-message-mode-help" class="ticket-message-mode-help">
-                    This will be sent to the customer’s DMs and mirrored in the ticket channel.
+                    This will be sent to the member’s DMs and mirrored in the ticket channel.
                   </p>
-                  <label id="ticket-message-input-label" for="ticket-reply-input">Reply to customer</label>
+                  <label id="ticket-message-input-label" for="ticket-reply-input">Reply to member</label>
                   <textarea id="ticket-reply-input" maxlength="1800" rows="3" required
                     placeholder="Write a reply…"></textarea>
                   <div class="ticket-reply-actions">
@@ -210,7 +210,7 @@
                   </div>
                 </form>
                 <p id="ticket-close-status" class="ticket-close-status" role="status" aria-live="polite" hidden></p>
-                <dialog id="ticket-close-options" class="ticket-close-dialog">
+                <dialog id="ticket-close-options" class="ticket-dialog">
                   <h2>Close ticket</h2>
                   <p>Choose how this ticket should be closed.</p>
                   <div class="ticket-close-options">
@@ -218,6 +218,14 @@
                     <button class="danger" type="button" data-close-mode="silent">Close Silently</button>
                   </div>
                   <button id="cancel-ticket-close" class="secondary" type="button">Cancel</button>
+                </dialog>
+                <dialog id="member-reply-confirmation" class="ticket-dialog">
+                  <h2>Send reply to member?</h2>
+                  <p>This reply will be sent to the member’s DMs and mirrored in the ticket channel.</p>
+                  <div class="ticket-dialog-actions">
+                    <button id="confirm-member-reply" type="button">Send reply</button>
+                    <button id="cancel-member-reply" class="secondary" type="button" autofocus>Cancel</button>
+                  </div>
                 </dialog>
               </section>
             </section>

@@ -4,6 +4,7 @@ const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js')
 const {
   closeTicketAndSave,
   ensureTicketOpen,
+  findTicketMessageBySourceID,
   recordTicketMessage,
   updateTicketMessage
 } = require('../database/ticketManager');
@@ -378,28 +379,21 @@ module.exports = {
   // ======================
   handleMessageDelete: async (client, deletedMessage) => {
     try {
-      // Make sure the message exists and has an author
-      if (!deletedMessage || !deletedMessage.author) return;
+      if (!deletedMessage || deletedMessage.channel?.type !== ChannelType.DM) return;
+      if (deletedMessage.author?.bot) return;
 
-      // Ignore bot messages or non-DM channels
-      if (deletedMessage.author.bot || deletedMessage.channel?.type !== ChannelType.DM) return;
+      const archived = await findTicketMessageBySourceID(deletedMessage.id);
+      if (!archived || archived.message.authorID !== archived.ticket.userID) return;
 
-      const guild = client.guilds.cache.get(GUILD_ID);
-      if (!guild) return;
-
-      const channelName = deletedMessage.author.username.toLowerCase().replace(/[^a-z0-9-_]/gi, '-');
-      const ticketChannel = guild.channels.cache.find(
-        c => c.name === channelName && c.parent?.name === SUPPORT_CATEGORY_NAME
-      );
+      const guild = client.guilds.cache.get(GUILD_ID) || await client.guilds.fetch(GUILD_ID);
+      const ticketChannel = await guild.channels.fetch(archived.ticket.ticketChannelID);
       if (!ticketChannel) return;
 
-      const msgs = await ticketChannel.messages.fetch({ limit: 50 });
-      const targetMsg = msgs.find(m => m.embeds[0]?.footer?.text?.includes(deletedMessage.id));
-      if (!targetMsg) return;
+      const targetMsg = await ticketChannel.messages.fetch(archived.message.mirrorMessageID);
 
       const previousDesc = targetMsg.embeds[0]?.description || '';
       const newDescription = buildStackedDescription(
-        deletedMessage.content || '*Message deleted*',
+        deletedMessage.content || archived.message.content || '*Message deleted*',
         previousDesc,
         true
       );
@@ -407,13 +401,21 @@ module.exports = {
       const embed = EmbedBuilder.from(targetMsg.embeds[0]).setDescription(newDescription);
       await targetMsg.edit({ embeds: [embed] });
       try {
-        await updateTicketMessage(ticketChannel, deletedMessage.author, targetMsg.id, newDescription);
+        await updateTicketMessage(
+          ticketChannel,
+          { username: archived.ticket.username },
+          targetMsg.id,
+          newDescription,
+          undefined,
+          archived.collectionName
+        );
       } catch (error) {
         console.error('❌ Could not sync a deleted user ticket message:', error);
         await ticketChannel.send('⚠️ A deleted message could not be synced to the live ticket archive.');
       }
 
-      await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedMessage.author.tag}` });
+      const deletedBy = deletedMessage.author?.tag || archived.ticket.username || 'the member';
+      await ticketChannel.send({ content: `⚠️ A message was deleted by ${deletedBy}` });
 
     } catch (err) {
       console.error('❌ Support Ticket delete sync failed:', err);

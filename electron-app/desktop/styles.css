@@ -392,11 +392,12 @@ footer { margin-top: 20px; font-size: 12px; }
 .ticket-reply-status[data-error="true"] { color: #e99b9b; }
 .ticket-close-status { margin: 10px 0; color: #9dc79d; font-size: 11px; }
 .ticket-close-status[data-error="true"] { color: #e99b9b; }
-.ticket-close-dialog { width: min(360px, calc(100vw - 32px)); padding: 20px; border: 1px solid #536257; border-radius: 10px; background: #171d19; color: #e5ebe5; }
-.ticket-close-dialog::backdrop { background: rgba(0, 0, 0, .7); }
-.ticket-close-dialog h2 { margin: 0 0 8px; color: #f0d58f; font-size: 17px; }
-.ticket-close-dialog p { margin: 0 0 14px; color: #aab5ac; font-size: 12px; }
+.ticket-dialog { width: min(360px, calc(100vw - 32px)); padding: 20px; border: 1px solid #536257; border-radius: 10px; background: #171d19; color: #e5ebe5; }
+.ticket-dialog::backdrop { background: rgba(0, 0, 0, .7); }
+.ticket-dialog h2 { margin: 0 0 8px; color: #f0d58f; font-size: 17px; }
+.ticket-dialog p { margin: 0 0 14px; color: #aab5ac; font-size: 12px; }
 .ticket-close-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.ticket-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .ticket-chat-sync-warning { margin: 0 0 12px; color: #e9bd7a; font-size: 11px; }
 .ticket-reply-unavailable { margin: 12px 0; color: #e9bd7a; font-size: 12px; }
 .ticket-detail-title { margin: 0 0 5px; overflow-wrap: anywhere; color: #f0d58f; font-size: 20px; }

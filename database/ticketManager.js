@@ -115,8 +115,11 @@ async function recordTicketMessage(channel, user, message) {
   await updateTicket(TicketModel, channel.id, update);
 }
 
-async function updateTicketMessage(channel, user, mirrorMessageID, content, staffID) {
-  const TicketModel = getCollectionForUser(user.username);
+async function updateTicketMessage(channel, user, mirrorMessageID, content, staffID, collectionName) {
+  const username = collectionName?.endsWith('_Tickets')
+    ? collectionName.slice(0, -'_Tickets'.length)
+    : user.username;
+  const TicketModel = getCollectionForUser(username);
   const update = { $set: { 'messages.$[message].content': content } };
   if (staffID) update.$addToSet = { staffIDs: staffID };
 
@@ -215,6 +218,21 @@ function formatTicketMessage(message, user) {
   };
 }
 
+async function findTicketMessageBySourceID(sourceMessageID, database = mongoose.connection.db) {
+  if (!database) throw new Error('The ticket database connection is not ready.');
+  const collections = await database.listCollections({}, { nameOnly: true }).toArray();
+  for (const { name } of collections.filter(({ name }) => name.endsWith('_Tickets'))) {
+    const ticket = await database.collection(name).findOne({
+      'messages.sourceMessageID': sourceMessageID
+    });
+    const message = Array.isArray(ticket?.messages)
+      ? ticket.messages.find((item) => item.sourceMessageID === sourceMessageID)
+      : null;
+    if (ticket && message) return { collectionName: name, ticket, message };
+  }
+  return null;
+}
+
 async function closeTicketAndSave(channel, user, closedByID) {
   console.log(`📥 Collecting messages for ${channel.name}...`);
 
@@ -276,6 +294,7 @@ async function closeTicketAndSave(channel, user, closedByID) {
 module.exports = {
   closeTicketAndSave,
   ensureTicketOpen,
+  findTicketMessageBySourceID,
   recordTicketMessage,
   updateTicketMessage
 };
