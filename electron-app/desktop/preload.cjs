@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('hoedown', {
   resetThemeColors: () => ipcRenderer.invoke('settings:reset-theme-colors'),
   getMembers: () => ipcRenderer.invoke('members:list'),
   getAvoids: () => ipcRenderer.invoke('avoids:list'),
+  grabRoundReactions: () => ipcRenderer.invoke('rounds:grab-reactions'),
   getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),
   getTicketPeople: (filters) => ipcRenderer.invoke('tickets:people', filters),
   getTicketsForPerson: (personId) => ipcRenderer.invoke('tickets:person', personId),

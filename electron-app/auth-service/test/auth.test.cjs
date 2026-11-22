@@ -190,6 +190,8 @@ async function withServer(run, options = {}) {
     syncTicketStaffChat: options.syncTicketStaffChat,
     editTicketReply: options.editTicketReply,
     closeTicket: options.closeTicket,
+    grabRoundReactions: options.grabRoundReactions,
+    canGrabRoundReactions: options.canGrabRoundReactions,
     updateAvoidsInGoogleSheets,
     saveAvoidRelationships
   });
@@ -563,6 +565,67 @@ test('avoid directory requires a session and returns directional pairs with name
       username: 'target.player',
       nickname: 'Target Nick'
     }]
+  });
+});
+
+test('Rounds action requires a session and an allowed linked Discord role', async () => {
+  let allowed = false;
+  let generationCount = 0;
+  await withServer(async ({ baseUrl, password }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/rounds/grab-reactions`, { method: 'POST' });
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}` };
+
+    const denied = await fetch(`${baseUrl}/api/rounds/grab-reactions`, {
+      method: 'POST',
+      headers
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(generationCount, 0);
+
+    allowed = true;
+    const response = await fetch(`${baseUrl}/api/rounds/grab-reactions`, {
+      method: 'POST',
+      headers
+    });
+    const result = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(result, {
+      round: 4,
+      reactedPlayerCount: 6,
+      eligiblePlayerCount: 5,
+      excludedPlayerCount: 1,
+      postingStatus: 'posted'
+    });
+    assert.equal(generationCount, 1);
+  }, {
+    discordId: '123456789012345678',
+    canGrabRoundReactions: async () => allowed,
+    grabRoundReactions: async () => {
+      generationCount += 1;
+      return {
+        draft: {
+          round: 4,
+          reactedPlayerCount: 6,
+          eligiblePlayerCount: 5,
+          excludedPlayers: [{}]
+        },
+        postingStatus: 'posted'
+      };
+    }
   });
 });
 

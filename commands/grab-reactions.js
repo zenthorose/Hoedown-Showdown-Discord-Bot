@@ -3,11 +3,7 @@ const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 const { connectHoedownInfo } = require('../database/hoedownInfo');
 const { getBotSettings } = require('../database/botSettings');
-const {
-  createCurrentTeamDraft,
-  formatTeamCheckPreview,
-  splitDiscordMessage
-} = require('../database/teamDrafts');
+const { generateTeamDraftFromMessage } = require('../utils/teamGeneration');
 
 let commandRunning = false;
 
@@ -82,97 +78,15 @@ module.exports = {
       const message = await channel.messages.fetch(messageId);
       if (!message) throw new Error('Message not found in the configured Opt-In channel.');
 
-      const uniquePlayers = new Map();
-      for (const reaction of message.reactions.cache.values()) {
-        let lastId;
-        while (true) {
-          const users = await reaction.users.fetch({ limit: 100, ...(lastId ? { after: lastId } : {}) });
-          if (users.size === 0) break;
-          users.forEach((user) => {
-            if (!user.bot && !uniquePlayers.has(user.id)) {
-              uniquePlayers.set(user.id, { id: user.id, name: user.username });
-            }
-          });
-          if (users.size < 100) break;
-          lastId = users.last().id;
-        }
-      }
-
-      const teamCheckChannelId = botSettings.channels.TeamCheckChannelID ||
-        config.TeamCheckChannelID ||
-        process.env.TEAM_CHECK_CHANNEL_ID;
-      if (botSettings.grabReactions.ENABLE_TEAM_CHECK_POSTING && !teamCheckChannelId) {
-        throw new Error('Set channels.TeamCheckChannelID in bot settings or TeamCheckChannelID in config.json before posting Team Check previews.');
-      }
-
       const { collections, databases } = await connectHoedownInfo();
-      const draft = await createCurrentTeamDraft({
-        reactedPlayers: [...uniquePlayers.values()],
-        sourceMessageId: messageId,
-        membersCollection: collections.members,
-        avoidsCollection: collections.avoids,
-        previousPairingsCollection: collections.previousPairings,
-        playersThatReactedCollection: collections.playersThatReacted,
-        teamCheckCollection: collections.teamCheck,
+      const { draft, postingStatus } = await generateTeamDraftFromMessage({
+        message,
+        client: interaction.client,
+        botSettings,
+        config,
+        collections,
         roundsDatabase: databases.rounds
       });
-
-      let postingStatus = 'disabled';
-      if (botSettings.grabReactions.ENABLE_TEAM_CHECK_POSTING) {
-        try {
-          const teamCheckChannel = await interaction.client.channels.fetch(teamCheckChannelId);
-          if (!teamCheckChannel || !teamCheckChannel.isTextBased()) {
-            throw new Error(`Team Check channel is not a text channel: ${teamCheckChannelId}`);
-          }
-
-          const messageIds = [];
-          for (const content of splitDiscordMessage(formatTeamCheckPreview(draft))) {
-            const posted = await teamCheckChannel.send(content);
-            messageIds.push(posted.id);
-            const update = await collections.teamCheck.updateOne({
-              _id: 'current',
-              generationId: draft.generationId
-            }, {
-              $set: { previewMessageIds: messageIds, previewStatus: 'posting' }
-            });
-            if (!update.matchedCount) throw new Error('The saved Team Check draft changed while posting its preview.');
-          }
-          postingStatus = 'posted';
-          const update = await collections.teamCheck.updateOne({
-            _id: 'current',
-            generationId: draft.generationId
-          }, {
-            $set: { previewStatus: postingStatus }
-          });
-          if (!update.matchedCount) throw new Error('The saved Team Check draft changed after posting its preview.');
-        } catch (error) {
-          try {
-            const update = await collections.teamCheck.updateOne({
-              _id: 'current',
-              generationId: draft.generationId
-            }, {
-              $set: {
-                previewStatus: 'failed',
-                previewError: String(error.message).slice(0, 1000)
-              }
-            });
-            if (!update.matchedCount) {
-              throw new Error('The current draft no longer matches this preview generation.');
-            }
-          } catch (statusError) {
-            throw new Error(`Draft for Round #${draft.round} was saved, but preview posting failed (${error.message}) and the failure status could not be recorded (${statusError.message}).`);
-          }
-          throw new Error(`Draft for Round #${draft.round} was saved, but Team Check preview posting failed: ${error.message}`);
-        }
-      } else {
-        const update = await collections.teamCheck.updateOne({
-          _id: 'current',
-          generationId: draft.generationId
-        }, {
-          $set: { previewStatus: postingStatus }
-        });
-        if (!update.matchedCount) throw new Error('The saved Team Check draft changed before its posting status was recorded.');
-      }
 
       const excludedCount = draft.excludedPlayers.length;
       const resultMessage = [

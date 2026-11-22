@@ -1,6 +1,54 @@
 const { PermissionsBitField } = require('discord.js');
 const config = require('../config.json');
 
+async function collectOptInReactors(message) {
+  const players = new Map();
+  for (const reaction of message.reactions.cache.values()) {
+    let lastId;
+    while (true) {
+      const users = await reaction.users.fetch({ limit: 100, ...(lastId ? { after: lastId } : {}) });
+      if (users.size === 0) break;
+      users.forEach((user) => {
+        if (!user.bot && !players.has(user.id)) {
+          players.set(user.id, { id: user.id, name: user.username });
+        }
+      });
+      if (users.size < 100) break;
+      lastId = users.last().id;
+    }
+  }
+  return [...players.values()];
+}
+
+async function findLatestRoundOptInMessage({ client, channelId, guildId, roundNumber }) {
+  const channel = await client.channels.fetch(channelId);
+  if (!channel || !channel.isTextBased()) {
+    throw new Error(`Invalid or non-text Opt-In channel: ${channelId}`);
+  }
+  if (guildId && channel.guildId !== guildId) {
+    throw new Error('The configured Opt-In channel is not in this server.');
+  }
+
+  let before;
+  while (true) {
+    const messages = await channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {})
+    });
+    if (messages.size === 0) return null;
+
+    const matchingMessages = [...messages.values()]
+      .filter((message) => message.author.id === client.user.id &&
+        message.embeds.some((embed) => embed.title === `Round ${roundNumber}!`))
+      .sort((left, right) => right.createdTimestamp - left.createdTimestamp);
+    if (matchingMessages.length > 0) return matchingMessages[0];
+
+    const oldestMessage = messages.last();
+    if (!oldestMessage || oldestMessage.id === before || messages.size < 100) return null;
+    before = oldestMessage.id;
+  }
+}
+
 async function removeOptInReactions(client, guild, target) {
   if (!config.OptInChannelID) {
     throw new Error('OptInChannelID is not configured.');
@@ -86,4 +134,8 @@ async function removeOptInReactions(client, guild, target) {
   return { removedCount, failedCount, slotCount: slotMessages.length };
 }
 
-module.exports = { removeOptInReactions };
+module.exports = {
+  collectOptInReactors,
+  findLatestRoundOptInMessage,
+  removeOptInReactions
+};

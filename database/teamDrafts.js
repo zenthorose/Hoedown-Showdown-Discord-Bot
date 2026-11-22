@@ -277,11 +277,15 @@ async function loadPairingKeys(collection, field) {
 }
 
 async function findNextRound(roundsDatabase) {
+  let highestPopulatedRound = 0;
   for (let round = 1; round <= ROUND_COUNT; round += 1) {
     const existing = await roundsDatabase.collection(`Round ${round}`).findOne({});
-    if (!existing) return round;
+    if (existing) highestPopulatedRound = round;
   }
-  throw new Error('All 16 round collections already contain approved data.');
+  if (highestPopulatedRound === ROUND_COUNT) {
+    throw new Error('All 16 round collections already contain approved data.');
+  }
+  return highestPopulatedRound + 1;
 }
 
 async function getNextTeamLabelIndex(roundsDatabase, round) {
@@ -613,6 +617,7 @@ module.exports = {
   beginCurrentDraftApproval,
   completeCurrentDraftApproval,
   createCurrentTeamDraft,
+  findNextRound,
   formatTeamCheckPreview,
   generateTeamGroups,
   labelForTeam,

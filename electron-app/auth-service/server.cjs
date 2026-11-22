@@ -7,10 +7,15 @@ const bcrypt = require('bcryptjs');
 const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
 const { addAvoidRelationships } = require('../../database/pairingImport');
+const config = require('../../config.json');
+const { CURRENT_SNAPSHOT_ID, findNextRound } = require('../../database/teamDrafts');
+const { findLatestRoundOptInMessage } = require('../../utils/optInReactions');
+const { TeamGenerationError, generateTeamDraftFromMessage } = require('../../utils/teamGeneration');
 const {
   BOT_SETTINGS_COLLECTION,
   BOT_SETTINGS_ID,
   normalizeStoredBotSettings,
+  readBotSettings,
   validateBotSettings
 } = require('../../database/botSettings');
 
@@ -348,7 +353,9 @@ function createApp({
   editTicketReply: editTicketReplyCallback,
   closeTicket: closeTicketCallback,
   updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
-  saveAvoidRelationships
+  saveAvoidRelationships,
+  grabRoundReactions,
+  canGrabRoundReactions
 }) {
   const app = express();
   app.disable('x-powered-by');
@@ -1794,6 +1801,47 @@ function createApp({
     }
   });
 
+  app.post('/api/rounds/grab-reactions', limited(3), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!MEMBER_ID_PATTERN.test(session.user.discordId || '')) {
+        return res.status(403).json({
+          error: 'Link your Discord account before generating a round.'
+        });
+      }
+      if (typeof canGrabRoundReactions !== 'function' ||
+          typeof grabRoundReactions !== 'function') {
+        return res.status(503).json({ error: 'Round generation is not configured.' });
+      }
+      if (!await canGrabRoundReactions(session.user.discordId)) {
+        return res.status(403).json({
+          error: 'Your linked Discord account does not have an allowed bot role.'
+        });
+      }
+
+      const { draft, postingStatus } = await grabRoundReactions();
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        round: draft.round,
+        reactedPlayerCount: draft.reactedPlayerCount,
+        eligiblePlayerCount: draft.eligiblePlayerCount,
+        excludedPlayerCount: draft.excludedPlayers.length,
+        postingStatus
+      });
+    } catch (error) {
+      if (error instanceof TeamGenerationError) {
+        console.error('Rounds-tab team generation failed:', error);
+        return res.status(error.statusCode).json({
+          error: error.message,
+          partial: error.partial,
+          round: error.round
+        });
+      }
+      return sendError(res, error, 'Rounds-tab team generation failed:');
+    }
+  });
+
   app.patch('/api/members/:discordId', limited(30), async (req, res) => {
     let discordNicknameUpdated = false;
     try {
@@ -2208,7 +2256,15 @@ function createApp({
 }
 
 async function createRuntime({ discordClient, discordGuildId = process.env.GUILD_ID } = {}) {
-  const { MONGO_URI, MONGODB_ADMIN, MONGODB_HOEDOWNINFO, MONGODB_TICKETS, JWT_SECRET, ADMIN_API_KEY } = process.env;
+  const {
+    MONGO_URI,
+    MONGODB_ADMIN,
+    MONGODB_HOEDOWNINFO,
+    MONGODB_ROUNDS,
+    MONGODB_TICKETS,
+    JWT_SECRET,
+    ADMIN_API_KEY
+  } = process.env;
   if (!MONGO_URI || !MONGODB_ADMIN || !JWT_SECRET || JWT_SECRET.length < 32) {
     throw new Error('Set MONGO_URI, MONGODB_ADMIN, and a JWT_SECRET of at least 32 characters.');
   }
@@ -2228,6 +2284,16 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       : '';
     const hoedownDatabase = hoedownDatabaseName
       ? client.db(hoedownDatabaseName)
+      : null;
+    const roundsDatabaseName = typeof MONGODB_ROUNDS === 'string'
+      ? MONGODB_ROUNDS.trim()
+      : '';
+    const roundsDatabase = roundsDatabaseName ? client.db(roundsDatabaseName) : null;
+    const roundCollections = roundsDatabase
+      ? {
+        playersThatReacted: roundsDatabase.collection('PlayersThatReacted'),
+        teamCheck: roundsDatabase.collection('TeamCheck')
+      }
       : null;
     const ticketDatabaseName = typeof MONGODB_TICKETS === 'string'
       ? MONGODB_TICKETS.trim()
@@ -2663,6 +2729,74 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         return { ok: true, warning };
       }
       : null;
+    const canGrabRoundReactions = discordClient && discordGuildId
+      ? async (discordId) => {
+        if (!discordClient.isReady()) return false;
+        const guild = discordClient.guilds.cache.get(discordGuildId)
+          || await discordClient.guilds.fetch(discordGuildId);
+        let member;
+        try {
+          member = await guild.members.fetch(discordId);
+        } catch (error) {
+          if (error.code === 10007) return false;
+          throw error;
+        }
+        const allowedRoles = Array.isArray(config.allowedRoles) ? config.allowedRoles : [];
+        return member.roles.cache.some((role) => allowedRoles.includes(role.id));
+      }
+      : null;
+    const grabRoundReactions = async () => {
+      if (!discordClient || !discordClient.isReady() || !roundsDatabase ||
+          !roundCollections || !members || !avoids || !hoedownDatabase) {
+        throw new TeamGenerationError('Round generation is not available right now.');
+      }
+
+      const botSettings = await readBotSettings(botSettingsCollection);
+      const optInChannelId = botSettings.channels.OptInChannelID || config.OptInChannelID;
+      if (!optInChannelId) {
+        throw new TeamGenerationError('The Opt-In channel is not configured in bot settings or config.json.');
+      }
+
+      const currentDraft = await roundCollections.teamCheck.findOne({ _id: CURRENT_SNAPSHOT_ID });
+      let round;
+      try {
+        round = currentDraft?.status === 'pending'
+          ? currentDraft.round
+          : await findNextRound(roundsDatabase);
+      } catch (error) {
+        if (error.message === 'All 16 round collections already contain approved data.') {
+          throw new TeamGenerationError(error.message, 409);
+        }
+        throw error;
+      }
+
+      const message = await findLatestRoundOptInMessage({
+        client: discordClient,
+        channelId: optInChannelId,
+        guildId: discordGuildId,
+        roundNumber: round
+      });
+      if (!message) {
+        throw new TeamGenerationError(
+          `Could not find a bot-posted Opt-In message titled "Round ${round}!" in the configured channel.`,
+          404
+        );
+      }
+
+      return generateTeamDraftFromMessage({
+        message,
+        client: discordClient,
+        botSettings,
+        config,
+        collections: {
+          members,
+          avoids,
+          previousPairings: hoedownDatabase.collection('PreviousPairings'),
+          ...roundCollections
+        },
+        roundsDatabase
+      });
+    };
     await users.createIndex({ username: 1 }, { unique: true });
     await users.createIndex({ discordId: 1 }, { unique: true, sparse: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
@@ -2686,6 +2820,8 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       syncTicketStaffChat,
       editTicketReply,
       closeTicket,
+      grabRoundReactions,
+      canGrabRoundReactions,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,

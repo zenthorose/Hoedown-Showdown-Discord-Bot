@@ -168,6 +168,18 @@ footer { margin-top: 20px; font-size: 12px; }
 .page-icon { display: block; margin-bottom: 20px; font-size: 34px; }
 .page-card h2, .password-card h2 { margin: 0 0 10px; font-size: 21px; }
 .page-card p { margin: 0; line-height: 1.6; }
+.round-action-card {
+  max-width: 820px;
+  padding: 28px;
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  background: linear-gradient(140deg, #1d271f, var(--theme-surface) 68%);
+  box-shadow: 0 14px 40px #0002;
+}
+.round-action-card h2 { margin: 0 0 12px; font-size: 21px; }
+.round-action-card p { margin: 0 0 12px; line-height: 1.6; }
+.round-action-card button { margin-top: 8px; }
+.rounds-action-status { min-height: 1.4em; margin: 14px 0 0; color: var(--theme-accent-text); }
 .password-card { display: grid; gap: 16px; margin-top: 20px; }
 .password-card h2 { margin: 0; }
 .members-view { display: flex; flex-direction: column; min-height: 0; }

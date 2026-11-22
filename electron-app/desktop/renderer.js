@@ -348,13 +348,15 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   document.getElementById('page-description').textContent = page.description;
   const isMembers = button.dataset.tab === 'members';
   const isAvoids = button.dataset.tab === 'avoids';
+  const isRounds = button.dataset.tab === 'rounds';
   const isTickets = button.dataset.tab === 'tickets';
   const isSettings = button.dataset.tab === 'settings';
   document.getElementById('members-view').hidden = !isMembers;
   document.getElementById('avoids-view').hidden = !isAvoids;
+  document.getElementById('rounds-view').hidden = !isRounds;
   document.getElementById('tickets-view').hidden = !isTickets;
   document.getElementById('settings-view').hidden = !isSettings;
-  document.getElementById('page-card').hidden = isMembers || isAvoids || isTickets || isSettings;
+  document.getElementById('page-card').hidden = isMembers || isAvoids || isRounds || isTickets || isSettings;
   selfPasswordForm.hidden = true;
   showStatus('');
   if (isMembers && !membersLoaded && !membersLoading) void loadMembers();
@@ -1539,6 +1541,29 @@ document.getElementById('avoids-search').addEventListener('input', renderAvoids)
 document.getElementById('refresh-avoids').addEventListener('click', () => {
   avoidsLoaded = false;
   void loadAvoids();
+});
+document.getElementById('grab-round-reactions').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const actionStatus = document.getElementById('rounds-action-status');
+  button.disabled = true;
+  actionStatus.textContent = 'Searching the Opt-In channel and generating the Team Check draft…';
+  try {
+    const result = await window.hoedown.grabRoundReactions();
+    if (!result.ok) throw new Error(result.error || 'Could not generate the next round draft.');
+    const previewMessage = result.postingStatus === 'posted'
+      ? 'The Team Check preview was posted.'
+      : 'Team Check posting is disabled; the draft was saved in MongoDB.';
+    const excludedPlayers = result.excludedPlayerCount > 0
+      ? ` ${result.excludedPlayerCount} reacted user(s) were excluded for missing or invalid profiles.`
+      : '';
+    actionStatus.textContent =
+      `Round #${result.round} draft saved. ${result.eligiblePlayerCount} eligible players from ` +
+      `${result.reactedPlayerCount} reactions.${excludedPlayers} ${previewMessage}`;
+  } catch (error) {
+    actionStatus.textContent = error.message || 'Could not generate the next round draft.';
+  } finally {
+    button.disabled = false;
+  }
 });
 document.getElementById('ticket-filters').addEventListener('submit', (event) => {
   event.preventDefault();

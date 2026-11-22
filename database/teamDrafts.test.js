@@ -136,7 +136,7 @@ test('team generation fills teams to three without mixing East and West', () => 
   }
 });
 
-test('a new generation replaces current snapshots and uses the next unfilled round', async () => {
+test('a new generation replaces current snapshots and uses the next sequential round', async () => {
   const collections = createCollections();
   const firstDraft = await createDraft(collections);
   assert.equal(firstDraft.round, 1);
@@ -161,6 +161,16 @@ test('a new generation replaces current snapshots and uses the next unfilled rou
   assert.equal(collections.teamCheck.documents.length, 1);
   assert.equal(collections.playersThatReacted.documents.length, 1);
   assert.equal(collections.playersThatReacted.documents[0].sourceMessageId, 'message-2');
+});
+
+test('a new generation uses the round after the highest populated collection when there is a gap', async () => {
+  const collections = createCollections();
+  await collections.roundsDatabase.collection('Round 1').insertOne({ _id: 'current', status: 'approved' });
+  await collections.roundsDatabase.collection('Round 3').insertOne({ _id: 'current', status: 'approved' });
+
+  const draft = await createDraft(collections);
+
+  assert.equal(draft.round, 4);
 });
 
 test('approval saves round data, records pairings once, and finalizes both snapshots', async () => {

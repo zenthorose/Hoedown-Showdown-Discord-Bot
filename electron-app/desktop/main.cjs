@@ -229,9 +229,9 @@ async function readToken() {
   }
 }
 
-async function requestApi(route, { method = 'GET', token, body, headers = {} } = {}) {
+async function requestApi(route, { method = 'GET', token, body, headers = {}, timeoutMs = 15000 } = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const requestHeaders = { Accept: 'application/json', ...headers };
     if (token) requestHeaders.Authorization = `Bearer ${token}`;
@@ -616,6 +616,51 @@ app.whenReady().then(async () => {
       };
     } catch (error) {
       return { ok: false, error: error.message || 'Could not reach the avoid service.' };
+    }
+  });
+
+  ipcMain.handle('rounds:grab-reactions', async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted round generation request.');
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi('/api/rounds/grab-reactions', {
+        method: 'POST',
+        token: sessionToken,
+        timeoutMs: 120000
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: data.error || 'Could not generate the next round draft.',
+          partial: data.partial === true,
+          round: Number.isSafeInteger(data.round) ? data.round : null
+        };
+      }
+      if (!Number.isSafeInteger(data.round) ||
+          !Number.isSafeInteger(data.reactedPlayerCount) ||
+          !Number.isSafeInteger(data.eligiblePlayerCount) ||
+          !Number.isSafeInteger(data.excludedPlayerCount) ||
+          !['posted', 'disabled'].includes(data.postingStatus)) {
+        throw new Error('The service returned an invalid round-generation result.');
+      }
+      return {
+        ok: true,
+        round: data.round,
+        reactedPlayerCount: data.reactedPlayerCount,
+        eligiblePlayerCount: data.eligiblePlayerCount,
+        excludedPlayerCount: data.excludedPlayerCount,
+        postingStatus: data.postingStatus
+      };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the round service.' };
     }
   });
 
