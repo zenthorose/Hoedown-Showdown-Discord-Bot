@@ -3,6 +3,11 @@ const { randomUUID } = require('node:crypto');
 const CURRENT_SNAPSHOT_ID = 'current';
 const ROUND_COUNT = 16;
 const TEAM_SIZE = 3;
+const GENERATION_LOCK_STALE_AFTER_MS = 5 * 60 * 1000;
+const MAX_TEAM_ASSIGNMENT_SEARCH_STEPS = 250000;
+const MAX_TEAM_ASSIGNMENT_SEARCH_RESTARTS = 5;
+const MAX_TEAM_ASSIGNMENT_SEARCH_STEPS_PER_RESTART =
+  Math.ceil(MAX_TEAM_ASSIGNMENT_SEARCH_STEPS / MAX_TEAM_ASSIGNMENT_SEARCH_RESTARTS);
 const VALID_REGIONS = new Set(['East', 'West', 'Both']);
 
 function playerId(player) {
@@ -109,7 +114,7 @@ function inspectTeams(teams, previousPairings, avoids) {
   teams.forEach((team, teamIndex) => {
     const activePlayers = team.players.filter((player) => player.region !== 'Filler');
     const regions = new Set(activePlayers.map((player) => player.region));
-    if (regions.has('East') && regions.has('West') && !regions.has('Both')) {
+    if (regions.has('East') && regions.has('West')) {
       regionErrors.push(team.name);
     }
 
@@ -164,10 +169,197 @@ function regionTeamValid(team) {
   return !(regions.has('East') && regions.has('West'));
 }
 
+function currentDraftFilter(draft) {
+  const filter = { _id: CURRENT_SNAPSHOT_ID };
+  for (const field of ['generationId', 'status']) {
+    filter[field] = Object.prototype.hasOwnProperty.call(draft, field)
+      ? draft[field]
+      : { $exists: false };
+  }
+  return filter;
+}
+
+function teamsFromGroups(groups, players, startIndex) {
+  let fillerCount = 0;
+  return groups.map((group, index) => {
+    const teamPlayers = group.map((playerIndex) => players[playerIndex]);
+    while (teamPlayers.length < TEAM_SIZE) {
+      fillerCount += 1;
+      teamPlayers.push({
+        id: `FILLER_${fillerCount}`,
+        name: `Filler #${fillerCount}`,
+        region: 'Filler'
+      });
+    }
+    return { name: labelForTeam(startIndex + index), players: teamPlayers };
+  });
+}
+
+function findBestTeamAssignment(players, teamCount, previousPairings, avoids, initialTeams, startIndex, random) {
+  let bestTeams = initialTeams;
+  let bestCounts = conflictCounts(bestTeams, previousPairings, avoids);
+  let totalSteps = 0;
+  let searchLimitReached = false;
+  let searchRestarts = 0;
+  let optimalFound = bestCounts.avoid === 0 && bestCounts.previous === 0;
+
+  const pairConflictCount = (group, pairings) => {
+    let count = 0;
+    for (let left = 0; left < group.length; left += 1) {
+      for (let right = left + 1; right < group.length; right += 1) {
+        if (pairings.has(pairKey(players[group[left]], players[group[right]]))) count += 1;
+      }
+    }
+    return count;
+  };
+  const groupHasMixedRegions = (group) => {
+    const regions = new Set(group.map((index) => players[index].region));
+    return regions.has('East') && regions.has('West');
+  };
+
+  // Restarting with new tie-breaks explores different promising branches within one total budget.
+  for (let restart = 0;
+    restart < MAX_TEAM_ASSIGNMENT_SEARCH_RESTARTS &&
+    totalSteps < MAX_TEAM_ASSIGNMENT_SEARCH_STEPS &&
+    !optimalFound;
+    restart += 1) {
+    searchRestarts += 1;
+    const tieBreakers = players.map(() => random());
+    let restartSteps = 0;
+    let restartLimitReached = false;
+    const countStep = () => {
+      if (restartSteps >= MAX_TEAM_ASSIGNMENT_SEARCH_STEPS_PER_RESTART ||
+          totalSteps >= MAX_TEAM_ASSIGNMENT_SEARCH_STEPS) {
+        restartLimitReached = true;
+        return false;
+      }
+      restartSteps += 1;
+      totalSteps += 1;
+      return true;
+    };
+
+    function search(remaining, groups, avoidCount, previousCount) {
+      if (optimalFound || restartLimitReached || !countStep()) return;
+
+      if (remaining.length === 0) {
+        if (groups.length !== teamCount) return;
+        if (avoidCount < bestCounts.avoid ||
+            (avoidCount === bestCounts.avoid && previousCount < bestCounts.previous)) {
+          bestTeams = teamsFromGroups(groups, players, startIndex);
+          bestCounts = { avoid: avoidCount, previous: previousCount };
+        }
+        if (bestCounts.avoid === 0 && bestCounts.previous === 0) optimalFound = true;
+        return;
+      }
+
+      const teamsLeft = teamCount - groups.length;
+      if (remaining.length < teamsLeft || remaining.length > teamsLeft * TEAM_SIZE ||
+          avoidCount > bestCounts.avoid ||
+          (avoidCount === bestCounts.avoid && previousCount >= bestCounts.previous)) {
+        return;
+      }
+
+      let pivotPosition = 0;
+      let pivotConstraint = -1;
+      for (let position = 0; position < remaining.length; position += 1) {
+        const candidate = remaining[position];
+        let avoidDegree = 0;
+        let regionDegree = 0;
+        for (const other of remaining) {
+          if (candidate === other) continue;
+          if (avoids.has(pairKey(players[candidate], players[other]))) avoidDegree += 1;
+          if (!regionSwapAllowed(players[candidate], players[other])) regionDegree += 1;
+        }
+        const constraint = avoidDegree * (remaining.length + 1) + regionDegree;
+        if (constraint > pivotConstraint ||
+            (constraint === pivotConstraint && tieBreakers[candidate] < tieBreakers[remaining[pivotPosition]])) {
+          pivotPosition = position;
+          pivotConstraint = constraint;
+        }
+      }
+
+      const pivot = remaining[pivotPosition];
+      const partners = remaining
+        .filter((index) => index !== pivot && regionSwapAllowed(players[pivot], players[index]))
+        .sort((left, right) => {
+          const avoidDifference =
+            Number(avoids.has(pairKey(players[pivot], players[left]))) -
+            Number(avoids.has(pairKey(players[pivot], players[right])));
+          if (avoidDifference) return avoidDifference;
+          const previousDifference =
+            Number(previousPairings.has(pairKey(players[pivot], players[left]))) -
+            Number(previousPairings.has(pairKey(players[pivot], players[right])));
+          return previousDifference || tieBreakers[left] - tieBreakers[right];
+        });
+
+      const teamsLeftAfter = teamsLeft - 1;
+      const minimumGroupSize = Math.max(1, remaining.length - teamsLeftAfter * TEAM_SIZE);
+      const maximumGroupSize = Math.min(TEAM_SIZE, remaining.length - teamsLeftAfter);
+
+      for (let groupSize = maximumGroupSize; groupSize >= minimumGroupSize; groupSize -= 1) {
+        if (groupSize === 3) {
+          for (let first = 0; first < partners.length - 1; first += 1) {
+            for (let second = first + 1; second < partners.length; second += 1) {
+              if (!countStep()) return;
+              const group = [pivot, partners[first], partners[second]];
+              if (!groupHasMixedRegions(group)) visitGroup(group);
+              if (optimalFound || restartLimitReached) return;
+            }
+          }
+        } else if (groupSize === 2) {
+          for (const partner of partners) {
+            if (!countStep()) return;
+            visitGroup([pivot, partner]);
+            if (optimalFound || restartLimitReached) return;
+          }
+        } else {
+          if (!countStep()) return;
+          visitGroup([pivot]);
+          if (optimalFound || restartLimitReached) return;
+        }
+      }
+
+      function visitGroup(group) {
+        const groupAvoids = pairConflictCount(group, avoids);
+        const groupPrevious = pairConflictCount(group, previousPairings);
+        const nextAvoids = avoidCount + groupAvoids;
+        const nextPrevious = previousCount + groupPrevious;
+        if (nextAvoids > bestCounts.avoid ||
+            (nextAvoids === bestCounts.avoid && nextPrevious >= bestCounts.previous)) {
+          return;
+        }
+
+        const selected = new Set(group);
+        groups.push(group);
+        search(remaining.filter((index) => !selected.has(index)), groups, nextAvoids, nextPrevious);
+        groups.pop();
+      }
+    }
+
+    search(players.map((_, index) => index), [], 0, 0);
+    if (restartLimitReached) {
+      searchLimitReached = true;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    teams: bestTeams,
+    avoidCount: bestCounts.avoid,
+    searchLimitReached,
+    searchRestarts
+  };
+}
+
 function fixTeamConflicts(teams, previousPairings, avoids) {
   let counts = conflictCounts(teams, previousPairings, avoids);
   let swapsApplied = 0;
   let passes = 0;
+
+  if (counts.avoid !== 0) {
+    throw new Error('Cannot optimize previous pairings while Avoid conflicts remain.');
+  }
 
   while (passes < 1000) {
     passes += 1;
@@ -185,7 +377,7 @@ function fixTeamConflicts(teams, previousPairings, avoids) {
           const playerA = activePlayers[left];
           const playerB = activePlayers[right];
           const key = pairKey(playerA.player, playerB.player);
-          if (!previousPairings.has(key) && !avoids.has(key)) continue;
+          if (!previousPairings.has(key)) continue;
 
           for (const target of [playerA, playerB]) {
             for (let otherTeamIndex = 0; otherTeamIndex < teams.length; otherTeamIndex += 1) {
@@ -194,7 +386,7 @@ function fixTeamConflicts(teams, previousPairings, avoids) {
 
               for (let otherPlayerIndex = 0; otherPlayerIndex < otherTeam.players.length; otherPlayerIndex += 1) {
                 const otherPlayer = otherTeam.players[otherPlayerIndex];
-                if (otherPlayer.region === 'Filler' || !regionSwapAllowed(target.player, otherPlayer)) continue;
+                if (!regionSwapAllowed(target.player, otherPlayer)) continue;
 
                 const proposed = teams.map((entry) => ({
                   ...entry,
@@ -205,10 +397,7 @@ function fixTeamConflicts(teams, previousPairings, avoids) {
                 if (!regionTeamValid(proposed[teamIndex]) || !regionTeamValid(proposed[otherTeamIndex])) continue;
 
                 const nextCounts = conflictCounts(proposed, previousPairings, avoids);
-                const avoidImproved = nextCounts.avoid < counts.avoid;
-                const avoidUnchanged = nextCounts.avoid === counts.avoid;
-                const previousImproved = nextCounts.previous < counts.previous;
-                if (!avoidImproved && !(avoidUnchanged && previousImproved)) continue;
+                if (nextCounts.avoid !== 0 || nextCounts.previous >= counts.previous) continue;
 
                 teams[teamIndex].players[target.playerIndex] = otherPlayer;
                 teams[otherTeamIndex].players[otherPlayerIndex] = target.player;
@@ -248,10 +437,42 @@ function generateTeamGroups(players, { previousPairings = new Set(), avoids = ne
     fillerCount += 1;
     return { id: `FILLER_${fillerCount}`, name: `Filler #${fillerCount}`, region: 'Filler' };
   }));
-  const teams = teamArrays.map((teamPlayers, index) => ({
+  const initialTeams = teamArrays.map((teamPlayers, index) => ({
     name: labelForTeam(startIndex + index),
     players: teamPlayers
   }));
+  const assignment = findBestTeamAssignment(
+    players,
+    initialTeams.length,
+    previousPairings,
+    avoids,
+    initialTeams,
+    startIndex,
+    random
+  );
+  if (assignment.avoidCount > 0) {
+    const conflicts = inspectTeams(assignment.teams, previousPairings, avoids).avoidConflicts;
+    const conflictList = conflicts.slice(0, 8)
+      .map(({ playerA, playerB, discordIdA, discordIdB }) => {
+        const safeName = (name) => String(name || 'Unknown')
+          .slice(0, 80)
+          .replace(/@/g, '@\u200b')
+          .replace(/([\\_*~`|>])/g, '\\$1');
+        return `${safeName(playerA)} (${discordIdA}) × ${safeName(playerB)} (${discordIdB})`;
+      })
+      .join('; ');
+    const additionalCount = conflicts.length - Math.min(conflicts.length, 8);
+    const details = additionalCount > 0 ? `${conflictList}; and ${additionalCount} more` : conflictList;
+    const prefix = assignment.searchLimitReached
+      ? 'The search limit was reached before the minimum Avoid conflicts could be proven.'
+      : 'No Avoid-free team assignment exists for this roster.';
+    const assignmentSummary = assignment.searchLimitReached
+      ? 'Best assignment found so far'
+      : 'Minimum-conflict assignment';
+    throw new Error(`${prefix} ${assignmentSummary} still pairs ${conflicts.length} Avoid conflict(s): ${details}. No draft was saved.`);
+  }
+
+  const teams = assignment.teams;
   const initialAudit = inspectTeams(teams, previousPairings, avoids);
   const repair = fixTeamConflicts(teams, previousPairings, avoids);
   const finalAudit = inspectTeams(teams, previousPairings, avoids);
@@ -261,6 +482,8 @@ function generateTeamGroups(players, { previousPairings = new Set(), avoids = ne
     initialAudit,
     finalAudit,
     swapsApplied: repair.swapsApplied,
+    pairingSearchLimitReached: assignment.searchLimitReached && finalAudit.previousConflicts.length > 0,
+    pairingSearchRestarts: assignment.searchRestarts,
     unresolvedPrevious: finalAudit.previousConflicts.length,
     unresolvedAvoids: finalAudit.avoidConflicts.length,
     nextTeamIndex: (startIndex + teams.length) % 78
@@ -364,8 +587,18 @@ async function createCurrentTeamDraft({
   if (uniquePlayers.size === 0) throw new Error('No eligible Discord users reacted to the selected message.');
 
   const currentDraft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  const currentDraftClaimFilter = currentDraft ? currentDraftFilter(currentDraft) : null;
   if (currentDraft?.status === 'approving') {
     throw new Error('The current draft is being approved. Try again after approval finishes.');
+  }
+  if (currentDraft?.status === 'generating') {
+    const updatedAt = currentDraft.updatedAt instanceof Date
+      ? currentDraft.updatedAt.getTime()
+      : new Date(currentDraft.updatedAt).getTime();
+    if (!Number.isFinite(updatedAt) ||
+        now().getTime() - updatedAt < GENERATION_LOCK_STALE_AFTER_MS) {
+      throw new Error('A team draft generation is already in progress. Please wait for it to finish.');
+    }
   }
   const usesPendingDraftRound = currentDraft?.status === 'pending' && targetRound === undefined;
   const round = targetRound !== undefined
@@ -419,6 +652,8 @@ async function createCurrentTeamDraft({
       initial: generated.initialAudit,
       final: generated.finalAudit,
       swapsApplied: generated.swapsApplied,
+      pairingSearchLimitReached: generated.pairingSearchLimitReached,
+      pairingSearchRestarts: generated.pairingSearchRestarts,
       unresolvedPrevious: generated.unresolvedPrevious,
       unresolvedAvoids: generated.unresolvedAvoids
     },
@@ -426,23 +661,65 @@ async function createCurrentTeamDraft({
     previewMessageIds: []
   };
 
-  await teamCheckCollection.replaceOne({ _id: CURRENT_SNAPSHOT_ID }, draft, { upsert: true });
-  await playersThatReactedCollection.replaceOne({
-    _id: CURRENT_SNAPSHOT_ID
-  }, {
-    _id: CURRENT_SNAPSHOT_ID,
-    round,
-    sourceMessageId: draft.sourceMessageId,
-    updatedAt: timestamp,
-    players: allPlayers
-  }, { upsert: true });
-  const updated = await teamCheckCollection.updateOne({
-    _id: CURRENT_SNAPSHOT_ID,
-    generationId
-  }, {
-    $set: { status: 'pending', updatedAt: now() }
-  });
-  if (!updated.matchedCount) throw new Error('The Team Check draft changed while it was being saved.');
+  let generationClaimed = false;
+  try {
+    if (currentDraft) {
+      const claim = await teamCheckCollection.replaceOne(currentDraftClaimFilter, draft);
+      if (!claim.matchedCount) {
+        throw new Error('The Team Check draft changed while teams were being generated. Try again.');
+      }
+    } else {
+      try {
+        await teamCheckCollection.insertOne(draft);
+      } catch (error) {
+        if (error.code === 11000) {
+          throw new Error('A Team Check draft was created by another request. Try again.');
+        }
+        throw error;
+      }
+    }
+    generationClaimed = true;
+
+    await playersThatReactedCollection.replaceOne({
+      _id: CURRENT_SNAPSHOT_ID
+    }, {
+      _id: CURRENT_SNAPSHOT_ID,
+      round,
+      sourceMessageId: draft.sourceMessageId,
+      updatedAt: timestamp,
+      players: allPlayers
+    }, { upsert: true });
+    const updated = await teamCheckCollection.updateOne({
+      _id: CURRENT_SNAPSHOT_ID,
+      generationId,
+      status: 'generating'
+    }, {
+      $set: { status: 'pending', updatedAt: now() }
+    });
+    if (!updated.matchedCount) {
+      throw new Error('The Team Check draft changed while its player snapshot was being saved.');
+    }
+  } catch (error) {
+    if (generationClaimed) {
+      try {
+        const failed = await teamCheckCollection.updateOne({
+          _id: CURRENT_SNAPSHOT_ID,
+          generationId,
+          status: 'generating'
+        }, {
+          $set: { status: 'failed', updatedAt: now() }
+        });
+        if (!failed.matchedCount) {
+          throw new Error('The current draft no longer matches this failed generation.');
+        }
+      } catch (statusError) {
+        throw new Error(
+          `Team draft saving failed: ${error.message}; its failure status could not be recorded: ${statusError.message}`
+        );
+      }
+    }
+    throw error;
+  }
 
   return { ...draft, status: 'pending' };
 }
@@ -629,6 +906,7 @@ module.exports = {
   findNextRound,
   formatTeamCheckPreview,
   generateTeamGroups,
+  inspectTeams,
   labelForTeam,
   loadPairingKeys,
   recordPreviousPairings,

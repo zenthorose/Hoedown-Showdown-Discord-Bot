@@ -5,6 +5,7 @@ const {
   completeCurrentDraftApproval,
   createCurrentTeamDraft,
   generateTeamGroups,
+  inspectTeams,
   recordPreviousPairings
 } = require('./teamDrafts');
 
@@ -14,6 +15,9 @@ function matches(document, filter) {
       ? key.split('.').reduce((result, part) => result?.[part], document)
       : document[key];
     if (value && typeof value === 'object' && '$in' in value) return value.$in.includes(actual);
+    if (value && typeof value === 'object' && '$exists' in value) {
+      return Object.prototype.hasOwnProperty.call(document, key) === value.$exists;
+    }
     if (key.includes('.') && key.endsWith('.discordId') && Array.isArray(document[key.split('.')[0]])) {
       return document[key.split('.')[0]].some((entry) => entry.discordId === value);
     }
@@ -45,11 +49,14 @@ class MemoryCollection {
     return { toArray: async () => this.documents.filter((document) => matches(document, filter)) };
   }
 
-  async replaceOne(filter, replacement) {
+  async replaceOne(filter, replacement, options = {}) {
     const index = this.documents.findIndex((document) => matches(document, filter));
-    if (index < 0) this.documents.push(replacement);
-    else this.documents[index] = replacement;
-    return { matchedCount: index < 0 ? 0 : 1 };
+    if (index < 0) {
+      if (options.upsert) this.documents.push(replacement);
+      return { matchedCount: 0 };
+    }
+    this.documents[index] = replacement;
+    return { matchedCount: 1 };
   }
 
   async insertOne(document) {
@@ -137,6 +144,81 @@ test('team generation fills teams to three without mixing East and West', () => 
   }
 });
 
+test('team audit rejects East and West on the same team even when Both is present', () => {
+  const teams = [{
+    name: 'A',
+    players: [
+      { discordId: '1', name: 'East player', region: 'East' },
+      { discordId: '2', name: 'West player', region: 'West' },
+      { discordId: '3', name: 'Both player', region: 'Both' }
+    ]
+  }];
+  const audit = inspectTeams(teams, new Set(), new Set());
+
+  assert.deepEqual(audit.regionErrors, ['A']);
+});
+
+test('team assignment treats Avoids as hard constraints and reduces previous pairings afterward', () => {
+  const players = Array.from({ length: 6 }, (_, index) => ({
+    discordId: String(index + 1),
+    name: `Player ${index + 1}`,
+    region: 'East'
+  }));
+  const result = generateTeamGroups(players, {
+    avoids: new Set(['1|2']),
+    previousPairings: new Set(['2|3']),
+    random: () => 0
+  });
+
+  assert.equal(result.unresolvedAvoids, 0);
+  assert.equal(result.unresolvedPrevious, 0);
+  assert.ok(result.teams.every((team) =>
+    !team.players.some((player) => player.discordId === '1') ||
+    !team.players.some((player) => player.discordId === '2')
+  ));
+});
+
+test('team assignment blocks and reports when every arrangement violates Avoids', () => {
+  const players = [
+    { discordId: '1', name: 'One', region: 'East' },
+    { discordId: '2', name: 'Two', region: 'East' },
+    { discordId: '3', name: 'Three', region: 'East' }
+  ];
+
+  assert.throws(() => generateTeamGroups(players, {
+    avoids: new Set(['1|2', '1|3', '2|3']),
+    random: () => 0
+  }), /No Avoid-free team assignment exists.*3 Avoid conflict\(s\).*No draft was saved/);
+});
+
+test('multi-start assignment eliminates prior pairings for a 130-player roster when possible', () => {
+  const players = Array.from({ length: 130 }, (_, index) => ({
+    discordId: String(index + 1),
+    name: `Player ${index + 1}`,
+    region: 'East'
+  }));
+  const priorTeams = generateTeamGroups(players, { random: () => 0 }).teams;
+  const previousPairings = new Set();
+  for (const team of priorTeams) {
+    const activePlayers = team.players.filter((player) => player.region !== 'Filler');
+    for (let left = 0; left < activePlayers.length; left += 1) {
+      for (let right = left + 1; right < activePlayers.length; right += 1) {
+        previousPairings.add([
+          activePlayers[left].discordId,
+          activePlayers[right].discordId
+        ].sort().join('|'));
+      }
+    }
+  }
+
+  const result = generateTeamGroups(players, { previousPairings, random: () => 0 });
+
+  assert.equal(result.teams.length, 44);
+  assert.equal(result.unresolvedAvoids, 0);
+  assert.equal(result.unresolvedPrevious, 0);
+  assert.equal(result.pairingSearchLimitReached, false);
+});
+
 test('a new generation replaces current snapshots and uses the next sequential round', async () => {
   const collections = createCollections();
   const firstDraft = await createDraft(collections);
@@ -148,6 +230,7 @@ test('a new generation replaces current snapshots and uses the next sequential r
   await collections.teamCheck.updateOne({ _id: 'current' }, {
     $set: { status: 'approved' }
   });
+
   await collections.roundsDatabase.collection('Round#1').insertOne({
     _id: 'current',
     generationId: firstDraft.generationId,
@@ -162,6 +245,42 @@ test('a new generation replaces current snapshots and uses the next sequential r
   assert.equal(collections.teamCheck.documents.length, 1);
   assert.equal(collections.playersThatReacted.documents.length, 1);
   assert.equal(collections.playersThatReacted.documents[0].sourceMessageId, 'message-2');
+});
+
+test('generation cannot replace a current draft after approval claims it', async () => {
+  const collections = createCollections();
+  const originalDraft = await createDraft(collections);
+  const findMembers = collections.members.find.bind(collections.members);
+  let markLookupStarted;
+  let releaseLookup;
+  const lookupStarted = new Promise((resolve) => { markLookupStarted = resolve; });
+  const lookupGate = new Promise((resolve) => { releaseLookup = resolve; });
+  collections.members.find = (filter) => {
+    const query = findMembers(filter);
+    return {
+      toArray: async () => {
+        markLookupStarted();
+        await lookupGate;
+        return query.toArray();
+      }
+    };
+  };
+
+  const nextGeneration = createDraft(collections, 'message-2');
+  await lookupStarted;
+  const approval = await beginCurrentDraftApproval({
+    teamCheckCollection: collections.teamCheck,
+    roundsDatabase: collections.roundsDatabase,
+    round: originalDraft.round
+  });
+  releaseLookup();
+
+  await assert.rejects(nextGeneration, /draft changed while teams were being generated/);
+  const currentDraft = await collections.teamCheck.findOne({ _id: 'current' });
+  assert.equal(currentDraft.generationId, originalDraft.generationId);
+  assert.equal(currentDraft.status, 'approving');
+  assert.equal(approval.roundRecord.generationId, originalDraft.generationId);
+  assert.equal(collections.playersThatReacted.documents[0].sourceMessageId, 'message-1');
 });
 
 test('a new generation uses the round after the highest populated collection when there is a gap', async () => {
