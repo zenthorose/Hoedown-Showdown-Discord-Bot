@@ -283,12 +283,11 @@ footer { margin-top: 20px; font-size: 12px; }
 }
 .rounds-last-clicked-avatar {
   display: inline-grid;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
   place-items: center;
   overflow: hidden;
-  border: 1px solid var(--theme-border);
   border-radius: 50%;
   background: var(--theme-surface);
   color: var(--theme-text);
@@ -321,7 +320,9 @@ footer { margin-top: 20px; font-size: 12px; }
   .rounds-generation-indicator.loading { animation: none; }
 }
 .rounds-action-status { min-height: 1.4em; margin: 14px 0 0; color: var(--theme-accent-text); }
-.rounds-preview-launch { margin-top: 16px; }
+.rounds-preview-launch { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.round-preview-openers { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.round-preview-opened-label { color: var(--theme-muted); font-size: 12px; }
 .round-preview-panel {
   display: grid;
   gap: 20px;
@@ -342,13 +343,9 @@ footer { margin-top: 20px; font-size: 12px; }
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 10px;
-  border: 1px solid var(--theme-border);
-  border-radius: 999px;
   color: var(--theme-muted);
   font-size: 12px;
 }
-.round-reviewer-mark { color: var(--theme-accent-text); font-weight: 700; }
 .round-preview-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .round-preview-team {
   padding: 14px;

@@ -161,6 +161,14 @@
                 aria-live="polite" hidden></p>
               <div class="rounds-preview-launch">
                 <button id="open-round-preview" type="button">Team Preview and Adjust</button>
+                <span id="round-preview-indicator" class="rounds-generation-indicator pending"
+                  role="img" aria-label="Team preview unavailable">✕</span>
+                <div class="round-preview-openers" aria-label="Team preview activity">
+                  <span class="round-preview-opened-label">Opened by</span>
+                  <div id="round-reviewers" class="round-reviewers" aria-live="polite">
+                    <span class="muted">No one has opened this draft yet.</span>
+                  </div>
+                </div>
               </div>
               <section id="round-preview-panel" class="round-preview-panel" aria-label="Team preview and review"
                 hidden>
@@ -178,7 +186,6 @@
                     <button id="round-review-approve" type="button" aria-pressed="false">✓ Looks good</button>
                     <button id="round-review-changes" type="button" aria-pressed="false">✕ Needs changes</button>
                   </div>
-                  <div id="round-reviewers" class="round-reviewers" aria-live="polite"></div>
                 </div>
                 <div id="round-preview-teams" class="round-preview-teams"></div>
                 <form id="round-adjust-form" class="round-adjust-form">

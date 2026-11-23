@@ -269,7 +269,8 @@ function showSignedOut(profileSelected = true) {
   document.getElementById('open-round-preview').disabled = false;
   document.getElementById('round-preview-panel').hidden = true;
   document.getElementById('round-preview-teams').replaceChildren();
-  document.getElementById('round-reviewers').replaceChildren();
+  applyRoundPreviewIndicator(null);
+  renderRoundReviewers([]);
   document.getElementById('auth-header').hidden = false;
   document.getElementById('auth-title').textContent = profileSelected ? 'Sign in' : 'Select your profile';
   document.getElementById('back-to-profiles').hidden = !profileSelected;
@@ -446,6 +447,7 @@ function applyAuthState(state) {
     if (!avoidsLoaded && !avoidsLoading) void loadAvoids();
     if (!ticketsLoaded && !ticketsLoading) void loadTickets(1);
     if (!settingsLoaded && !settingsLoading) void loadSettings();
+    if (!document.getElementById('rounds-view').hidden) void refreshRoundDraftStatus();
   } else {
     showSignedOut();
     const profileName = document.getElementById('selected-profile-name');
@@ -586,12 +588,77 @@ function updateRoundSwapTargets() {
     !selectedPlayerId || targetSelect.options.length === 0;
 }
 
+function applyRoundPreviewIndicator(draft) {
+  const indicator = document.getElementById('round-preview-indicator');
+  const finalChecks = draft?.checks?.final;
+  const hasIssues = !draft || !finalChecks ||
+    !Array.isArray(finalChecks.avoidConflicts) ||
+    !Array.isArray(finalChecks.previousConflicts) ||
+    !Array.isArray(finalChecks.regionErrors) ||
+    finalChecks.avoidConflicts.length > 0 ||
+    finalChecks.previousConflicts.length > 0 ||
+    finalChecks.regionErrors.length > 0;
+  indicator.classList.remove('loading', 'complete', 'pending');
+  indicator.classList.add(hasIssues ? 'pending' : 'complete');
+  indicator.textContent = hasIssues ? '✕' : '✓';
+  indicator.setAttribute('aria-label', !draft
+    ? 'No pending team preview'
+    : hasIssues
+      ? 'Team preview has issues'
+      : 'Team preview has no issues');
+}
+
+function renderRoundReviewers(activity, emptyMessage = 'No one has opened this draft yet.') {
+  const reviewers = document.getElementById('round-reviewers');
+  reviewers.replaceChildren();
+  if (!activity?.length) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.textContent = emptyMessage;
+    reviewers.append(empty);
+    return;
+  }
+  for (const reviewer of activity) {
+    const item = document.createElement('span');
+    item.className = 'round-reviewer';
+    const accountName = reviewer.username || reviewer.discordUsername || 'Unknown account';
+    const initials = accountName
+      .split(/[.\s_-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase();
+    const avatar = document.createElement('span');
+    avatar.className = 'rounds-last-clicked-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = initials || '?';
+    if (typeof reviewer.avatarUrl === 'string' &&
+        /^https:\/\/cdn\.discordapp\.com\//.test(reviewer.avatarUrl)) {
+      const image = document.createElement('img');
+      image.src = reviewer.avatarUrl;
+      image.alt = '';
+      image.loading = 'lazy';
+      image.referrerPolicy = 'no-referrer';
+      image.addEventListener('error', () => {
+        avatar.replaceChildren();
+        avatar.textContent = initials || '?';
+      }, { once: true });
+      avatar.replaceChildren(image);
+    }
+    const name = document.createElement('span');
+    name.className = 'rounds-last-clicked-name';
+    name.textContent = accountName;
+    item.append(avatar, name);
+    reviewers.append(item);
+  }
+}
+
 function renderRoundDraft(draft) {
   currentRoundDraft = draft;
   const panel = document.getElementById('round-preview-panel');
   const title = document.getElementById('round-preview-title');
   const previewStatus = document.getElementById('round-preview-status');
-  const reviewers = document.getElementById('round-reviewers');
   const teamsContainer = document.getElementById('round-preview-teams');
   const statusParts = [];
   const finalChecks = draft.checks?.final || {};
@@ -600,6 +667,8 @@ function renderRoundDraft(draft) {
     ? finalChecks.previousConflicts.length
     : 0;
   const regionCount = Array.isArray(finalChecks.regionErrors) ? finalChecks.regionErrors.length : 0;
+  applyRoundPreviewIndicator(draft);
+  renderRoundReviewers(draft.reviewActivity);
   if (avoidCount) statusParts.push(`${avoidCount} Avoid conflict${avoidCount === 1 ? '' : 's'}`);
   if (previousCount) statusParts.push(`${previousCount} previous pairing${previousCount === 1 ? '' : 's'}`);
   if (regionCount) statusParts.push(`${regionCount} region conflict${regionCount === 1 ? '' : 's'}`);
@@ -616,30 +685,6 @@ function renderRoundDraft(draft) {
   changesButton.setAttribute('aria-pressed', String(draft.myVote === 'changes'));
   approveButton.disabled = roundDraftActionPending;
   changesButton.disabled = roundDraftActionPending;
-
-  reviewers.replaceChildren();
-  if (draft.reviewActivity.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'muted';
-    empty.textContent = 'No one has opened this draft yet.';
-    reviewers.append(empty);
-  } else {
-    for (const reviewer of draft.reviewActivity) {
-      const item = document.createElement('span');
-      item.className = 'round-reviewer';
-      const name = document.createElement('span');
-      name.textContent = reviewer.username || reviewer.discordUsername || 'Unknown account';
-      const mark = document.createElement('span');
-      mark.className = 'round-reviewer-mark';
-      mark.textContent = reviewer.vote === 'approve'
-        ? '✓ Looks good'
-        : reviewer.vote === 'changes'
-          ? '✕ Needs changes'
-          : 'Opened';
-      item.append(name, mark);
-      reviewers.append(item);
-    }
-  }
 
   teamsContainer.replaceChildren();
   for (const team of draft.teams) {
@@ -682,20 +727,35 @@ function renderRoundDraft(draft) {
   roundPreviewOpen = true;
 }
 
-async function refreshOpenRoundDraft() {
-  if (!roundPreviewOpen || !currentRoundDraft || roundDraftActionPending || signedInPanel.hidden) return;
+async function refreshRoundDraftStatus() {
+  if (roundDraftActionPending || signedInPanel.hidden) return;
   const viewGeneration = roundDraftViewGeneration;
   try {
     const result = await window.hoedown.getCurrentRoundDraft();
     if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
     if (!result.ok) {
-      document.getElementById('round-preview-status').textContent =
-        result.error || 'Could not refresh the Team Check draft.';
+      currentRoundDraft = null;
+      applyRoundPreviewIndicator(null);
+      renderRoundReviewers([], /no pending Team Check draft/i.test(result.error || '')
+        ? 'No pending draft.'
+        : 'Preview activity unavailable.');
+      if (roundPreviewOpen) {
+        document.getElementById('round-preview-title').textContent = 'Team Preview unavailable';
+        document.getElementById('round-preview-status').textContent =
+          result.error || 'Could not refresh the Team Check draft.';
+        document.getElementById('round-preview-teams').replaceChildren();
+      }
       return;
     }
-    renderRoundDraft(result.draft);
+    currentRoundDraft = result.draft;
+    applyRoundPreviewIndicator(result.draft);
+    renderRoundReviewers(result.draft.reviewActivity);
+    if (roundPreviewOpen) renderRoundDraft(result.draft);
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
+      currentRoundDraft = null;
+      applyRoundPreviewIndicator(null);
+      renderRoundReviewers([], 'Preview activity unavailable.');
       document.getElementById('round-preview-status').textContent =
         error.message || 'Could not refresh the Team Check draft.';
     }
@@ -738,6 +798,7 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   if (!button) return;
   const page = pages[button.dataset.tab];
   if (!page) return;
+  if (button.dataset.tab === 'rounds') void refreshRoundDraftStatus();
 
   document.querySelectorAll('.nav-item').forEach((item) => {
     item.classList.toggle('active', item === button);
@@ -2472,7 +2533,7 @@ window.hoedown.onMembersLiveStatus((liveStatus) => {
 });
 window.hoedown.onRoundActionStatus(applyRoundActionState);
 window.hoedown.onRoundDraftUpdated(() => {
-  void refreshOpenRoundDraft();
+  void refreshRoundDraftStatus();
 });
 window.hoedown.onStatus(applyAuthState);
 window.hoedown.getStatus()
