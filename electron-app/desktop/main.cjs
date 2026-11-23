@@ -306,6 +306,13 @@ function isRoundDraft(value) {
       Array.isArray(team.players) && team.players.every((player) =>
         player && typeof player.discordId === 'string' &&
         typeof player.name === 'string' && typeof player.region === 'string')) &&
+    value.pairingRelations && typeof value.pairingRelations === 'object' &&
+    Array.isArray(value.pairingRelations.avoids) &&
+    value.pairingRelations.avoids.every((pair) => pair &&
+      typeof pair.discordIdA === 'string' && typeof pair.discordIdB === 'string') &&
+    Array.isArray(value.pairingRelations.previousPairings) &&
+    value.pairingRelations.previousPairings.every((pair) => pair &&
+      typeof pair.discordIdA === 'string' && typeof pair.discordIdB === 'string') &&
     Array.isArray(value.reviewActivity) &&
     value.reviewActivity.every((reviewer) => reviewer &&
       typeof reviewer.discordId === 'string' && typeof reviewer.username === 'string' &&

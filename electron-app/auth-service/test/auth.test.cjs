@@ -652,7 +652,16 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
       headers
     });
     assert.equal(open.status, 200);
-    assert.equal((await open.json()).draft.reviewActivity.length, 1);
+    const openedDraft = (await open.json()).draft;
+    assert.equal(openedDraft.reviewActivity.length, 1);
+    assert.deepEqual(openedDraft.pairingRelations.avoids, [{
+      discordIdA: '10000000000000001',
+      discordIdB: '10000000000000004'
+    }]);
+    assert.deepEqual(openedDraft.pairingRelations.previousPairings, [{
+      discordIdA: '10000000000000001',
+      discordIdB: '10000000000000005'
+    }]);
 
     const review = await fetch(`${baseUrl}/api/rounds/draft/current/review`, {
       method: 'POST',
@@ -684,8 +693,14 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     discordId: '123456789012345678',
     canGrabRoundReactions: async () => true,
     roundDraftCollection,
-    roundAvoidsCollection: new MemoryCollection(),
-    previousPairingsCollection: new MemoryCollection(),
+    roundAvoidsCollection: new MemoryCollection([{
+      _id: '10000000000000001',
+      avoids: [{ discordId: '10000000000000004' }]
+    }]),
+    previousPairingsCollection: new MemoryCollection([{
+      _id: '10000000000000005',
+      previousPairings: [{ discordId: '10000000000000001' }]
+    }]),
     syncRoundDraftPreview: async (draft) => {
       previewUpdates.push(draft.teams);
       return { previewMessageIds: ['preview-1'] };

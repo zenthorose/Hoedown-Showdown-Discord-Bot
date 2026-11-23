@@ -51,7 +51,7 @@ const EASTERN_DAY_FORMATTER = new Intl.DateTimeFormat('en-US', {
   hourCycle: 'h23'
 });
 
-function serializeRoundDraft(draft, currentDiscordId) {
+function serializeRoundDraft(draft, currentDiscordId, pairingRelations = { avoids: [], previousPairings: [] }) {
   const toIso = (value) => value instanceof Date
     ? value.toISOString()
     : typeof value === 'string'
@@ -84,6 +84,7 @@ function serializeRoundDraft(draft, currentDiscordId) {
           : []
       }
     },
+    pairingRelations,
     reviewActivity: activity.map((entry) => ({
       discordId: String(entry.discordId || ''),
       username: String(entry.username || 'Unknown account').slice(0, 64),
@@ -531,7 +532,8 @@ function createApp({
       res.status(403).json({ error: 'Link your Discord account before reviewing a round.' });
       return null;
     }
-    if (!roundDraftCollection || typeof canGrabRoundReactions !== 'function') {
+    if (!roundDraftCollection || !roundAvoidsCollection || !previousPairingsCollection ||
+        typeof canGrabRoundReactions !== 'function') {
       res.status(503).json({ error: 'Team preview and review are not configured.' });
       return null;
     }
@@ -542,6 +544,38 @@ function createApp({
       return null;
     }
     return session;
+  };
+  const serializeCurrentRoundDraft = async (draft, discordId) => {
+    const playerIds = [...new Set((Array.isArray(draft.teams) ? draft.teams : [])
+      .flatMap((team) => Array.isArray(team.players) ? team.players : [])
+      .map((player) => String(player.discordId || '').trim())
+      .filter((id) => MEMBER_ID_PATTERN.test(id)))];
+    if (!playerIds.length) return serializeRoundDraft(draft, discordId);
+
+    const [avoidDocuments, previousPairingDocuments] = await Promise.all([
+      roundAvoidsCollection.find({ _id: { $in: playerIds } }).toArray(),
+      previousPairingsCollection.find({ _id: { $in: playerIds } }).toArray()
+    ]);
+    const rosterIds = new Set(playerIds);
+    const readRelations = (documents, field) => {
+      const uniquePairs = new Map();
+      for (const document of documents) {
+        const sourceId = String(document._id || '').trim();
+        if (!rosterIds.has(sourceId)) continue;
+        for (const relationship of Array.isArray(document[field]) ? document[field] : []) {
+          const targetId = String(relationship.discordId || relationship.id || '').trim();
+          if (!rosterIds.has(targetId) || sourceId === targetId) continue;
+          const ids = [sourceId, targetId].sort();
+          uniquePairs.set(ids.join('|'), { discordIdA: ids[0], discordIdB: ids[1] });
+        }
+      }
+      return [...uniquePairs.values()];
+    };
+
+    return serializeRoundDraft(draft, discordId, {
+      avoids: readRelations(avoidDocuments, 'avoids'),
+      previousPairings: readRelations(previousPairingDocuments, 'previousPairings')
+    });
   };
   let roundsActionState = {
     running: false,
@@ -1918,7 +1952,7 @@ function createApp({
       }
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
-        draft: serializeRoundDraft(draft, session.user.discordId)
+        draft: await serializeCurrentRoundDraft(draft, session.user.discordId)
       });
     } catch (error) {
       return sendError(res, error, 'Team Check draft lookup failed:');
@@ -1950,7 +1984,7 @@ function createApp({
       broadcastMemberEvent('round-draft-updated', { generationId });
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
-        draft: serializeRoundDraft(draft, session.user.discordId)
+        draft: await serializeCurrentRoundDraft(draft, session.user.discordId)
       });
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -1984,7 +2018,7 @@ function createApp({
       broadcastMemberEvent('round-draft-updated', { generationId });
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
-        draft: serializeRoundDraft(draft, session.user.discordId)
+        draft: await serializeCurrentRoundDraft(draft, session.user.discordId)
       });
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -2067,7 +2101,7 @@ function createApp({
           return res.status(502).json({
             error: `The team swap was saved, but the Discord preview could not be updated: ${previewError}`,
             partial: true,
-            draft: serializeRoundDraft({
+            draft: await serializeCurrentRoundDraft({
               ...updatedDraft,
               previewStatus: 'failed'
             }, session.user.discordId)
@@ -2078,7 +2112,7 @@ function createApp({
       broadcastMemberEvent('round-draft-updated', { generationId });
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
-        draft: serializeRoundDraft(updatedDraft, session.user.discordId)
+        draft: await serializeCurrentRoundDraft(updatedDraft, session.user.discordId)
       });
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

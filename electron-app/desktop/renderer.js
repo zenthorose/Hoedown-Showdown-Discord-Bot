@@ -654,6 +654,33 @@ function renderRoundReviewers(activity, emptyMessage = 'No one has opened this d
   }
 }
 
+function clearRoundDraftDragHighlights() {
+  document.querySelectorAll('.round-preview-player').forEach((player) => {
+    player.classList.remove('avoid-highlight', 'previous-pairing-highlight');
+  });
+}
+
+function highlightRoundDraftDragRelations(discordId) {
+  clearRoundDraftDragHighlights();
+  const relations = currentRoundDraft?.pairingRelations;
+  if (!relations) return;
+  const avoidIds = new Set();
+  const previousPairingIds = new Set();
+  for (const pair of relations.avoids) {
+    if (pair.discordIdA === discordId) avoidIds.add(pair.discordIdB);
+    else if (pair.discordIdB === discordId) avoidIds.add(pair.discordIdA);
+  }
+  for (const pair of relations.previousPairings) {
+    if (pair.discordIdA === discordId) previousPairingIds.add(pair.discordIdB);
+    else if (pair.discordIdB === discordId) previousPairingIds.add(pair.discordIdA);
+  }
+  document.querySelectorAll('.round-preview-player[data-discord-id]').forEach((player) => {
+    const playerId = player.dataset.discordId;
+    player.classList.toggle('avoid-highlight', avoidIds.has(playerId));
+    player.classList.toggle('previous-pairing-highlight', previousPairingIds.has(playerId));
+  });
+}
+
 function renderRoundDraft(draft) {
   currentRoundDraft = draft;
   const panel = document.getElementById('round-preview-panel');
@@ -693,16 +720,26 @@ function renderRoundDraft(draft) {
     const heading = document.createElement('h3');
     heading.textContent = `Team ${team.name}`;
     const list = document.createElement('ul');
-    for (const player of team.players) {
+    team.players.forEach((player, slotIndex) => {
       const row = document.createElement('li');
+      row.dataset.team = team.name;
+      row.dataset.slotIndex = String(slotIndex);
+      row.dataset.discordId = player.discordId || '';
       const name = document.createElement('span');
+      name.className = 'round-preview-player';
       name.textContent = player.name;
+      name.draggable = Boolean(player.discordId) && !roundDraftActionPending;
+      if (player.discordId) {
+        name.dataset.discordId = player.discordId;
+        name.dataset.team = team.name;
+        name.title = 'Drag to another team to swap';
+      }
       const region = document.createElement('span');
       region.className = 'round-preview-region';
       region.textContent = player.region;
       row.append(name, region);
       list.append(row);
-    }
+    });
     card.append(heading, list);
     teamsContainer.append(card);
   }
@@ -789,6 +826,34 @@ async function saveRoundDraftReview(vote) {
       if (reviewError) {
         document.getElementById('round-preview-status').textContent = reviewError;
       }
+    }
+  }
+}
+
+async function saveRoundDraftPlayerSwap(input) {
+  if (!currentRoundDraft || roundDraftActionPending) return;
+  const viewGeneration = roundDraftViewGeneration;
+  roundDraftActionPending = true;
+  const adjustmentStatus = document.getElementById('round-adjust-status');
+  adjustmentStatus.textContent = 'Saving the team adjustment and refreshing Discord…';
+  updateRoundSwapTargets();
+  try {
+    const result = await window.hoedown.swapCurrentRoundDraftPlayers({
+      generationId: currentRoundDraft.generationId,
+      ...input
+    });
+    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
+    if (result.draft) renderRoundDraft(result.draft);
+    if (!result.ok) throw new Error(result.error || 'Could not save the team adjustment.');
+    adjustmentStatus.textContent = 'Team adjustment saved. The Discord preview is up to date.';
+  } catch (error) {
+    if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
+      adjustmentStatus.textContent = error.message || 'Could not save the team adjustment.';
+    }
+  } finally {
+    if (viewGeneration === roundDraftViewGeneration) {
+      roundDraftActionPending = false;
+      if (currentRoundDraft) renderRoundDraft(currentRoundDraft);
     }
   }
 }
@@ -2036,6 +2101,55 @@ document.getElementById('close-round-preview').addEventListener('click', () => {
   roundPreviewOpen = false;
   document.getElementById('round-preview-panel').hidden = true;
 });
+const roundPreviewTeams = document.getElementById('round-preview-teams');
+roundPreviewTeams.addEventListener('dragstart', (event) => {
+  const player = event.target.closest('.round-preview-player');
+  if (!player?.dataset.discordId || roundDraftActionPending) {
+    event.preventDefault();
+    return;
+  }
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', player.dataset.discordId);
+  player.classList.add('dragging');
+  highlightRoundDraftDragRelations(player.dataset.discordId);
+});
+roundPreviewTeams.addEventListener('dragend', (event) => {
+  event.target.closest('.round-preview-player')?.classList.remove('dragging');
+  clearRoundDraftDragHighlights();
+  roundPreviewTeams.querySelectorAll('.drop-target').forEach((target) => {
+    target.classList.remove('drop-target');
+  });
+});
+roundPreviewTeams.addEventListener('dragover', (event) => {
+  const target = event.target.closest('li[data-team][data-slot-index]');
+  const draggedPlayer = roundPreviewTeams.querySelector('.round-preview-player.dragging');
+  if (!target || !draggedPlayer ||
+      target.dataset.team === draggedPlayer.dataset.team ||
+      roundDraftActionPending) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  target.classList.add('drop-target');
+});
+roundPreviewTeams.addEventListener('dragleave', (event) => {
+  const target = event.target.closest('li[data-team][data-slot-index]');
+  if (target && !target.contains(event.relatedTarget)) target.classList.remove('drop-target');
+});
+roundPreviewTeams.addEventListener('drop', async (event) => {
+  const target = event.target.closest('li[data-team][data-slot-index]');
+  const sourceDiscordId = event.dataTransfer.getData('text/plain');
+  const sourceTeam = currentRoundDraft?.teams.find((team) =>
+    team.players.some((player) => player.discordId === sourceDiscordId));
+  if (!target || !sourceTeam || target.dataset.team === sourceTeam.name ||
+      roundDraftActionPending || !currentRoundDraft) return;
+  event.preventDefault();
+  target.classList.remove('drop-target');
+  await saveRoundDraftPlayerSwap({
+    playerDiscordId: sourceDiscordId,
+    targetTeam: target.dataset.team,
+    targetSlotIndex: Number(target.dataset.slotIndex),
+    targetDiscordId: target.dataset.discordId || ''
+  });
+});
 document.getElementById('round-adjust-player').addEventListener('change', updateRoundSwapTargets);
 document.getElementById('round-adjust-team').addEventListener('change', updateRoundSwapTargets);
 document.getElementById('round-review-approve').addEventListener('click', () => {
@@ -2047,36 +2161,14 @@ document.getElementById('round-review-changes').addEventListener('click', () => 
 document.getElementById('round-adjust-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!currentRoundDraft || roundDraftActionPending) return;
-  const viewGeneration = roundDraftViewGeneration;
   const targetOption = document.getElementById('round-adjust-target').selectedOptions[0];
   if (!targetOption) return;
-  roundDraftActionPending = true;
-  const submit = document.getElementById('round-adjust-submit');
-  const adjustmentStatus = document.getElementById('round-adjust-status');
-  submit.disabled = true;
-  adjustmentStatus.textContent = 'Saving the team adjustment and refreshing Discord…';
-  try {
-    const result = await window.hoedown.swapCurrentRoundDraftPlayers({
-      generationId: currentRoundDraft.generationId,
-      playerDiscordId: document.getElementById('round-adjust-player').value,
-      targetTeam: document.getElementById('round-adjust-team').value,
-      targetSlotIndex: Number(targetOption.value),
-      targetDiscordId: targetOption.dataset.discordId || ''
-    });
-    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
-    if (result.draft) renderRoundDraft(result.draft);
-    if (!result.ok) throw new Error(result.error || 'Could not save the team adjustment.');
-    adjustmentStatus.textContent = 'Team adjustment saved. The Discord preview is up to date.';
-  } catch (error) {
-    if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
-      adjustmentStatus.textContent = error.message || 'Could not save the team adjustment.';
-    }
-  } finally {
-    if (viewGeneration === roundDraftViewGeneration) {
-      roundDraftActionPending = false;
-      if (currentRoundDraft) renderRoundDraft(currentRoundDraft);
-    }
-  }
+  await saveRoundDraftPlayerSwap({
+    playerDiscordId: document.getElementById('round-adjust-player').value,
+    targetTeam: document.getElementById('round-adjust-team').value,
+    targetSlotIndex: Number(targetOption.value),
+    targetDiscordId: targetOption.dataset.discordId || ''
+  });
 });
 document.getElementById('grab-round-reactions').addEventListener('click', async (event) => {
   if (roundActionState.running || localRoundActionPending) return;
