@@ -4,6 +4,7 @@ const {
   beginCurrentDraftApproval,
   completeCurrentDraftApproval,
   createCurrentTeamDraft,
+  formatTeamCheckPreview,
   generateTeamGroups,
   inspectTeams,
   recordPreviousPairings
@@ -178,17 +179,25 @@ test('team assignment treats Avoids as hard constraints and reduces previous pai
   ));
 });
 
-test('team assignment blocks and reports when every arrangement violates Avoids', () => {
+test('team assignment returns the best teams with Avoid warnings when no Avoid-free assignment exists', () => {
   const players = [
     { discordId: '1', name: 'One', region: 'East' },
     { discordId: '2', name: 'Two', region: 'East' },
     { discordId: '3', name: 'Three', region: 'East' }
   ];
 
-  assert.throws(() => generateTeamGroups(players, {
+  const result = generateTeamGroups(players, {
     avoids: new Set(['1|2', '1|3', '2|3']),
     random: () => 0
-  }), /No Avoid-free team assignment exists.*3 Avoid conflict\(s\).*No draft was saved/);
+  });
+
+  assert.equal(result.unresolvedAvoids, 3);
+  assert.equal(result.finalAudit.avoidConflicts.length, 3);
+  assert.match(formatTeamCheckPreview({
+    round: 1,
+    teams: result.teams,
+    checks: { final: result.finalAudit }
+  }), /Avoid Pairings Found \(3\)/);
 });
 
 test('multi-start assignment eliminates prior pairings for a 130-player roster when possible', () => {

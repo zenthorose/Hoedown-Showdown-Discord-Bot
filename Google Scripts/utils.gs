@@ -866,23 +866,21 @@ function avoidPairings(data) {
       const pairKey = JSON.stringify([userA, userB]);
 
       if (existingPairKeys.has(pairKey)) {
-        log(`Pair skipped (already exists in this direction): ${userA} =/ ${userB}`);
         skippedCount++;
         continue;
       }
 
-      const newRowIndex = avoidSheet.getLastRow() + newRows.length + 1;
+      const newRowIndex = lastRow + newRows.length + 1;
       const colCFormula = `=IF(A${newRowIndex}<>"", INDEX('Discord Member List'!B:B, MATCH(A${newRowIndex}, 'Discord Member List'!C:C, 0)), "")`;
       const colDFormula = `=IF(B${newRowIndex}<>"", INDEX('Discord Member List'!B:B, MATCH(B${newRowIndex}, 'Discord Member List'!C:C, 0)), "")`;
 
       newRows.push([userA, userB, colCFormula, colDFormula]);
       existingPairKeys.add(pairKey);
-      log(`Pair added: ${userA} =/ ${userB}`);
       addedCount++;
     }
 
     if (newRows.length > 0) {
-      avoidSheet.getRange(avoidSheet.getLastRow() + 1, 1, newRows.length, 4).setValues(newRows);
+      avoidSheet.getRange(lastRow + 1, 1, newRows.length, 4).setValues(newRows);
     }
 
     log(`Avoid Pairings update complete. Added: ${addedCount}, Skipped: ${skippedCount}`);

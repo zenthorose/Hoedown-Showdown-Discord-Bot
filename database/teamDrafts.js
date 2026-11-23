@@ -353,10 +353,6 @@ function fixTeamConflicts(teams, previousPairings, avoids) {
   let swapsApplied = 0;
   let passes = 0;
 
-  if (counts.avoid !== 0) {
-    throw new Error('Cannot optimize previous pairings while Avoid conflicts remain.');
-  }
-
   while (passes < 1000) {
     passes += 1;
     let fixedConflict = false;
@@ -446,28 +442,6 @@ function generateTeamGroups(players, { previousPairings = new Set(), avoids = ne
     startIndex,
     random
   );
-  if (assignment.avoidCount > 0) {
-    const conflicts = inspectTeams(assignment.teams, previousPairings, avoids).avoidConflicts;
-    const conflictList = conflicts.slice(0, 8)
-      .map(({ playerA, playerB, discordIdA, discordIdB }) => {
-        const safeName = (name) => String(name || 'Unknown')
-          .slice(0, 80)
-          .replace(/@/g, '@\u200b')
-          .replace(/([\\_*~`|>])/g, '\\$1');
-        return `${safeName(playerA)} (${discordIdA}) × ${safeName(playerB)} (${discordIdB})`;
-      })
-      .join('; ');
-    const additionalCount = conflicts.length - Math.min(conflicts.length, 8);
-    const details = additionalCount > 0 ? `${conflictList}; and ${additionalCount} more` : conflictList;
-    const prefix = assignment.searchLimitReached
-      ? 'The search limit was reached before the minimum Avoid conflicts could be proven.'
-      : 'No Avoid-free team assignment exists for this roster.';
-    const assignmentSummary = assignment.searchLimitReached
-      ? 'Best assignment found so far'
-      : 'Minimum-conflict assignment';
-    throw new Error(`${prefix} ${assignmentSummary} still pairs ${conflicts.length} Avoid conflict(s): ${details}. No draft was saved.`);
-  }
-
   const teams = assignment.teams;
   const initialAudit = inspectTeams(teams, previousPairings, avoids);
   const repair = fixTeamConflicts(teams, previousPairings, avoids);

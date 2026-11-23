@@ -746,7 +746,8 @@ app.whenReady().then(async () => {
       const { response, data } = await requestApi('/api/avoids', {
         method: 'POST',
         token: sessionToken,
-        body: input
+        body: input,
+        timeoutMs: 60000
       });
       if (response.status === 401) {
         await clearToken();
@@ -766,7 +767,12 @@ app.whenReady().then(async () => {
         mongodb: data.mongodb
       };
     } catch (error) {
-      return { ok: false, error: error.message || 'Could not reach the avoid service.' };
+      return {
+        ok: false,
+        error: error.name === 'AbortError'
+          ? 'Saving the Avoid Pairing timed out. It may still complete; refresh Avoids before retrying.'
+          : error.message || 'Could not reach the avoid service.'
+      };
     }
   });
 
