@@ -640,6 +640,8 @@ test('Rounds action requires a session and an allowed linked Discord role', asyn
       reactedPlayerCount: 6,
       eligiblePlayerCount: 5,
       excludedPlayerCount: 1,
+      conflictsFound: true,
+      conflictDetails: ['Previous pairing in Team A: One and Two'],
       postingStatus: 'posted'
     });
     assert.equal(roundActionState.running, false);
@@ -660,7 +662,18 @@ test('Rounds action requires a session and an allowed linked Discord role', asyn
           round: 4,
           reactedPlayerCount: 6,
           eligiblePlayerCount: 5,
-          excludedPlayers: [{}]
+          excludedPlayers: [{}],
+          checks: {
+            final: {
+              previousConflicts: [{
+                team: 'A',
+                playerA: 'One',
+                playerB: 'Two'
+              }],
+              avoidConflicts: [],
+              regionErrors: []
+            }
+          }
         },
         postingStatus: 'posted'
       };
@@ -694,7 +707,14 @@ test('round generation is locked across clients and reports the last clicker', a
         round: 2,
         reactedPlayerCount: 4,
         eligiblePlayerCount: 4,
-        excludedPlayers: []
+        excludedPlayers: [],
+        checks: {
+          final: {
+            previousConflicts: [],
+            avoidConflicts: [],
+            regionErrors: []
+          }
+        }
       },
       postingStatus: 'disabled'
     };
@@ -725,6 +745,7 @@ test('round generation is locked across clients and reports the last clicker', a
       releaseGeneration(outcome);
       const completedResponse = await firstRequest;
       assert.equal(completedResponse.status, 200);
+      assert.equal((await completedResponse.json()).conflictsFound, false);
       const completedStatusResponse = await fetch(`${baseUrl}/api/rounds/grab-reactions/status`, { headers });
       const completedStatus = await completedStatusResponse.json();
       assert.equal(completedStatus.running, false);

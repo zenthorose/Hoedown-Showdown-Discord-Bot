@@ -1753,15 +1753,13 @@ document.getElementById('grab-round-reactions').addEventListener('click', async 
     const result = await window.hoedown.grabRoundReactions();
     if (result.roundActionState) applyRoundActionState(result.roundActionState);
     if (!result.ok) throw new Error(result.error || 'Could not generate the next round draft.');
-    const previewMessage = result.postingStatus === 'posted'
-      ? 'The Team Check preview was posted.'
-      : 'Team Check posting is disabled; the draft was saved in MongoDB.';
-    const excludedPlayers = result.excludedPlayerCount > 0
-      ? ` ${result.excludedPlayerCount} reacted user(s) were excluded for missing or invalid profiles.`
-      : '';
+    const displayedConflicts = result.conflictDetails.slice(0, 5).join('; ');
+    const additionalConflictCount = result.conflictDetails.length - 5;
+    const conflictStatus = result.conflictsFound
+      ? `Conflicts found: ${displayedConflicts}${additionalConflictCount > 0 ? `; and ${additionalConflictCount} more` : ''}.`
+      : 'No Conflicts found.';
     actionStatus.textContent =
-      `Round #${result.round} draft saved. ${result.eligiblePlayerCount} eligible players from ` +
-      `${result.reactedPlayerCount} reactions.${excludedPlayers} ${previewMessage}`;
+      `Round #${result.round} draft saved. ${conflictStatus}`;
   } catch (error) {
     actionStatus.textContent = error.message || 'Could not generate the next round draft.';
   } finally {

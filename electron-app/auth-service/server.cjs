@@ -1871,6 +1871,25 @@ function createApp({
       actionLockAcquired = true;
       broadcastMemberEvent('rounds-action-status', roundsActionState);
       const { draft, postingStatus } = await grabRoundReactions();
+      const finalChecks = draft.checks?.final;
+      if (!finalChecks ||
+          !Array.isArray(finalChecks.previousConflicts) ||
+          !Array.isArray(finalChecks.avoidConflicts) ||
+          !Array.isArray(finalChecks.regionErrors)) {
+        throw new Error('Team generation returned an invalid conflict audit.');
+      }
+      const cleanLabel = (label) => String(label || 'Unknown')
+        .replace(/[\r\n]/g, ' ')
+        .slice(0, 80);
+      const conflictDetails = [
+        ...finalChecks.previousConflicts.map(({ team, playerA, playerB }) =>
+          `Previous pairing in Team ${cleanLabel(team)}: ${cleanLabel(playerA)} and ${cleanLabel(playerB)}`),
+        ...finalChecks.avoidConflicts.map(({ team, playerA, playerB }) =>
+          `Avoid conflict in Team ${cleanLabel(team)}: ${cleanLabel(playerA)} and ${cleanLabel(playerB)}`),
+        ...finalChecks.regionErrors.map((team) =>
+          `Region conflict in Team ${cleanLabel(team)}`)
+      ];
+      const conflictsFound = conflictDetails.length > 0;
       roundsActionState = { ...roundsActionState, running: false, lastOutcome: 'success' };
       broadcastMemberEvent('rounds-action-status', roundsActionState);
       res.set('Cache-Control', 'private, no-store');
@@ -1879,6 +1898,8 @@ function createApp({
         reactedPlayerCount: draft.reactedPlayerCount,
         eligiblePlayerCount: draft.eligiblePlayerCount,
         excludedPlayerCount: draft.excludedPlayers.length,
+        conflictsFound,
+        conflictDetails,
         postingStatus,
         roundActionState: roundsActionState
       });

@@ -800,6 +800,10 @@ app.whenReady().then(async () => {
           !Number.isSafeInteger(data.reactedPlayerCount) ||
           !Number.isSafeInteger(data.eligiblePlayerCount) ||
           !Number.isSafeInteger(data.excludedPlayerCount) ||
+          typeof data.conflictsFound !== 'boolean' ||
+          !Array.isArray(data.conflictDetails) ||
+          !data.conflictDetails.every((detail) => typeof detail === 'string') ||
+          data.conflictsFound !== (data.conflictDetails.length > 0) ||
           !['posted', 'disabled'].includes(data.postingStatus) ||
           !isRoundActionState(data.roundActionState)) {
         throw new Error('The service returned an invalid round-generation result.');
@@ -810,6 +814,8 @@ app.whenReady().then(async () => {
         reactedPlayerCount: data.reactedPlayerCount,
         eligiblePlayerCount: data.eligiblePlayerCount,
         excludedPlayerCount: data.excludedPlayerCount,
+        conflictsFound: data.conflictsFound,
+        conflictDetails: data.conflictDetails,
         postingStatus: data.postingStatus,
         roundActionState: data.roundActionState
       };
