@@ -601,7 +601,8 @@ test('avoid directory requires a session and returns directional pairs with name
 test('Rounds action requires a session and an allowed linked Discord role', async () => {
   let allowed = false;
   let generationCount = 0;
-  await withServer(async ({ baseUrl, password }) => {
+  await withServer(async ({ baseUrl, password, user }) => {
+    user.discordAvatarUrl = 'https://cdn.discordapp.com/avatars/123456789012345678/avatar.png';
     const unauthorized = await fetch(`${baseUrl}/api/rounds/grab-reactions`, { method: 'POST' });
     assert.equal(unauthorized.status, 401);
 
@@ -645,7 +646,8 @@ test('Rounds action requires a session and an allowed linked Discord role', asyn
     assert.equal(roundActionState.lastOutcome, 'success');
     assert.deepEqual(roundActionState.lastClickedBy, {
       username: 'cowboy',
-      discordUsername: '123456789012345678'
+      discordUsername: '123456789012345678',
+      avatarUrl: 'https://cdn.discordapp.com/avatars/123456789012345678/avatar.png'
     });
     assert.equal(generationCount, 1);
   }, {
@@ -675,6 +677,7 @@ test('round generation is locked across clients and reports the last clicker', a
 
   await withServer(async ({ baseUrl, password, user }) => {
     user.discordUsername = 'discord.cowboy';
+    user.discordAvatarUrl = 'https://cdn.discordapp.com/avatars/123456789012345678/avatar.png';
     const device = deviceInfo(
       '01234567-89ab-42cd-8abc-0123456789ab',
       '11234567-89ab-42cd-8abc-0123456789ab'
@@ -707,7 +710,8 @@ test('round generation is locked across clients and reports the last clicker', a
       assert.equal(runningStatus.running, true);
       assert.deepEqual(runningStatus.lastClickedBy, {
         username: 'cowboy',
-        discordUsername: 'discord.cowboy'
+        discordUsername: 'discord.cowboy',
+        avatarUrl: 'https://cdn.discordapp.com/avatars/123456789012345678/avatar.png'
       });
 
       const competingResponse = await fetch(`${baseUrl}/api/rounds/grab-reactions`, {

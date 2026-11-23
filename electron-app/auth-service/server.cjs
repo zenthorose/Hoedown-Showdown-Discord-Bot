@@ -1860,7 +1860,10 @@ function createApp({
         running: true,
         lastClickedBy: {
           username: session.user.username,
-          discordUsername: session.user.discordUsername || session.user.discordId
+          discordUsername: session.user.discordUsername || session.user.discordId,
+          avatarUrl: validDiscordAvatarUrl(session.user.discordAvatarUrl)
+            ? session.user.discordAvatarUrl
+            : ''
         },
         lastClickedAt: new Date().toISOString(),
         lastOutcome: 'running'

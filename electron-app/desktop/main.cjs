@@ -41,7 +41,11 @@ function isRoundActionState(value) {
     typeof value.running === 'boolean' &&
     (value.lastClickedBy === null ||
       value.lastClickedBy && typeof value.lastClickedBy.username === 'string' &&
-      typeof value.lastClickedBy.discordUsername === 'string') &&
+      typeof value.lastClickedBy.discordUsername === 'string' &&
+      (typeof value.lastClickedBy.avatarUrl === 'undefined' ||
+        typeof value.lastClickedBy.avatarUrl === 'string' &&
+        (value.lastClickedBy.avatarUrl === '' ||
+          normalizeDiscordAvatarUrl(value.lastClickedBy.avatarUrl) === value.lastClickedBy.avatarUrl))) &&
     (value.lastClickedAt === null || typeof value.lastClickedAt === 'string') &&
     ['none', 'running', 'success', 'failed'].includes(value.lastOutcome);
 }

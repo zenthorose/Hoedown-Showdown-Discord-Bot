@@ -271,7 +271,32 @@ footer { margin-top: 20px; font-size: 12px; }
   cursor: not-allowed;
   opacity: 1;
 }
-.rounds-last-clicked { margin: 0; color: var(--theme-muted); font-size: 12px; overflow-wrap: anywhere; }
+.rounds-last-clicked {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  color: var(--theme-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.rounds-last-clicked-avatar {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: 50%;
+  background: var(--theme-surface);
+  color: var(--theme-text);
+  font-size: 9px;
+  font-weight: 700;
+}
+.rounds-last-clicked-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.rounds-last-clicked-name { color: var(--theme-text); font-weight: 600; }
 .rounds-generation-indicator {
   display: inline-grid;
   width: 38px;

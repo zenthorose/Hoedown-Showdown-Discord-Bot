@@ -473,16 +473,46 @@ function applyRoundActionState(state) {
   }
 
   const actor = state.lastClickedBy;
-  const actorLabel = actor
-    ? `${actor.username || 'Unknown account'} (Discord: ${actor.discordUsername || 'unknown'})`
-    : '';
-  if (state.running) {
-    lastClicked.textContent = `Generating now${actorLabel ? ` · ${actorLabel}` : ''}`;
-  } else if (actorLabel) {
-    lastClicked.textContent = `Last clicked by ${actorLabel}`;
-  } else {
-    lastClicked.textContent = 'No one has clicked this action yet.';
+  if (!actor) {
+    lastClicked.textContent = state.running
+      ? 'Generating now'
+      : 'No one has clicked this action yet.';
+    return;
   }
+
+  const accountName = actor.username || 'Unknown account';
+  const initials = accountName
+    .split(/[.\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+  const avatarFallback = initials || '?';
+  const avatar = document.createElement('span');
+  avatar.className = 'rounds-last-clicked-avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = avatarFallback;
+  if (typeof actor.avatarUrl === 'string' && actor.avatarUrl.length <= 512 &&
+      /^https:\/\/cdn\.discordapp\.com\//.test(actor.avatarUrl)) {
+    const image = document.createElement('img');
+    image.src = actor.avatarUrl;
+    image.alt = '';
+    image.loading = 'lazy';
+    image.referrerPolicy = 'no-referrer';
+    image.addEventListener('error', () => {
+      avatar.replaceChildren();
+      avatar.textContent = avatarFallback;
+    }, { once: true });
+    avatar.replaceChildren(image);
+  }
+
+  const label = document.createElement('span');
+  label.textContent = state.running ? 'Generating now · Last clicked by' : 'Last clicked by';
+  const name = document.createElement('span');
+  name.className = 'rounds-last-clicked-name';
+  name.textContent = accountName;
+  lastClicked.replaceChildren(label, avatar, name);
 }
 
 async function refreshRoundActionStatus() {
