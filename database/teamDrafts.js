@@ -563,6 +563,35 @@ function getPlayerSnapshot(reactedPlayers, memberDocuments) {
   return { allPlayers, eligiblePlayers };
 }
 
+async function saveReactedPlayersSnapshot({
+  playersThatReactedCollection,
+  reactedPlayers,
+  sourceMessageId,
+  now = () => new Date()
+}) {
+  if (!Array.isArray(reactedPlayers)) throw new TypeError('Reacted players must be an array.');
+  const playersById = new Map();
+  for (const player of reactedPlayers) {
+    const id = String(player?.id || '').trim();
+    if (/^\d{17,20}$/.test(id) && !playersById.has(id)) {
+      const username = String(player.name || '').trim();
+      playersById.set(id, { discordId: id, username, name: username });
+    }
+  }
+
+  const players = [...playersById.values()];
+  return playersThatReactedCollection.replaceOne({
+    _id: CURRENT_SNAPSHOT_ID
+  }, {
+    _id: CURRENT_SNAPSHOT_ID,
+    sourceMessageId: String(sourceMessageId || ''),
+    updatedAt: now(),
+    captureStatus: 'captured',
+    reactedPlayerCount: players.length,
+    players
+  }, { upsert: true });
+}
+
 async function createCurrentTeamDraft({
   reactedPlayers,
   sourceMessageId,
@@ -687,6 +716,7 @@ async function createCurrentTeamDraft({
       round,
       sourceMessageId: draft.sourceMessageId,
       updatedAt: timestamp,
+      captureStatus: 'processed',
       players: allPlayers
     }, { upsert: true });
     const updated = await teamCheckCollection.updateOne({
@@ -910,5 +940,6 @@ module.exports = {
   labelForTeam,
   loadPairingKeys,
   recordPreviousPairings,
+  saveReactedPlayersSnapshot,
   splitDiscordMessage
 };

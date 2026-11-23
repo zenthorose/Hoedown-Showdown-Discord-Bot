@@ -1,6 +1,7 @@
 const {
   createCurrentTeamDraft,
   formatTeamCheckPreview,
+  saveReactedPlayersSnapshot,
   splitDiscordMessage
 } = require('../database/teamDrafts');
 const { collectOptInReactors } = require('./optInReactions');
@@ -33,6 +34,12 @@ async function generateTeamDraftFromMessage({
 
   try {
     const reactedPlayers = await collectOptInReactors(message);
+    await saveReactedPlayersSnapshot({
+      playersThatReactedCollection: collections.playersThatReacted,
+      reactedPlayers,
+      sourceMessageId: message.id
+    });
+
     const teamCheckChannelId = botSettings.channels.TeamCheckChannelID ||
       config.TeamCheckChannelID ||
       process.env.TEAM_CHECK_CHANNEL_ID;
