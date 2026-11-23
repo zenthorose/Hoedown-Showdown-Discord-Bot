@@ -18,6 +18,48 @@ class TeamGenerationError extends Error {
 
 let generationRunning = false;
 
+async function clearTeamCheckChannel(channel, now = Date.now) {
+  const bulkDeleteCutoff = now() - 14 * 24 * 60 * 60 * 1000;
+  let deletedCount = 0;
+  let before;
+
+  while (true) {
+    const options = { limit: 100 };
+    if (before) options.before = before;
+    const messages = await channel.messages.fetch(options);
+    if (!messages.size) break;
+
+    const oldestMessage = messages.last();
+    const recentMessages = messages.filter((message) =>
+      Number.isFinite(message.createdTimestamp) &&
+      message.createdTimestamp >= bulkDeleteCutoff
+    );
+    if (recentMessages.size > 1) {
+      const deleted = await channel.bulkDelete(recentMessages, true);
+      deletedCount += deleted.size;
+    } else if (recentMessages.size === 1) {
+      await recentMessages.first().delete();
+      deletedCount += 1;
+    }
+
+    for (const message of messages.values()) {
+      if (Number.isFinite(message.createdTimestamp) &&
+          message.createdTimestamp >= bulkDeleteCutoff) continue;
+      try {
+        await message.delete();
+        deletedCount += 1;
+      } catch (error) {
+        if (error.code !== 10008) throw error;
+      }
+    }
+
+    before = oldestMessage.id;
+    if (messages.size < 100) break;
+  }
+
+  return deletedCount;
+}
+
 async function generateTeamDraftFromMessage({
   message,
   client,
@@ -60,6 +102,7 @@ async function generateTeamDraftFromMessage({
         playersThatReactedCollection: collections.playersThatReacted,
         teamCheckCollection: collections.teamCheck,
         roundsDatabase,
+        previewChannelId: teamCheckChannelId,
         targetRound
       });
     } catch (error) {
@@ -80,6 +123,7 @@ async function generateTeamDraftFromMessage({
           throw new Error(`Team Check channel is not a text channel: ${teamCheckChannelId}`);
         }
 
+        await clearTeamCheckChannel(teamCheckChannel);
         const messageIds = [];
         for (const content of splitDiscordMessage(formatTeamCheckPreview(draft))) {
           const posted = await teamCheckChannel.send(content);
@@ -151,4 +195,8 @@ async function generateTeamDraftFromMessage({
   }
 }
 
-module.exports = { TeamGenerationError, generateTeamDraftFromMessage };
+module.exports = {
+  TeamGenerationError,
+  clearTeamCheckChannel,
+  generateTeamDraftFromMessage
+};

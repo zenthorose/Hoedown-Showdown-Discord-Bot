@@ -180,6 +180,9 @@ async function withServer(run, options = {}) {
     avoids,
     ticketDatabase,
     botSettings,
+    roundDraftCollection: options.roundDraftCollection,
+    roundAvoidsCollection: options.roundAvoidsCollection,
+    previousPairingsCollection: options.previousPairingsCollection,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
@@ -190,6 +193,7 @@ async function withServer(run, options = {}) {
     syncTicketStaffChat: options.syncTicketStaffChat,
     editTicketReply: options.editTicketReply,
     closeTicket: options.closeTicket,
+    syncRoundDraftPreview: options.syncRoundDraftPreview,
     grabRoundReactions: options.grabRoundReactions,
     canGrabRoundReactions: options.canGrabRoundReactions,
     updateAvoidsInGoogleSheets,
@@ -208,6 +212,7 @@ async function withServer(run, options = {}) {
       botSettings,
       members,
       avoids,
+      roundDraftCollection: options.roundDraftCollection,
       ticketDatabase,
       googleSheetsAvoidUpdates,
       mongoAvoidUpdates,
@@ -595,6 +600,96 @@ test('avoid directory requires a session and returns directional pairs with name
       username: 'target.player',
       nickname: 'Target Nick'
     }]
+  });
+});
+
+test('authorized reviewers can open, mark, and adjust the current Team Check draft', async () => {
+  const roundDraftCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-review-1',
+    round: 1,
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [
+      {
+        name: 'A',
+        players: [
+          { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+          { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+          { discordId: '10000000000000003', name: 'Player 3', region: 'East' }
+        ]
+      },
+      {
+        name: 'B',
+        players: [
+          { discordId: '10000000000000004', name: 'Player 4', region: 'East' },
+          { discordId: '10000000000000005', name: 'Player 5', region: 'East' },
+          { name: 'Filler', region: 'Filler' }
+        ]
+      }
+    ],
+    checks: { final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] } },
+    reviewActivity: [],
+    previewStatus: 'posted',
+    previewMessageIds: ['preview-1'],
+    previewChannelId: 'team-check-channel'
+  }]);
+  const previewUpdates = [];
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const open = await fetch(`${baseUrl}/api/rounds/draft/current/open`, {
+      method: 'POST',
+      headers
+    });
+    assert.equal(open.status, 200);
+    assert.equal((await open.json()).draft.reviewActivity.length, 1);
+
+    const review = await fetch(`${baseUrl}/api/rounds/draft/current/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1', vote: 'approve' })
+    });
+    assert.equal(review.status, 200);
+    assert.equal((await review.json()).draft.myVote, 'approve');
+
+    const swap = await fetch(`${baseUrl}/api/rounds/draft/current/swap`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        generationId: 'generation-review-1',
+        playerDiscordId: '10000000000000001',
+        targetTeam: 'B',
+        targetSlotIndex: 2,
+        targetDiscordId: ''
+      })
+    });
+    assert.equal(swap.status, 200);
+    const result = await swap.json();
+    assert.equal(result.draft.teams[1].players[2].discordId, '10000000000000001');
+    assert.equal(result.draft.myVote, null);
+    assert.equal(result.draft.previewStatus, 'posted');
+    assert.equal(previewUpdates.length, 1);
+    assert.equal(previewUpdates[0][1].players[2].discordId, '10000000000000001');
+  }, {
+    discordId: '123456789012345678',
+    canGrabRoundReactions: async () => true,
+    roundDraftCollection,
+    roundAvoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    syncRoundDraftPreview: async (draft) => {
+      previewUpdates.push(draft.teams);
+      return { previewMessageIds: ['preview-1'] };
+    }
   });
 });
 

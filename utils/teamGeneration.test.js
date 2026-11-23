@@ -1,6 +1,60 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { TeamGenerationError, generateTeamDraftFromMessage } = require('./teamGeneration');
+const {
+  TeamGenerationError,
+  clearTeamCheckChannel,
+  generateTeamDraftFromMessage
+} = require('./teamGeneration');
+
+function messageCollection(messages) {
+  return {
+    size: messages.length,
+    first: () => messages[0],
+    last: () => messages[messages.length - 1],
+    filter: (predicate) => messageCollection(messages.filter(predicate)),
+    values: () => messages.values()
+  };
+}
+
+test('clears recent and old messages from the Team Check channel', async () => {
+  const now = Date.now();
+  const recentMessages = Array.from({ length: 100 }, (_, index) => ({
+    id: `recent-${index}`,
+    createdTimestamp: now - 1000,
+    delete: async () => {}
+  }));
+  let olderMessageDeleted = false;
+  const olderMessage = {
+    id: 'older-message',
+    createdTimestamp: now - 15 * 24 * 60 * 60 * 1000,
+    delete: async () => { olderMessageDeleted = true; }
+  };
+  const fetchCalls = [];
+  let bulkDeletedCount = 0;
+  const channel = {
+    messages: {
+      fetch: async (options) => {
+        fetchCalls.push(options);
+        return options.before
+          ? messageCollection([olderMessage])
+          : messageCollection(recentMessages);
+      }
+    },
+    bulkDelete: async (messages, filterOld) => {
+      assert.equal(filterOld, true);
+      bulkDeletedCount += messages.size;
+      return messages;
+    }
+  };
+
+  const deletedCount = await clearTeamCheckChannel(channel, () => now);
+
+  assert.equal(deletedCount, 101);
+  assert.equal(bulkDeletedCount, 100);
+  assert.equal(olderMessageDeleted, true);
+  assert.equal(fetchCalls.length, 2);
+  assert.equal(fetchCalls[1].before, 'recent-99');
+});
 
 test('stores captured reactors before profile validation can fail', async () => {
   const discordId = '12345678901234567';
@@ -122,6 +176,7 @@ test('posts the best available draft with Avoid warnings when no Avoid-free assi
       channels: {
         fetch: async () => ({
           isTextBased: () => true,
+          messages: { fetch: async () => messageCollection([]) },
           send: async (content) => {
             previewMessages.push(content);
             return { id: `preview-${previewMessages.length}` };
@@ -143,5 +198,5 @@ test('posts the best available draft with Avoid warnings when no Avoid-free assi
   assert.equal(result.postingStatus, 'posted');
   assert.equal(currentDraft.previewStatus, 'posted');
   assert.match(previewMessages.join('\n'), /Avoid Pairings Found \(3\)/);
-  assert.match(previewMessages.join('\n'), /Player 1 × Player 2/);
+  assert.match(previewMessages.join('\n'), /Player 1 × Player 2|Player 2 × Player 1/);
 });

@@ -159,6 +159,41 @@
               </div>
               <p id="rounds-action-status" class="rounds-action-status" role="status"
                 aria-live="polite" hidden></p>
+              <div class="rounds-preview-launch">
+                <button id="open-round-preview" type="button">Team Preview and Adjust</button>
+              </div>
+              <section id="round-preview-panel" class="round-preview-panel" aria-label="Team preview and review"
+                hidden>
+                <header class="round-preview-header">
+                  <div>
+                    <h2 id="round-preview-title">Team Preview</h2>
+                    <p id="round-preview-status" class="rounds-action-status" role="status"
+                      aria-live="polite"></p>
+                  </div>
+                  <button id="close-round-preview" type="button" class="secondary-button">Close</button>
+                </header>
+                <div class="round-preview-review">
+                  <h3>Review this draft</h3>
+                  <div class="round-review-actions">
+                    <button id="round-review-approve" type="button" aria-pressed="false">✓ Looks good</button>
+                    <button id="round-review-changes" type="button" aria-pressed="false">✕ Needs changes</button>
+                  </div>
+                  <div id="round-reviewers" class="round-reviewers" aria-live="polite"></div>
+                </div>
+                <div id="round-preview-teams" class="round-preview-teams"></div>
+                <form id="round-adjust-form" class="round-adjust-form">
+                  <h3>Swap or move a player</h3>
+                  <label for="round-adjust-player">Player to move</label>
+                  <select id="round-adjust-player" required></select>
+                  <label for="round-adjust-team">Destination team</label>
+                  <select id="round-adjust-team" required></select>
+                  <label for="round-adjust-target">Swap with</label>
+                  <select id="round-adjust-target" required></select>
+                  <button id="round-adjust-submit" type="submit">Save team adjustment</button>
+                  <p id="round-adjust-status" class="rounds-action-status" role="status"
+                    aria-live="polite"></p>
+                </form>
+              </section>
             </section>
             <section id="tickets-view" class="members-view" aria-label="Ticket archive" hidden>
               <div id="ticket-list-view">

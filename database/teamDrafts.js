@@ -571,6 +571,7 @@ async function createCurrentTeamDraft({
   playersThatReactedCollection,
   teamCheckCollection,
   roundsDatabase,
+  previewChannelId = '',
   targetRound,
   random = Math.random,
   now = () => new Date()
@@ -657,7 +658,9 @@ async function createCurrentTeamDraft({
       unresolvedAvoids: generated.unresolvedAvoids
     },
     previewStatus: 'not-posted',
-    previewMessageIds: []
+    previewMessageIds: [],
+    previewChannelId: String(previewChannelId || ''),
+    reviewActivity: []
   };
 
   let generationClaimed = false;
@@ -774,6 +777,163 @@ function splitDiscordMessage(message, maxLength = 1900) {
   return chunks;
 }
 
+async function updateCurrentDraftReviewer({
+  teamCheckCollection,
+  generationId,
+  reviewer,
+  vote,
+  now = () => new Date()
+}) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+    if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+      const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const activity = Array.isArray(draft.reviewActivity) ? draft.reviewActivity : [];
+    const timestamp = now();
+    const existing = activity.find((entry) => entry.discordId === reviewer.discordId);
+    const updatedReviewer = {
+      ...(existing || {}),
+      ...reviewer,
+      lastOpenedAt: timestamp,
+      ...(vote === undefined ? {} : { vote, reviewedAt: timestamp })
+    };
+    const updatedActivity = existing
+      ? activity.map((entry) => entry.discordId === reviewer.discordId ? updatedReviewer : entry)
+      : [...activity, { ...updatedReviewer, vote: vote === undefined ? null : vote }];
+    const result = await teamCheckCollection.updateOne({
+      _id: CURRENT_SNAPSHOT_ID,
+      generationId,
+      status: 'pending',
+      updatedAt: draft.updatedAt
+    }, {
+      $set: { reviewActivity: updatedActivity, updatedAt: timestamp }
+    });
+    if (result.matchedCount) {
+      return { ...draft, reviewActivity: updatedActivity, updatedAt: timestamp };
+    }
+  }
+
+  const error = new Error('The Team Check draft is being updated. Reload it and try again.');
+  error.statusCode = 409;
+  throw error;
+}
+
+async function recordCurrentDraftViewer(options) {
+  return updateCurrentDraftReviewer(options);
+}
+
+async function recordCurrentDraftReview(options) {
+  if (!['approve', 'changes'].includes(options.vote)) {
+    throw new TypeError('A valid Team Check review mark is required.');
+  }
+  return updateCurrentDraftReviewer(options);
+}
+
+async function swapCurrentDraftPlayers({
+  teamCheckCollection,
+  avoidsCollection,
+  previousPairingsCollection,
+  generationId,
+  playerDiscordId,
+  targetTeamName,
+  targetSlotIndex,
+  targetDiscordId,
+  now = () => new Date()
+}) {
+  const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!Array.isArray(draft.teams) || draft.teams.some((team) =>
+    !Array.isArray(team.players) || team.players.length !== TEAM_SIZE)) {
+    const error = new Error('This draft does not have the expected three-player team structure.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const teams = draft.teams.map((team) => ({
+    ...team,
+    players: team.players.map((player) => ({ ...player }))
+  }));
+  const sourceMatches = [];
+  teams.forEach((team, teamIndex) => {
+    team.players.forEach((player, slotIndex) => {
+      if (String(player.discordId || '') === playerDiscordId) {
+        sourceMatches.push({ teamIndex, slotIndex });
+      }
+    });
+  });
+  if (sourceMatches.length !== 1) {
+    const error = new Error('The selected player is not in exactly one team in this draft.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const targetTeamIndex = teams.findIndex((team) => team.name === targetTeamName);
+  if (!Number.isInteger(targetSlotIndex) || targetSlotIndex < 0 ||
+      targetSlotIndex >= TEAM_SIZE || targetTeamIndex < 0 ||
+      targetTeamIndex === sourceMatches[0].teamIndex) {
+    const error = new Error('Choose a different team and a valid player slot.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const target = teams[targetTeamIndex].players[targetSlotIndex];
+  if (targetDiscordId
+      ? String(target.discordId || '') !== targetDiscordId
+      : target.region !== 'Filler' || target.discordId) {
+    const error = new Error('The selected destination slot changed. Reload the draft and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const source = sourceMatches[0];
+  [teams[source.teamIndex].players[source.slotIndex], teams[targetTeamIndex].players[targetSlotIndex]] =
+    [teams[targetTeamIndex].players[targetSlotIndex], teams[source.teamIndex].players[source.slotIndex]];
+
+  const [avoids, previousPairings] = await Promise.all([
+    loadPairingKeys(avoidsCollection, 'avoids'),
+    loadPairingKeys(previousPairingsCollection, 'previousPairings')
+  ]);
+  const finalAudit = inspectTeams(teams, previousPairings, avoids);
+  if (finalAudit.regionErrors.length) {
+    const error = new Error('That swap would mix East and West players on a team.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const timestamp = now();
+  const reviewActivity = (Array.isArray(draft.reviewActivity) ? draft.reviewActivity : [])
+    .map((entry) => ({ ...entry, vote: null, reviewedAt: null }));
+  const checks = {
+    ...draft.checks,
+    final: finalAudit,
+    unresolvedAvoids: finalAudit.avoidConflicts.length,
+    unresolvedPrevious: finalAudit.previousConflicts.length,
+    manualAdjustments: (draft.checks?.manualAdjustments || 0) + 1
+  };
+  const updated = await teamCheckCollection.updateOne({
+    _id: CURRENT_SNAPSHOT_ID,
+    generationId,
+    status: 'pending',
+    updatedAt: draft.updatedAt
+  }, {
+    $set: { teams, checks, reviewActivity, updatedAt: timestamp }
+  });
+  if (!updated.matchedCount) {
+    const error = new Error('The Team Check draft changed while saving the swap. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return { ...draft, teams, checks, reviewActivity, updatedAt: timestamp };
+}
+
 async function beginCurrentDraftApproval({ teamCheckCollection, roundsDatabase, round, now = () => new Date() }) {
   const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
   if (!draft || draft.round !== round || !['pending', 'approving', 'approved'].includes(draft.status)) {
@@ -873,7 +1033,12 @@ async function completeCurrentDraftApproval({ teamCheckCollection, roundCollecti
     generationId,
     status: 'approving'
   }, {
-    $set: { status: 'approved', approvedAt, updatedAt: approvedAt }
+    $set: {
+      status: 'approved',
+      approvedAt,
+      updatedAt: approvedAt,
+      reviewActivity: []
+    }
   });
   if (!draftResult.matchedCount) {
     const currentDraft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
@@ -909,7 +1074,10 @@ module.exports = {
   inspectTeams,
   labelForTeam,
   loadPairingKeys,
+  recordCurrentDraftReview,
+  recordCurrentDraftViewer,
   recordPreviousPairings,
   saveReactedPlayersSnapshot,
-  splitDiscordMessage
+  splitDiscordMessage,
+  swapCurrentDraftPlayers
 };

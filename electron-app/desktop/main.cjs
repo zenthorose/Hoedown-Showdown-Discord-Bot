@@ -168,6 +168,10 @@ function startMembersLiveUpdates() {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('rounds:action-status', data);
       }
+    } else if (eventName === 'round-draft-updated') {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('rounds:draft-updated', data);
+      }
     } else if (
       eventName === 'member' ||
       eventName === 'resync' ||
@@ -289,6 +293,62 @@ async function requestApi(route, { method = 'GET', token, body, headers = {}, ti
     return { response, data };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function isRoundDraft(value) {
+  return value && typeof value === 'object' &&
+    typeof value.generationId === 'string' &&
+    Number.isSafeInteger(value.round) &&
+    value.status === 'pending' &&
+    Array.isArray(value.teams) &&
+    value.teams.every((team) => team && typeof team.name === 'string' &&
+      Array.isArray(team.players) && team.players.every((player) =>
+        player && typeof player.discordId === 'string' &&
+        typeof player.name === 'string' && typeof player.region === 'string')) &&
+    Array.isArray(value.reviewActivity) &&
+    value.reviewActivity.every((reviewer) => reviewer &&
+      typeof reviewer.discordId === 'string' && typeof reviewer.username === 'string' &&
+      typeof reviewer.discordUsername === 'string' &&
+      (reviewer.avatarUrl === '' ||
+        normalizeDiscordAvatarUrl(reviewer.avatarUrl) === reviewer.avatarUrl) &&
+      (reviewer.vote === null || ['approve', 'changes'].includes(reviewer.vote))) &&
+    ['approve', 'changes', null].includes(value.myVote) &&
+    typeof value.previewStatus === 'string';
+}
+
+async function requestRoundDraftApi(event, route, { method = 'GET', body, timeoutMs = 15000 } = {}) {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('Untrusted Team Check draft request.');
+  }
+  try {
+    if (!sessionToken) sessionToken = await readToken();
+    if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+    const { response, data } = await requestApi(route, {
+      method,
+      body,
+      timeoutMs,
+      token: sessionToken
+    });
+    if (response.status === 401) {
+      await clearToken();
+      sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+      return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+    }
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: data.error || 'Could not load the Team Check draft.',
+        partial: data.partial === true,
+        ...(isRoundDraft(data.draft) ? { draft: data.draft } : {})
+      };
+    }
+    if (!isRoundDraft(data.draft)) {
+      throw new Error('The service returned an invalid Team Check draft.');
+    }
+    return { ok: true, draft: data.draft };
+  } catch (error) {
+    return { ok: false, error: error.message || 'Could not reach the round service.' };
   }
 }
 
@@ -852,6 +912,24 @@ app.whenReady().then(async () => {
       return { ok: false, error: error.message || 'Could not load round action status.' };
     }
   });
+
+  ipcMain.handle('rounds:get-current-draft', (event) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current'));
+  ipcMain.handle('rounds:open-current-draft', (event) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/open', {
+      method: 'POST'
+    }));
+  ipcMain.handle('rounds:review-current-draft', (event, input) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/review', {
+      method: 'POST',
+      body: input
+    }));
+  ipcMain.handle('rounds:swap-current-draft-players', (event, input) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/swap', {
+      method: 'POST',
+      body: input,
+      timeoutMs: 60000
+    }));
 
   ipcMain.handle('tickets:list', async (event, filters = {}) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) {

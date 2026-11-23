@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld('hoedown', {
   getAvoids: () => ipcRenderer.invoke('avoids:list'),
   grabRoundReactions: () => ipcRenderer.invoke('rounds:grab-reactions'),
   getRoundActionStatus: () => ipcRenderer.invoke('rounds:get-status'),
+  getCurrentRoundDraft: () => ipcRenderer.invoke('rounds:get-current-draft'),
+  openCurrentRoundDraft: () => ipcRenderer.invoke('rounds:open-current-draft'),
+  reviewCurrentRoundDraft: (input) =>
+    ipcRenderer.invoke('rounds:review-current-draft', input),
+  swapCurrentRoundDraftPlayers: (input) =>
+    ipcRenderer.invoke('rounds:swap-current-draft-players', input),
   getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),
   getTicketPeople: (filters) => ipcRenderer.invoke('tickets:people', filters),
   getTicketsForPerson: (personId) => ipcRenderer.invoke('tickets:person', personId),
@@ -71,6 +77,12 @@ contextBridge.exposeInMainWorld('hoedown', {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('rounds:action-status', listener);
     return () => ipcRenderer.removeListener('rounds:action-status', listener);
+  },
+  onRoundDraftUpdated: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Round draft callback must be a function.');
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on('rounds:draft-updated', listener);
+    return () => ipcRenderer.removeListener('rounds:draft-updated', listener);
   },
   logout: () => ipcRenderer.invoke('auth:logout'),
   installUpdate: () => ipcRenderer.invoke('app:install-update'),

@@ -18,6 +18,10 @@ let roundActionState = {
   lastClickedAt: null,
   lastOutcome: 'none'
 };
+let currentRoundDraft = null;
+let roundPreviewOpen = false;
+let roundDraftActionPending = false;
+let roundDraftViewGeneration = 0;
 let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
@@ -258,6 +262,14 @@ function showSignedOut(profileSelected = true) {
   loginForm.hidden = !profileSelected;
   passwordForm.hidden = true;
   signedInPanel.hidden = true;
+  roundPreviewOpen = false;
+  currentRoundDraft = null;
+  roundDraftActionPending = false;
+  roundDraftViewGeneration += 1;
+  document.getElementById('open-round-preview').disabled = false;
+  document.getElementById('round-preview-panel').hidden = true;
+  document.getElementById('round-preview-teams').replaceChildren();
+  document.getElementById('round-reviewers').replaceChildren();
   document.getElementById('auth-header').hidden = false;
   document.getElementById('auth-title').textContent = profileSelected ? 'Sign in' : 'Select your profile';
   document.getElementById('back-to-profiles').hidden = !profileSelected;
@@ -527,6 +539,197 @@ async function refreshRoundActionStatus() {
       `Round activity status unavailable: ${error.message || 'Could not load status.'}`;
   } finally {
     roundStatusRequestPending = false;
+  }
+}
+
+function updateRoundSwapTargets() {
+  const playerSelect = document.getElementById('round-adjust-player');
+  const teamSelect = document.getElementById('round-adjust-team');
+  const targetSelect = document.getElementById('round-adjust-target');
+  const submit = document.getElementById('round-adjust-submit');
+  if (!currentRoundDraft) return;
+
+  const selectedPlayerId = playerSelect.value;
+  const sourceTeam = currentRoundDraft.teams.find((team) =>
+    team.players.some((player) => player.discordId === selectedPlayerId));
+  const previousTargetTeam = teamSelect.value;
+  teamSelect.replaceChildren();
+  for (const team of currentRoundDraft.teams) {
+    if (team.name === sourceTeam?.name) continue;
+    const option = document.createElement('option');
+    option.value = team.name;
+    option.textContent = `Team ${team.name}`;
+    teamSelect.append(option);
+  }
+  if (currentRoundDraft.teams.some((team) => team.name === previousTargetTeam) &&
+      previousTargetTeam !== sourceTeam?.name) {
+    teamSelect.value = previousTargetTeam;
+  }
+
+  const targetTeam = currentRoundDraft.teams.find((team) => team.name === teamSelect.value);
+  targetSelect.replaceChildren();
+  if (targetTeam) {
+    targetTeam.players.forEach((player, index) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.dataset.discordId = player.discordId || '';
+      option.textContent = player.region === 'Filler'
+        ? 'Open filler slot'
+        : `${player.name} (${player.region})`;
+      targetSelect.append(option);
+    });
+  }
+  playerSelect.disabled = roundDraftActionPending;
+  teamSelect.disabled = roundDraftActionPending;
+  targetSelect.disabled = roundDraftActionPending;
+  submit.disabled = roundDraftActionPending || !sourceTeam || !targetTeam ||
+    !selectedPlayerId || targetSelect.options.length === 0;
+}
+
+function renderRoundDraft(draft) {
+  currentRoundDraft = draft;
+  const panel = document.getElementById('round-preview-panel');
+  const title = document.getElementById('round-preview-title');
+  const previewStatus = document.getElementById('round-preview-status');
+  const reviewers = document.getElementById('round-reviewers');
+  const teamsContainer = document.getElementById('round-preview-teams');
+  const statusParts = [];
+  const finalChecks = draft.checks?.final || {};
+  const avoidCount = Array.isArray(finalChecks.avoidConflicts) ? finalChecks.avoidConflicts.length : 0;
+  const previousCount = Array.isArray(finalChecks.previousConflicts)
+    ? finalChecks.previousConflicts.length
+    : 0;
+  const regionCount = Array.isArray(finalChecks.regionErrors) ? finalChecks.regionErrors.length : 0;
+  if (avoidCount) statusParts.push(`${avoidCount} Avoid conflict${avoidCount === 1 ? '' : 's'}`);
+  if (previousCount) statusParts.push(`${previousCount} previous pairing${previousCount === 1 ? '' : 's'}`);
+  if (regionCount) statusParts.push(`${regionCount} region conflict${regionCount === 1 ? '' : 's'}`);
+  title.textContent = `Round #${draft.round} Team Preview`;
+  previewStatus.textContent = draft.previewStatus === 'failed'
+    ? `Teams are saved, but the Discord preview needs attention${statusParts.length ? ` · ${statusParts.join(' · ')}` : ''}.`
+    : statusParts.length
+      ? `Draft warnings: ${statusParts.join(' · ')}.`
+      : 'Draft is ready. No team conflicts were found.';
+
+  const approveButton = document.getElementById('round-review-approve');
+  const changesButton = document.getElementById('round-review-changes');
+  approveButton.setAttribute('aria-pressed', String(draft.myVote === 'approve'));
+  changesButton.setAttribute('aria-pressed', String(draft.myVote === 'changes'));
+  approveButton.disabled = roundDraftActionPending;
+  changesButton.disabled = roundDraftActionPending;
+
+  reviewers.replaceChildren();
+  if (draft.reviewActivity.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = 'No one has opened this draft yet.';
+    reviewers.append(empty);
+  } else {
+    for (const reviewer of draft.reviewActivity) {
+      const item = document.createElement('span');
+      item.className = 'round-reviewer';
+      const name = document.createElement('span');
+      name.textContent = reviewer.username || reviewer.discordUsername || 'Unknown account';
+      const mark = document.createElement('span');
+      mark.className = 'round-reviewer-mark';
+      mark.textContent = reviewer.vote === 'approve'
+        ? '✓ Looks good'
+        : reviewer.vote === 'changes'
+          ? '✕ Needs changes'
+          : 'Opened';
+      item.append(name, mark);
+      reviewers.append(item);
+    }
+  }
+
+  teamsContainer.replaceChildren();
+  for (const team of draft.teams) {
+    const card = document.createElement('article');
+    card.className = 'round-preview-team';
+    const heading = document.createElement('h3');
+    heading.textContent = `Team ${team.name}`;
+    const list = document.createElement('ul');
+    for (const player of team.players) {
+      const row = document.createElement('li');
+      const name = document.createElement('span');
+      name.textContent = player.name;
+      const region = document.createElement('span');
+      region.className = 'round-preview-region';
+      region.textContent = player.region;
+      row.append(name, region);
+      list.append(row);
+    }
+    card.append(heading, list);
+    teamsContainer.append(card);
+  }
+
+  const playerSelect = document.getElementById('round-adjust-player');
+  const previousPlayerId = playerSelect.value;
+  playerSelect.replaceChildren();
+  for (const team of draft.teams) {
+    for (const player of team.players) {
+      if (!player.discordId) continue;
+      const option = document.createElement('option');
+      option.value = player.discordId;
+      option.textContent = `${player.name} · Team ${team.name}`;
+      playerSelect.append(option);
+    }
+  }
+  if ([...playerSelect.options].some((option) => option.value === previousPlayerId)) {
+    playerSelect.value = previousPlayerId;
+  }
+  updateRoundSwapTargets();
+  panel.hidden = false;
+  roundPreviewOpen = true;
+}
+
+async function refreshOpenRoundDraft() {
+  if (!roundPreviewOpen || !currentRoundDraft || roundDraftActionPending || signedInPanel.hidden) return;
+  const viewGeneration = roundDraftViewGeneration;
+  try {
+    const result = await window.hoedown.getCurrentRoundDraft();
+    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
+    if (!result.ok) {
+      document.getElementById('round-preview-status').textContent =
+        result.error || 'Could not refresh the Team Check draft.';
+      return;
+    }
+    renderRoundDraft(result.draft);
+  } catch (error) {
+    if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
+      document.getElementById('round-preview-status').textContent =
+        error.message || 'Could not refresh the Team Check draft.';
+    }
+  }
+}
+
+async function saveRoundDraftReview(vote) {
+  if (!currentRoundDraft || roundDraftActionPending) return;
+  const viewGeneration = roundDraftViewGeneration;
+  roundDraftActionPending = true;
+  document.getElementById('round-review-approve').disabled = true;
+  document.getElementById('round-review-changes').disabled = true;
+  document.getElementById('round-preview-status').textContent = 'Saving your review mark…';
+  let reviewError = '';
+  try {
+    const result = await window.hoedown.reviewCurrentRoundDraft({
+      generationId: currentRoundDraft.generationId,
+      vote
+    });
+    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
+    if (result.draft) renderRoundDraft(result.draft);
+    if (!result.ok) throw new Error(result.error || 'Could not save your review mark.');
+  } catch (error) {
+    if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
+      reviewError = error.message || 'Could not save your review mark.';
+    }
+  } finally {
+    if (viewGeneration === roundDraftViewGeneration) {
+      roundDraftActionPending = false;
+      if (currentRoundDraft) renderRoundDraft(currentRoundDraft);
+      if (reviewError) {
+        document.getElementById('round-preview-status').textContent = reviewError;
+      }
+    }
   }
 }
 
@@ -1742,6 +1945,78 @@ document.getElementById('refresh-avoids').addEventListener('click', () => {
   avoidsLoaded = false;
   void loadAvoids();
 });
+document.getElementById('open-round-preview').addEventListener('click', async (event) => {
+  if (roundDraftActionPending) return;
+  const viewGeneration = roundDraftViewGeneration;
+  const button = event.currentTarget;
+  const panel = document.getElementById('round-preview-panel');
+  const previewStatus = document.getElementById('round-preview-status');
+  button.disabled = true;
+  panel.hidden = false;
+  roundPreviewOpen = true;
+  currentRoundDraft = null;
+  document.getElementById('round-preview-teams').replaceChildren();
+  document.getElementById('round-reviewers').replaceChildren();
+  previewStatus.textContent = 'Loading the current Team Check draft…';
+  try {
+    const result = await window.hoedown.openCurrentRoundDraft();
+    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
+    if (result.draft) renderRoundDraft(result.draft);
+    if (!result.ok) throw new Error(result.error || 'Could not open the Team Check draft.');
+  } catch (error) {
+    if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
+      previewStatus.textContent = error.message || 'Could not open the Team Check draft.';
+    }
+  } finally {
+    if (viewGeneration === roundDraftViewGeneration) button.disabled = false;
+  }
+});
+document.getElementById('close-round-preview').addEventListener('click', () => {
+  roundPreviewOpen = false;
+  document.getElementById('round-preview-panel').hidden = true;
+});
+document.getElementById('round-adjust-player').addEventListener('change', updateRoundSwapTargets);
+document.getElementById('round-adjust-team').addEventListener('change', updateRoundSwapTargets);
+document.getElementById('round-review-approve').addEventListener('click', () => {
+  void saveRoundDraftReview('approve');
+});
+document.getElementById('round-review-changes').addEventListener('click', () => {
+  void saveRoundDraftReview('changes');
+});
+document.getElementById('round-adjust-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!currentRoundDraft || roundDraftActionPending) return;
+  const viewGeneration = roundDraftViewGeneration;
+  const targetOption = document.getElementById('round-adjust-target').selectedOptions[0];
+  if (!targetOption) return;
+  roundDraftActionPending = true;
+  const submit = document.getElementById('round-adjust-submit');
+  const adjustmentStatus = document.getElementById('round-adjust-status');
+  submit.disabled = true;
+  adjustmentStatus.textContent = 'Saving the team adjustment and refreshing Discord…';
+  try {
+    const result = await window.hoedown.swapCurrentRoundDraftPlayers({
+      generationId: currentRoundDraft.generationId,
+      playerDiscordId: document.getElementById('round-adjust-player').value,
+      targetTeam: document.getElementById('round-adjust-team').value,
+      targetSlotIndex: Number(targetOption.value),
+      targetDiscordId: targetOption.dataset.discordId || ''
+    });
+    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
+    if (result.draft) renderRoundDraft(result.draft);
+    if (!result.ok) throw new Error(result.error || 'Could not save the team adjustment.');
+    adjustmentStatus.textContent = 'Team adjustment saved. The Discord preview is up to date.';
+  } catch (error) {
+    if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
+      adjustmentStatus.textContent = error.message || 'Could not save the team adjustment.';
+    }
+  } finally {
+    if (viewGeneration === roundDraftViewGeneration) {
+      roundDraftActionPending = false;
+      if (currentRoundDraft) renderRoundDraft(currentRoundDraft);
+    }
+  }
+});
 document.getElementById('grab-round-reactions').addEventListener('click', async (event) => {
   if (roundActionState.running || localRoundActionPending) return;
   localRoundActionPending = true;
@@ -1758,8 +2033,10 @@ document.getElementById('grab-round-reactions').addEventListener('click', async 
     const conflictStatus = result.conflictsFound
       ? `Conflicts found: ${displayedConflicts}${additionalConflictCount > 0 ? `; and ${additionalConflictCount} more` : ''}.`
       : 'No Conflicts found.';
-    actionStatus.textContent =
-      `Round #${result.round} draft saved. ${conflictStatus}`;
+    const previewStatus = result.postingStatus === 'posted'
+      ? 'The Team Check channel was cleared and the current preview was posted.'
+      : 'Team Check preview posting is disabled.';
+    actionStatus.textContent = `Round #${result.round} draft saved. ${conflictStatus} ${previewStatus}`;
   } catch (error) {
     actionStatus.textContent = error.message || 'Could not generate the next round draft.';
   } finally {
@@ -2194,6 +2471,9 @@ window.hoedown.onMembersLiveStatus((liveStatus) => {
   setLiveUpdatesStatus(liveStatus);
 });
 window.hoedown.onRoundActionStatus(applyRoundActionState);
+window.hoedown.onRoundDraftUpdated(() => {
+  void refreshOpenRoundDraft();
+});
 window.hoedown.onStatus(applyAuthState);
 window.hoedown.getStatus()
   .then(applyAuthState)

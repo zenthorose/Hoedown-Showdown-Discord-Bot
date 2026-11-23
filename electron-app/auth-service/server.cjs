@@ -8,7 +8,14 @@ const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
 const { addAvoidRelationships } = require('../../database/pairingImport');
 const config = require('../../config.json');
-const { findNextRound } = require('../../database/teamDrafts');
+const {
+  findNextRound,
+  formatTeamCheckPreview,
+  recordCurrentDraftReview,
+  recordCurrentDraftViewer,
+  splitDiscordMessage,
+  swapCurrentDraftPlayers
+} = require('../../database/teamDrafts');
 const { findLatestRoundOptInMessage } = require('../../utils/optInReactions');
 const { TeamGenerationError, generateTeamDraftFromMessage } = require('../../utils/teamGeneration');
 const {
@@ -43,6 +50,54 @@ const EASTERN_DAY_FORMATTER = new Intl.DateTimeFormat('en-US', {
   second: '2-digit',
   hourCycle: 'h23'
 });
+
+function serializeRoundDraft(draft, currentDiscordId) {
+  const toIso = (value) => value instanceof Date
+    ? value.toISOString()
+    : typeof value === 'string'
+      ? value
+      : null;
+  const activity = Array.isArray(draft.reviewActivity) ? draft.reviewActivity : [];
+  const myReview = activity.find((entry) => entry.discordId === currentDiscordId);
+  return {
+    generationId: String(draft.generationId || ''),
+    round: draft.round,
+    status: draft.status,
+    teams: (Array.isArray(draft.teams) ? draft.teams : []).map((team) => ({
+      name: String(team.name || '').slice(0, 32),
+      players: (Array.isArray(team.players) ? team.players : []).map((player) => ({
+        discordId: String(player.discordId || ''),
+        name: String(player.name || 'Unknown').slice(0, 100),
+        region: String(player.region || '').slice(0, 32)
+      }))
+    })),
+    checks: {
+      final: {
+        avoidConflicts: Array.isArray(draft.checks?.final?.avoidConflicts)
+          ? draft.checks.final.avoidConflicts
+          : [],
+        previousConflicts: Array.isArray(draft.checks?.final?.previousConflicts)
+          ? draft.checks.final.previousConflicts
+          : [],
+        regionErrors: Array.isArray(draft.checks?.final?.regionErrors)
+          ? draft.checks.final.regionErrors
+          : []
+      }
+    },
+    reviewActivity: activity.map((entry) => ({
+      discordId: String(entry.discordId || ''),
+      username: String(entry.username || 'Unknown account').slice(0, 64),
+      discordUsername: String(entry.discordUsername || '').slice(0, 64),
+      avatarUrl: validDiscordAvatarUrl(entry.avatarUrl) ? entry.avatarUrl : '',
+      lastOpenedAt: toIso(entry.lastOpenedAt),
+      vote: ['approve', 'changes'].includes(entry.vote) ? entry.vote : null,
+      reviewedAt: toIso(entry.reviewedAt)
+    })),
+    myVote: ['approve', 'changes'].includes(myReview?.vote) ? myReview.vote : null,
+    previewStatus: String(draft.previewStatus || 'not-posted'),
+    updatedAt: toIso(draft.updatedAt)
+  };
+}
 const THEME_COLOR_FIELDS = [
   'background',
   'surface',
@@ -354,6 +409,10 @@ function createApp({
   closeTicket: closeTicketCallback,
   updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
   saveAvoidRelationships,
+  roundDraftCollection,
+  roundAvoidsCollection,
+  previousPairingsCollection,
+  syncRoundDraftPreview,
   grabRoundReactions,
   canGrabRoundReactions
 }) {
@@ -464,6 +523,26 @@ function createApp({
     return { payload, user };
   };
   const memberStreams = new Set();
+  let roundDraftMutationRunning = false;
+  const readRoundDraftSession = async (req, res) => {
+    const session = await readSession(req, res);
+    if (!session) return null;
+    if (!MEMBER_ID_PATTERN.test(session.user.discordId || '')) {
+      res.status(403).json({ error: 'Link your Discord account before reviewing a round.' });
+      return null;
+    }
+    if (!roundDraftCollection || typeof canGrabRoundReactions !== 'function') {
+      res.status(503).json({ error: 'Team preview and review are not configured.' });
+      return null;
+    }
+    if (!await canGrabRoundReactions(session.user.discordId)) {
+      res.status(403).json({
+        error: 'Your linked Discord account does not have an allowed bot role.'
+      });
+      return null;
+    }
+    return session;
+  };
   let roundsActionState = {
     running: false,
     lastClickedBy: null,
@@ -1829,6 +1908,186 @@ function createApp({
     }
   });
 
+  app.get('/api/rounds/draft/current', limited(60), async (req, res) => {
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const draft = await roundDraftCollection.findOne({ _id: 'current' });
+      if (!draft || draft.status !== 'pending') {
+        return res.status(404).json({ error: 'There is no pending Team Check draft to preview.' });
+      }
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        draft: serializeRoundDraft(draft, session.user.discordId)
+      });
+    } catch (error) {
+      return sendError(res, error, 'Team Check draft lookup failed:');
+    }
+  });
+
+  app.post('/api/rounds/draft/current/open', limited(60), async (req, res) => {
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const currentDraft = await roundDraftCollection.findOne({ _id: 'current' });
+      if (!currentDraft || currentDraft.status !== 'pending') {
+        return res.status(404).json({ error: 'There is no pending Team Check draft to preview.' });
+      }
+      const generationId = currentDraft.generationId;
+      const reviewer = {
+        discordId: session.user.discordId,
+        username: session.user.username,
+        discordUsername: session.user.discordUsername || session.user.discordId,
+        avatarUrl: validDiscordAvatarUrl(session.user.discordAvatarUrl)
+          ? session.user.discordAvatarUrl
+          : ''
+      };
+      const draft = await recordCurrentDraftViewer({
+        teamCheckCollection: roundDraftCollection,
+        generationId,
+        reviewer
+      });
+      broadcastMemberEvent('round-draft-updated', { generationId });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        draft: serializeRoundDraft(draft, session.user.discordId)
+      });
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Team Check draft open failed:');
+    }
+  });
+
+  app.post('/api/rounds/draft/current/review', limited(60), async (req, res) => {
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const { generationId, vote } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64 ||
+          !['approve', 'changes'].includes(vote)) {
+        return res.status(400).json({ error: 'Choose a valid review mark for the current draft.' });
+      }
+      const reviewer = {
+        discordId: session.user.discordId,
+        username: session.user.username,
+        discordUsername: session.user.discordUsername || session.user.discordId,
+        avatarUrl: validDiscordAvatarUrl(session.user.discordAvatarUrl)
+          ? session.user.discordAvatarUrl
+          : ''
+      };
+      const draft = await recordCurrentDraftReview({
+        teamCheckCollection: roundDraftCollection,
+        generationId,
+        reviewer,
+        vote
+      });
+      broadcastMemberEvent('round-draft-updated', { generationId });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        draft: serializeRoundDraft(draft, session.user.discordId)
+      });
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Team Check review update failed:');
+    }
+  });
+
+  app.post('/api/rounds/draft/current/swap', limited(30), async (req, res) => {
+    let updatedDraft = null;
+    let mutationLockAcquired = false;
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const {
+        generationId,
+        playerDiscordId,
+        targetTeam,
+        targetSlotIndex,
+        targetDiscordId
+      } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64 ||
+          !MEMBER_ID_PATTERN.test(playerDiscordId || '') ||
+          typeof targetTeam !== 'string' || !targetTeam.trim() || targetTeam.length > 32 ||
+          !Number.isInteger(targetSlotIndex) ||
+          (targetDiscordId !== '' && !MEMBER_ID_PATTERN.test(targetDiscordId || ''))) {
+        return res.status(400).json({ error: 'Choose a valid player and destination team slot.' });
+      }
+      if (roundDraftMutationRunning) {
+        return res.status(409).json({ error: 'Another team adjustment is being saved. Try again shortly.' });
+      }
+      roundDraftMutationRunning = true;
+      mutationLockAcquired = true;
+      updatedDraft = await swapCurrentDraftPlayers({
+        teamCheckCollection: roundDraftCollection,
+        avoidsCollection: roundAvoidsCollection,
+        previousPairingsCollection,
+        generationId,
+        playerDiscordId,
+        targetTeamName: targetTeam.trim(),
+        targetSlotIndex,
+        targetDiscordId
+      });
+
+      if (updatedDraft.previewStatus !== 'disabled') {
+        try {
+          if (typeof syncRoundDraftPreview !== 'function') {
+            throw new Error('Discord Team Check preview synchronization is not configured.');
+          }
+          const synced = await syncRoundDraftPreview(updatedDraft);
+          const savedPreview = await roundDraftCollection.updateOne({
+            _id: 'current',
+            generationId,
+            status: 'pending'
+          }, {
+            $set: {
+              previewMessageIds: synced.previewMessageIds,
+              previewStatus: 'posted'
+            },
+            $unset: { previewError: '' }
+          });
+          if (!savedPreview.matchedCount) {
+            throw new Error('The saved draft changed while the Discord preview was being updated.');
+          }
+          updatedDraft = {
+            ...updatedDraft,
+            previewMessageIds: synced.previewMessageIds,
+            previewStatus: 'posted'
+          };
+        } catch (error) {
+          const previewError = String(error.message || 'Unknown Discord preview error').slice(0, 1000);
+          await roundDraftCollection.updateOne({
+            _id: 'current',
+            generationId,
+            status: 'pending'
+          }, {
+            $set: { previewStatus: 'failed', previewError, updatedAt: new Date() }
+          });
+          broadcastMemberEvent('round-draft-updated', { generationId });
+          res.set('Cache-Control', 'private, no-store');
+          return res.status(502).json({
+            error: `The team swap was saved, but the Discord preview could not be updated: ${previewError}`,
+            partial: true,
+            draft: serializeRoundDraft({
+              ...updatedDraft,
+              previewStatus: 'failed'
+            }, session.user.discordId)
+          });
+        }
+      }
+
+      broadcastMemberEvent('round-draft-updated', { generationId });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        draft: serializeRoundDraft(updatedDraft, session.user.discordId)
+      });
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Team Check adjustment failed:');
+    } finally {
+      if (mutationLockAcquired) roundDraftMutationRunning = false;
+    }
+  });
+
   app.post('/api/rounds/grab-reactions', limited(3), async (req, res) => {
     let actionLockAcquired = false;
     try {
@@ -1890,6 +2149,7 @@ function createApp({
           `Region conflict in Team ${cleanLabel(team)}`)
       ];
       const conflictsFound = conflictDetails.length > 0;
+      broadcastMemberEvent('round-draft-updated', { generationId: draft.generationId });
       roundsActionState = { ...roundsActionState, running: false, lastOutcome: 'success' };
       broadcastMemberEvent('rounds-action-status', roundsActionState);
       res.set('Cache-Control', 'private, no-store');
@@ -2878,6 +3138,60 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         targetRound: round
       });
     };
+    const syncRoundDraftPreview = async (draft) => {
+      if (!discordClient || !discordClient.isReady() || !roundCollections?.teamCheck) {
+        throw new Error('The Discord bot is not ready to update the Team Check preview.');
+      }
+      const settings = await readBotSettings(botSettingsCollection);
+      const channelId = draft.previewChannelId ||
+        settings.channels.TeamCheckChannelID ||
+        config.TeamCheckChannelID ||
+        process.env.TEAM_CHECK_CHANNEL_ID;
+      if (!channelId) throw new Error('The Team Check channel is not configured.');
+      const channel = await discordClient.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) {
+        throw new Error(`Team Check channel is not a text channel: ${channelId}`);
+      }
+
+      const messageIds = Array.isArray(draft.previewMessageIds) ? [...draft.previewMessageIds] : [];
+      const contents = splitDiscordMessage(formatTeamCheckPreview(draft));
+      for (let index = 0; index < contents.length; index += 1) {
+        let message = null;
+        if (messageIds[index]) {
+          try {
+            message = await channel.messages.fetch(messageIds[index]);
+          } catch (error) {
+            if (error.code !== 10008) throw error;
+          }
+        }
+        if (message) {
+          await message.edit(contents[index]);
+        } else {
+          const posted = await channel.send(contents[index]);
+          messageIds[index] = posted.id;
+        }
+        const saved = await roundCollections.teamCheck.updateOne({
+          _id: 'current',
+          generationId: draft.generationId,
+          status: 'pending'
+        }, {
+          $set: { previewMessageIds: messageIds, previewStatus: 'posting' }
+        });
+        if (!saved.matchedCount) {
+          throw new Error('The Team Check draft changed while refreshing its Discord preview.');
+        }
+      }
+
+      for (const extraMessageId of messageIds.slice(contents.length)) {
+        try {
+          const message = await channel.messages.fetch(extraMessageId);
+          await message.delete();
+        } catch (error) {
+          if (error.code !== 10008) throw error;
+        }
+      }
+      return { previewMessageIds: messageIds.slice(0, contents.length) };
+    };
     await users.createIndex({ username: 1 }, { unique: true });
     await users.createIndex({ discordId: 1 }, { unique: true, sparse: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
@@ -2896,6 +3210,12 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)
         : null,
+      roundDraftCollection: roundCollections?.teamCheck,
+      roundAvoidsCollection: avoids,
+      previousPairingsCollection: hoedownDatabase
+        ? hoedownDatabase.collection('PreviousPairings')
+        : null,
+      syncRoundDraftPreview,
       sendTicketReply,
       sendTicketStaffMessage,
       syncTicketStaffChat,

@@ -7,7 +7,10 @@ const {
   formatTeamCheckPreview,
   generateTeamGroups,
   inspectTeams,
-  recordPreviousPairings
+  recordCurrentDraftReview,
+  recordCurrentDraftViewer,
+  recordPreviousPairings,
+  swapCurrentDraftPlayers
 } = require('./teamDrafts');
 
 function matches(document, filter) {
@@ -334,6 +337,9 @@ test('approval saves round data, records pairings once, and finalizes both snaps
   await recordPreviousPairings(collections.previousPairings, draft.teams);
   assert.equal(collections.previousPairings.documents.length, 3);
   assert.ok(collections.previousPairings.documents.every((entry) => entry.previousPairings.length === 2));
+  await collections.teamCheck.updateOne({ _id: 'current' }, {
+    $set: { reviewActivity: [{ discordId: '10000000000000004', vote: 'approve' }] }
+  });
 
   await completeCurrentDraftApproval({
     teamCheckCollection: collections.teamCheck,
@@ -341,5 +347,136 @@ test('approval saves round data, records pairings once, and finalizes both snaps
     generationId: draft.generationId
   });
   assert.equal((await approval.roundCollection.findOne({ _id: 'current' })).status, 'approved');
-  assert.equal((await collections.teamCheck.findOne({ _id: 'current' })).status, 'approved');
+  const completedDraft = await collections.teamCheck.findOne({ _id: 'current' });
+  assert.equal(completedDraft.status, 'approved');
+  assert.deepEqual(completedDraft.reviewActivity, []);
+});
+
+test('draft review tracks multiple viewers and resets marks after a team swap', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-1',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [
+      {
+        name: 'A',
+        players: [
+          { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+          { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+          { discordId: '10000000000000003', name: 'Player 3', region: 'East' }
+        ]
+      },
+      {
+        name: 'B',
+        players: [
+          { discordId: '10000000000000004', name: 'Player 4', region: 'East' },
+          { discordId: '10000000000000005', name: 'Player 5', region: 'East' },
+          { name: 'Filler', region: 'Filler' }
+        ]
+      }
+    ],
+    checks: { final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] } },
+    reviewActivity: []
+  }]);
+  const avoidsCollection = new MemoryCollection([{
+    _id: '10000000000000001',
+    avoids: [{ discordId: '10000000000000004' }]
+  }]);
+  const previousPairingsCollection = new MemoryCollection();
+  const reviewerOne = {
+    discordId: '10000000000000006',
+    username: 'reviewer-one',
+    discordUsername: 'reviewer.one',
+    avatarUrl: ''
+  };
+  const reviewerTwo = {
+    discordId: '10000000000000007',
+    username: 'reviewer-two',
+    discordUsername: 'reviewer.two',
+    avatarUrl: ''
+  };
+
+  await recordCurrentDraftViewer({
+    teamCheckCollection,
+    generationId: 'generation-1',
+    reviewer: reviewerOne,
+    now: () => new Date('2026-03-01T00:01:00.000Z')
+  });
+  await recordCurrentDraftReview({
+    teamCheckCollection,
+    generationId: 'generation-1',
+    reviewer: reviewerOne,
+    vote: 'approve',
+    now: () => new Date('2026-03-01T00:02:00.000Z')
+  });
+  await recordCurrentDraftViewer({
+    teamCheckCollection,
+    generationId: 'generation-1',
+    reviewer: reviewerTwo,
+    now: () => new Date('2026-03-01T00:03:00.000Z')
+  });
+
+  const updatedDraft = await swapCurrentDraftPlayers({
+    teamCheckCollection,
+    avoidsCollection,
+    previousPairingsCollection,
+    generationId: 'generation-1',
+    playerDiscordId: '10000000000000001',
+    targetTeamName: 'B',
+    targetSlotIndex: 2,
+    targetDiscordId: '',
+    now: () => new Date('2026-03-01T00:04:00.000Z')
+  });
+
+  assert.equal(updatedDraft.teams[0].players.length, 3);
+  assert.equal(updatedDraft.teams[1].players.length, 3);
+  assert.equal(updatedDraft.teams[1].players[2].discordId, '10000000000000001');
+  assert.equal(updatedDraft.checks.unresolvedAvoids, 1);
+  assert.deepEqual(
+    [updatedDraft.checks.final.avoidConflicts[0].playerA,
+      updatedDraft.checks.final.avoidConflicts[0].playerB].sort(),
+    ['Player 1', 'Player 4']
+  );
+  assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null, null]);
+});
+
+test('draft adjustment rejects swaps that would mix East and West teams', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-region-1',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [
+      {
+        name: 'A',
+        players: [
+          { discordId: '10000000000000001', name: 'East player', region: 'East' },
+          { discordId: '10000000000000002', name: 'East player 2', region: 'East' },
+          { discordId: '10000000000000003', name: 'East player 3', region: 'East' }
+        ]
+      },
+      {
+        name: 'B',
+        players: [
+          { discordId: '10000000000000004', name: 'West player', region: 'West' },
+          { discordId: '10000000000000005', name: 'West player 2', region: 'West' },
+          { name: 'Filler', region: 'Filler' }
+        ]
+      }
+    ],
+    checks: { final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] } }
+  }]);
+
+  await assert.rejects(swapCurrentDraftPlayers({
+    teamCheckCollection,
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-region-1',
+    playerDiscordId: '10000000000000001',
+    targetTeamName: 'B',
+    targetSlotIndex: 2,
+    targetDiscordId: ''
+  }), /mix East and West/);
+  assert.equal((await teamCheckCollection.findOne({ _id: 'current' })).teams[1].players[2].region, 'Filler');
 });
