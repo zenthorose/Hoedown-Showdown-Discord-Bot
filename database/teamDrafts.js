@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
+const { ROUND_COUNT, roundCollectionName } = require('./roundCollections');
 
 const CURRENT_SNAPSHOT_ID = 'current';
-const ROUND_COUNT = 16;
 const TEAM_SIZE = 3;
 const GENERATION_LOCK_STALE_AFTER_MS = 5 * 60 * 1000;
 const MAX_TEAM_ASSIGNMENT_SEARCH_STEPS = 250000;
@@ -100,10 +100,6 @@ function labelIndex(label) {
   if (code < 0 || code > 25) return 0;
   const length = Math.min(clean.length, 3);
   return (length === 1 ? 0 : length === 2 ? 26 : 52) + code;
-}
-
-function roundCollectionName(round) {
-  return `Round#${round}`;
 }
 
 function inspectTeams(teams, previousPairings, avoids) {

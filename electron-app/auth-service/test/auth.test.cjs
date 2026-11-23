@@ -641,7 +641,10 @@ test('Rounds action requires a session and an allowed linked Discord role', asyn
       eligiblePlayerCount: 5,
       excludedPlayerCount: 1,
       conflictsFound: true,
-      conflictDetails: ['Previous pairing in Team A: One and Two'],
+      conflictDetails: [
+        'Previous pairing in Team A: One and Two',
+        'Avoid conflict in Team B: Player 4 and Player 6'
+      ],
       postingStatus: 'posted'
     });
     assert.equal(roundActionState.running, false);
@@ -670,7 +673,11 @@ test('Rounds action requires a session and an allowed linked Discord role', asyn
                 playerA: 'One',
                 playerB: 'Two'
               }],
-              avoidConflicts: [],
+              avoidConflicts: [{
+                team: 'B',
+                playerA: 'Player 4',
+                playerB: 'Player 6'
+              }],
               regionErrors: []
             }
           }

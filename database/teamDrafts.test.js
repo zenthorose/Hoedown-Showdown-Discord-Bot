@@ -231,7 +231,7 @@ test('a new generation replaces current snapshots and uses the next sequential r
     $set: { status: 'approved' }
   });
 
-  await collections.roundsDatabase.collection('Round#1').insertOne({
+  await collections.roundsDatabase.collection('Round#01').insertOne({
     _id: 'current',
     generationId: firstDraft.generationId,
     status: 'approved',
@@ -285,8 +285,8 @@ test('generation cannot replace a current draft after approval claims it', async
 
 test('a new generation uses the round after the highest populated collection when there is a gap', async () => {
   const collections = createCollections();
-  await collections.roundsDatabase.collection('Round#1').insertOne({ _id: 'current', status: 'approved' });
-  await collections.roundsDatabase.collection('Round#3').insertOne({ _id: 'current', status: 'approved' });
+  await collections.roundsDatabase.collection('Round#01').insertOne({ _id: 'current', status: 'approved' });
+  await collections.roundsDatabase.collection('Round#03').insertOne({ _id: 'current', status: 'approved' });
 
   const draft = await createDraft(collections);
 
@@ -297,7 +297,7 @@ test('the Rounds action target overrides a pending draft round', async () => {
   const collections = createCollections();
   const pendingDraft = await createDraft(collections);
   assert.equal(pendingDraft.round, 1);
-  await collections.roundsDatabase.collection('Round#1').insertOne({
+  await collections.roundsDatabase.collection('Round#01').insertOne({
     _id: 'round-selection-test',
     testOnly: true
   });
@@ -317,6 +317,7 @@ test('approval saves round data, records pairings once, and finalizes both snaps
     round: draft.round
   });
 
+  assert.equal(approval.roundCollection, collections.roundsDatabase.collection('Round#01'));
   assert.equal(approval.roundRecord.status, 'approving');
   assert.deepEqual(approval.roundRecord.teams, draft.teams);
 

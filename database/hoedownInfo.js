@@ -1,4 +1,5 @@
 const { MongoClient } = require('mongodb');
+const { roundCollections } = require('./roundCollections');
 require('dotenv').config();
 
 const databaseConfig = {
@@ -11,9 +12,7 @@ const databaseConfig = {
     collections: {
       playersThatReacted: 'PlayersThatReacted',
       teamCheck: 'TeamCheck',
-      ...Object.fromEntries(
-        Array.from({ length: 16 }, (_, index) => [`round${index + 1}`, `Round#${index + 1}`])
-      )
+      ...roundCollections
     }
   },
   pastHoedownTeams: {
