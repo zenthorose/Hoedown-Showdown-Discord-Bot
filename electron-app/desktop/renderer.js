@@ -22,6 +22,8 @@ let currentRoundDraft = null;
 let roundPreviewOpen = false;
 let roundDraftActionPending = false;
 let roundDraftViewGeneration = 0;
+let draggedRoundPlayerId = '';
+let hoveredRoundPlayerId = '';
 let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
@@ -656,14 +658,21 @@ function renderRoundReviewers(activity, emptyMessage = 'No one has opened this d
 
 function clearRoundDraftDragHighlights() {
   document.querySelectorAll('.round-preview-player').forEach((player) => {
-    player.classList.remove('avoid-highlight', 'previous-pairing-highlight');
+    player.classList.remove(
+      'avoid-highlight',
+      'previous-pairing-highlight',
+      'hover-avoid-highlight',
+      'hover-previous-pairing-highlight'
+    );
   });
+  hoveredRoundPlayerId = '';
 }
 
-function highlightRoundDraftDragRelations(discordId) {
+function highlightRoundDraftDragRelations(discordId, mode = 'drag') {
   clearRoundDraftDragHighlights();
   const relations = currentRoundDraft?.pairingRelations;
   if (!relations) return;
+  if (mode === 'hover') hoveredRoundPlayerId = discordId;
   const avoidIds = new Set();
   const previousPairingIds = new Set();
   for (const pair of relations.avoids) {
@@ -676,8 +685,12 @@ function highlightRoundDraftDragRelations(discordId) {
   }
   document.querySelectorAll('.round-preview-player[data-discord-id]').forEach((player) => {
     const playerId = player.dataset.discordId;
-    player.classList.toggle('avoid-highlight', avoidIds.has(playerId));
-    player.classList.toggle('previous-pairing-highlight', previousPairingIds.has(playerId));
+    player.classList.toggle(mode === 'hover' ? 'hover-avoid-highlight' : 'avoid-highlight',
+      avoidIds.has(playerId));
+    player.classList.toggle(
+      mode === 'hover' ? 'hover-previous-pairing-highlight' : 'previous-pairing-highlight',
+      previousPairingIds.has(playerId)
+    );
   });
 }
 
@@ -2110,12 +2123,14 @@ roundPreviewTeams.addEventListener('dragstart', (event) => {
   }
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', player.dataset.discordId);
+  draggedRoundPlayerId = player.dataset.discordId;
   player.classList.add('dragging');
-  highlightRoundDraftDragRelations(player.dataset.discordId);
+  highlightRoundDraftDragRelations(draggedRoundPlayerId);
 });
 roundPreviewTeams.addEventListener('dragend', (event) => {
   event.target.closest('.round-preview-player')?.classList.remove('dragging');
   clearRoundDraftDragHighlights();
+  draggedRoundPlayerId = '';
   roundPreviewTeams.querySelectorAll('.drop-target').forEach((target) => {
     target.classList.remove('drop-target');
   });
@@ -2129,10 +2144,20 @@ roundPreviewTeams.addEventListener('dragover', (event) => {
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
   target.classList.add('drop-target');
+  const hoveredPlayer = event.target.closest('.round-preview-player[data-discord-id]');
+  if (hoveredPlayer && hoveredPlayer.dataset.team !== draggedPlayer.dataset.team &&
+      hoveredPlayer.dataset.discordId !== hoveredRoundPlayerId) {
+    highlightRoundDraftDragRelations(hoveredPlayer.dataset.discordId, 'hover');
+  } else if (hoveredRoundPlayerId) {
+    highlightRoundDraftDragRelations(draggedRoundPlayerId);
+  }
 });
 roundPreviewTeams.addEventListener('dragleave', (event) => {
   const target = event.target.closest('li[data-team][data-slot-index]');
-  if (target && !target.contains(event.relatedTarget)) target.classList.remove('drop-target');
+  if (target && !target.contains(event.relatedTarget)) {
+    target.classList.remove('drop-target');
+    if (hoveredRoundPlayerId) highlightRoundDraftDragRelations(draggedRoundPlayerId);
+  }
 });
 roundPreviewTeams.addEventListener('drop', async (event) => {
   const target = event.target.closest('li[data-team][data-slot-index]');

@@ -371,6 +371,12 @@ footer { margin-top: 20px; font-size: 12px; }
   text-decoration: underline #f0c75e 2px;
   text-underline-offset: 2px;
 }
+.round-preview-player.hover-previous-pairing-highlight { color: #8ed4ff; font-weight: 700; }
+.round-preview-player.hover-avoid-highlight { color: #ff9b45; font-weight: 700; }
+.round-preview-player.hover-avoid-highlight.hover-previous-pairing-highlight {
+  text-decoration: underline #8ed4ff 2px;
+  text-underline-offset: 2px;
+}
 .round-preview-region { color: var(--theme-muted); font-size: 12px; }
 .round-adjust-form { display: grid; gap: 10px; max-width: 560px; }
 .round-adjust-form h3 { margin-bottom: 4px; }
