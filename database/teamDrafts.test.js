@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   beginCurrentDraftApproval,
+  addCurrentDraftFillerTeam,
   completeCurrentDraftApproval,
   createCurrentTeamDraft,
   formatTeamCheckPreview,
@@ -10,6 +11,7 @@ const {
   recordCurrentDraftReview,
   recordCurrentDraftViewer,
   recordPreviousPairings,
+  replaceCurrentDraftPlayer,
   swapCurrentDraftPlayers
 } = require('./teamDrafts');
 
@@ -479,4 +481,88 @@ test('draft adjustment rejects swaps that would mix East and West teams', async 
     targetDiscordId: ''
   }), /mix East and West/);
   assert.equal((await teamCheckCollection.findOne({ _id: 'current' })).teams[1].players[2].region, 'Filler');
+});
+
+test('adding a filler team appends three filler slots and clears review votes', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-filler-team',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [{
+      name: 'A',
+      players: [
+        { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+        { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+        { discordId: '10000000000000003', name: 'Player 3', region: 'East' }
+      ]
+    }],
+    checks: {
+      manualAdjustments: 2,
+      final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] }
+    },
+    reviewActivity: [{ discordId: '10000000000000004', vote: 'approve', reviewedAt: new Date() }]
+  }]);
+
+  const updatedDraft = await addCurrentDraftFillerTeam({
+    teamCheckCollection,
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-filler-team',
+    now: () => new Date('2026-03-01T00:01:00.000Z')
+  });
+
+  assert.equal(updatedDraft.teams.length, 2);
+  assert.equal(updatedDraft.teams[1].name, 'B');
+  assert.deepEqual(updatedDraft.teams[1].players.map((player) => player.region),
+    ['Filler', 'Filler', 'Filler']);
+  assert.deepEqual(updatedDraft.teams[1].players.map((player) => player.id),
+    ['FILLER_1', 'FILLER_2', 'FILLER_3']);
+  assert.equal(updatedDraft.checks.manualAdjustments, 3);
+  assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null]);
+});
+
+test('replacing a player with a registered member removes the original from the teams', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-replace-player',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [{
+      name: 'A',
+      players: [
+        { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+        { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+        { discordId: '10000000000000003', name: 'Player 3', region: 'East' }
+      ]
+    }],
+    checks: {
+      manualAdjustments: 0,
+      final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] }
+    },
+    reviewActivity: [{ discordId: '10000000000000004', vote: 'approve', reviewedAt: new Date() }]
+  }]);
+  const replacementDiscordId = '10000000000000005';
+
+  const updatedDraft = await replaceCurrentDraftPlayer({
+    teamCheckCollection,
+    membersCollection: new MemoryCollection([{
+      _id: replacementDiscordId,
+      username: 'replacement',
+      nickname: 'Replacement',
+      region: 'East'
+    }]),
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-replace-player',
+    playerDiscordId: '10000000000000001',
+    replacementDiscordId,
+    now: () => new Date('2026-03-01T00:01:00.000Z')
+  });
+
+  assert.equal(updatedDraft.teams[0].players[0].discordId, replacementDiscordId);
+  assert.equal(updatedDraft.teams[0].players[0].name, 'Replacement');
+  assert.equal(updatedDraft.teams.flatMap((team) => team.players)
+    .some((player) => player.discordId === '10000000000000001'), false);
+  assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null]);
 });

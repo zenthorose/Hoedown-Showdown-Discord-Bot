@@ -187,23 +187,23 @@
                     <button id="round-review-changes" type="button" aria-pressed="false">✕ Needs changes</button>
                   </div>
                 </div>
-                <p class="round-preview-drag-help">
-                  A# marks Avoids and P# marks previous pairings. Drag a player to highlight their related players,
-                  then drop onto a player or filler slot in another team.
-                </p>
                 <div id="round-preview-teams" class="round-preview-teams"></div>
-                <form id="round-adjust-form" class="round-adjust-form">
-                  <h3>Swap or move a player</h3>
-                  <label for="round-adjust-player">Player to move</label>
-                  <select id="round-adjust-player" required></select>
-                  <label for="round-adjust-team">Destination team</label>
-                  <select id="round-adjust-team" required></select>
-                  <label for="round-adjust-target">Swap with</label>
-                  <select id="round-adjust-target" required></select>
-                  <button id="round-adjust-submit" type="submit">Save team adjustment</button>
-                  <p id="round-adjust-status" class="rounds-action-status" role="status"
-                    aria-live="polite"></p>
-                </form>
+                <div class="round-preview-actions">
+                  <button id="round-add-filler-team" type="button">Add team with all fillers</button>
+                  <button id="round-open-replacement" type="button" disabled>Replace selected player</button>
+                </div>
+                <p id="round-draft-action-status" class="round-draft-action-status rounds-action-status" role="status"
+                  aria-live="polite"></p>
+                <section id="round-replacement-panel" class="round-replacement-panel" hidden>
+                  <h3>Replace selected player</h3>
+                  <p id="round-replacement-current" class="muted"></p>
+                  <label for="round-replacement-search">Search registered members</label>
+                  <input id="round-replacement-search" type="search" maxlength="100"
+                    placeholder="Search members…" autocomplete="off">
+                  <div id="round-replacement-results" class="round-replacement-results"
+                    aria-label="Available replacement members"></div>
+                  <button id="round-close-replacement" type="button" class="secondary-button">Cancel</button>
+                </section>
               </section>
             </section>
             <section id="tickets-view" class="members-view" aria-label="Ticket archive" hidden>

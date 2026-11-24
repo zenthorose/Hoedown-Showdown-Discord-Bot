@@ -23,6 +23,7 @@ let roundPreviewOpen = false;
 let roundDraftActionPending = false;
 let roundDraftViewGeneration = 0;
 let draggedRoundPlayerId = '';
+let selectedRoundPlayerId = '';
 let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
@@ -265,6 +266,7 @@ function showSignedOut(profileSelected = true) {
   signedInPanel.hidden = true;
   roundPreviewOpen = false;
   currentRoundDraft = null;
+  selectedRoundPlayerId = '';
   roundDraftActionPending = false;
   roundDraftViewGeneration += 1;
   document.getElementById('open-round-preview').disabled = false;
@@ -545,50 +547,6 @@ async function refreshRoundActionStatus() {
   }
 }
 
-function updateRoundSwapTargets() {
-  const playerSelect = document.getElementById('round-adjust-player');
-  const teamSelect = document.getElementById('round-adjust-team');
-  const targetSelect = document.getElementById('round-adjust-target');
-  const submit = document.getElementById('round-adjust-submit');
-  if (!currentRoundDraft) return;
-
-  const selectedPlayerId = playerSelect.value;
-  const sourceTeam = currentRoundDraft.teams.find((team) =>
-    team.players.some((player) => player.discordId === selectedPlayerId));
-  const previousTargetTeam = teamSelect.value;
-  teamSelect.replaceChildren();
-  for (const team of currentRoundDraft.teams) {
-    if (team.name === sourceTeam?.name) continue;
-    const option = document.createElement('option');
-    option.value = team.name;
-    option.textContent = `Team ${team.name}`;
-    teamSelect.append(option);
-  }
-  if (currentRoundDraft.teams.some((team) => team.name === previousTargetTeam) &&
-      previousTargetTeam !== sourceTeam?.name) {
-    teamSelect.value = previousTargetTeam;
-  }
-
-  const targetTeam = currentRoundDraft.teams.find((team) => team.name === teamSelect.value);
-  targetSelect.replaceChildren();
-  if (targetTeam) {
-    targetTeam.players.forEach((player, index) => {
-      const option = document.createElement('option');
-      option.value = String(index);
-      option.dataset.discordId = player.discordId || '';
-      option.textContent = player.region === 'Filler'
-        ? 'Open filler slot'
-        : `${player.name} (${player.region})`;
-      targetSelect.append(option);
-    });
-  }
-  playerSelect.disabled = roundDraftActionPending;
-  teamSelect.disabled = roundDraftActionPending;
-  targetSelect.disabled = roundDraftActionPending;
-  submit.disabled = roundDraftActionPending || !sourceTeam || !targetTeam ||
-    !selectedPlayerId || targetSelect.options.length === 0;
-}
-
 function applyRoundPreviewIndicator(draft) {
   const indicator = document.getElementById('round-preview-indicator');
   const finalChecks = draft?.checks?.final;
@@ -655,23 +613,22 @@ function renderRoundReviewers(activity, emptyMessage = 'No one has opened this d
   }
 }
 
-function clearRoundDraftDragHighlights() {
+function clearRoundDraftRelationshipHighlights() {
   document.querySelectorAll('.round-preview-player').forEach((player) => {
     player.classList.remove('avoid-highlight', 'previous-pairing-highlight');
   });
 }
 
-function highlightRoundDraftDragRelations(discordId) {
-  clearRoundDraftDragHighlights();
-  const relations = currentRoundDraft?.pairingRelations;
-  if (!relations) return;
+function highlightRoundDraftRelations(discordId) {
+  clearRoundDraftRelationshipHighlights();
+  const relations = currentRoundDraft?.pairingRelations || {};
   const avoidIds = new Set();
   const previousPairingIds = new Set();
-  for (const pair of relations.avoids) {
+  for (const pair of Array.isArray(relations.avoids) ? relations.avoids : []) {
     if (pair.discordIdA === discordId) avoidIds.add(pair.discordIdB);
     else if (pair.discordIdB === discordId) avoidIds.add(pair.discordIdA);
   }
-  for (const pair of relations.previousPairings) {
+  for (const pair of Array.isArray(relations.previousPairings) ? relations.previousPairings : []) {
     if (pair.discordIdA === discordId) previousPairingIds.add(pair.discordIdB);
     else if (pair.discordIdB === discordId) previousPairingIds.add(pair.discordIdA);
   }
@@ -682,34 +639,87 @@ function highlightRoundDraftDragRelations(discordId) {
   });
 }
 
-function getRoundPairingCounts(draft) {
-  const counts = new Map();
-  for (const [type, pairs] of [
-    ['avoid', draft.pairingRelations?.avoids || []],
-    ['previous', draft.pairingRelations?.previousPairings || []]
-  ]) {
-    for (const pair of pairs) {
-      for (const discordId of [pair.discordIdA, pair.discordIdB]) {
-        if (!counts.has(discordId)) counts.set(discordId, { avoid: 0, previous: 0 });
-        counts.get(discordId)[type] += 1;
-      }
-    }
-  }
-  return counts;
+function updateRoundPlayerSelection() {
+  document.querySelectorAll('.round-preview-player[data-discord-id]').forEach((player) => {
+    player.setAttribute('aria-pressed', String(player.dataset.discordId === selectedRoundPlayerId));
+  });
+  updateRoundDraftControls();
+  renderRoundReplacementMembers();
 }
 
-function createRoundPairingMarker(type, count) {
-  const marker = document.createElement('span');
-  marker.className = `round-pairing-marker ${type}`;
-  marker.textContent = `${type === 'avoid' ? 'A' : 'P'}${count}`;
-  const label = type === 'avoid' ? 'Avoid' : 'Previous pairing';
-  marker.title = `${count} ${label.toLowerCase()}${count === 1 ? '' : 's'} in this draft`;
-  marker.setAttribute('role', 'img');
-  marker.setAttribute('aria-label', `${label}: ${count}`);
-  return marker;
+function updateRoundDraftControls() {
+  const addTeamButton = document.getElementById('round-add-filler-team');
+  const replaceButton = document.getElementById('round-open-replacement');
+  const selectedPlayerExists = Boolean(currentRoundDraft?.teams.some((team) =>
+    team.players.some((player) => player.discordId === selectedRoundPlayerId)));
+  if (addTeamButton) addTeamButton.disabled = !currentRoundDraft || roundDraftActionPending;
+  if (replaceButton) {
+    replaceButton.disabled = !selectedPlayerExists || roundDraftActionPending;
+  }
+  document.querySelectorAll('.round-preview-player[data-discord-id]').forEach((player) => {
+    player.disabled = roundDraftActionPending;
+    player.draggable = !roundDraftActionPending;
+  });
+  document.getElementById('round-review-approve').disabled = roundDraftActionPending;
+  document.getElementById('round-review-changes').disabled = roundDraftActionPending;
+  const search = document.getElementById('round-replacement-search');
+  const closeButton = document.getElementById('round-close-replacement');
+  if (search) search.disabled = roundDraftActionPending;
+  if (closeButton) closeButton.disabled = roundDraftActionPending;
+  document.querySelectorAll('#round-replacement-results button').forEach((button) => {
+    button.disabled = roundDraftActionPending;
+  });
+}
+
+function updateRoundDraftConflictMarkers(teamsContainer, pairingRelations) {
+  const teamsByPlayer = new Map();
+  teamsContainer.querySelectorAll('li[data-team][data-discord-id]').forEach((row) => {
+    if (row.dataset.discordId) teamsByPlayer.set(row.dataset.discordId, row.dataset.team);
+  });
+  const getConflictedPlayers = (pairs) => {
+    const conflictedPlayers = new Set();
+    for (const pair of Array.isArray(pairs) ? pairs : []) {
+      const teamA = teamsByPlayer.get(pair.discordIdA);
+      if (teamA && teamA === teamsByPlayer.get(pair.discordIdB)) {
+        conflictedPlayers.add(pair.discordIdA);
+        conflictedPlayers.add(pair.discordIdB);
+      }
+    }
+    return conflictedPlayers;
+  };
+  const avoidConflicts = getConflictedPlayers(pairingRelations?.avoids);
+  const previousConflicts = getConflictedPlayers(pairingRelations?.previousPairings);
+
+  teamsContainer.querySelectorAll('.round-preview-player-label').forEach((label) => {
+    label.querySelectorAll('.round-preview-conflict-marker').forEach((marker) => marker.remove());
+    const player = label.querySelector('.round-preview-player[data-discord-id]');
+    if (!player) return;
+    for (const [conflicts, className, description] of [
+      [avoidConflicts, 'avoid', 'Current same-team Avoid conflict'],
+      [previousConflicts, 'previous', 'Current same-team previous-pairing conflict']
+    ]) {
+      if (!conflicts.has(player.dataset.discordId)) continue;
+      const marker = document.createElement('span');
+      marker.className = `round-preview-conflict-marker ${className}`;
+      marker.textContent = '*';
+      marker.title = description;
+      marker.setAttribute('role', 'img');
+      marker.setAttribute('aria-label', description);
+      label.append(marker);
+    }
+  });
 }
 
 function renderRoundDraft(draft) {
+  if (currentRoundDraft && currentRoundDraft.generationId !== draft.generationId) {
+    selectedRoundPlayerId = '';
+    document.getElementById('round-replacement-panel').hidden = true;
+  }
+  if (selectedRoundPlayerId && !draft.teams.some((team) =>
+    team.players.some((player) => player.discordId === selectedRoundPlayerId))) {
+    selectedRoundPlayerId = '';
+    document.getElementById('round-replacement-panel').hidden = true;
+  }
   currentRoundDraft = draft;
   const panel = document.getElementById('round-preview-panel');
   const title = document.getElementById('round-preview-title');
@@ -724,7 +734,6 @@ function renderRoundDraft(draft) {
   const regionCount = Array.isArray(finalChecks.regionErrors) ? finalChecks.regionErrors.length : 0;
   applyRoundPreviewIndicator(draft);
   renderRoundReviewers(draft.reviewActivity);
-  const pairingCounts = getRoundPairingCounts(draft);
   if (avoidCount) statusParts.push(`${avoidCount} Avoid conflict${avoidCount === 1 ? '' : 's'}`);
   if (previousCount) statusParts.push(`${previousCount} previous pairing${previousCount === 1 ? '' : 's'}`);
   if (regionCount) statusParts.push(`${regionCount} region conflict${regionCount === 1 ? '' : 's'}`);
@@ -754,49 +763,151 @@ function renderRoundDraft(draft) {
       row.dataset.team = team.name;
       row.dataset.slotIndex = String(slotIndex);
       row.dataset.discordId = player.discordId || '';
-      const playerGroup = document.createElement('span');
-      playerGroup.className = 'round-preview-player-group';
-      const name = document.createElement('span');
+      const name = player.discordId
+        ? document.createElement('button')
+        : document.createElement('span');
       name.className = 'round-preview-player';
       name.textContent = player.name;
       name.draggable = Boolean(player.discordId) && !roundDraftActionPending;
       if (player.discordId) {
+        name.type = 'button';
+        name.disabled = roundDraftActionPending;
+        name.setAttribute('aria-pressed', String(player.discordId === selectedRoundPlayerId));
         name.dataset.discordId = player.discordId;
         name.dataset.team = team.name;
-        name.title = 'Drag to another team to swap';
+        name.title = 'Click to show Avoids and previous pairings, or drag to swap';
       }
-      playerGroup.append(name);
-      const counts = pairingCounts.get(player.discordId);
-      if (counts?.avoid) playerGroup.append(createRoundPairingMarker('avoid', counts.avoid));
-      if (counts?.previous) playerGroup.append(createRoundPairingMarker('previous', counts.previous));
       const region = document.createElement('span');
       region.className = 'round-preview-region';
       region.textContent = player.region;
-      row.append(playerGroup, region);
+      const playerLabel = document.createElement('span');
+      playerLabel.className = 'round-preview-player-label';
+      playerLabel.append(name);
+      row.append(playerLabel, region);
       list.append(row);
     });
     card.append(heading, list);
     teamsContainer.append(card);
   }
-
-  const playerSelect = document.getElementById('round-adjust-player');
-  const previousPlayerId = playerSelect.value;
-  playerSelect.replaceChildren();
-  for (const team of draft.teams) {
-    for (const player of team.players) {
-      if (!player.discordId) continue;
-      const option = document.createElement('option');
-      option.value = player.discordId;
-      option.textContent = `${player.name} · Team ${team.name}`;
-      playerSelect.append(option);
-    }
-  }
-  if ([...playerSelect.options].some((option) => option.value === previousPlayerId)) {
-    playerSelect.value = previousPlayerId;
-  }
-  updateRoundSwapTargets();
+  updateRoundDraftConflictMarkers(teamsContainer, draft.pairingRelations);
+  if (selectedRoundPlayerId) highlightRoundDraftRelations(selectedRoundPlayerId);
+  updateRoundDraftControls();
+  renderRoundReplacementMembers();
   panel.hidden = false;
   roundPreviewOpen = true;
+}
+
+function renderRoundReplacementMembers() {
+  const panel = document.getElementById('round-replacement-panel');
+  if (!panel || panel.hidden) return;
+  const currentLabel = document.getElementById('round-replacement-current');
+  const search = document.getElementById('round-replacement-search');
+  const results = document.getElementById('round-replacement-results');
+  results.replaceChildren();
+
+  const selectedTeam = currentRoundDraft?.teams.find((team) =>
+    team.players.some((player) => player.discordId === selectedRoundPlayerId));
+  const selectedPlayer = selectedTeam?.players.find((player) =>
+    player.discordId === selectedRoundPlayerId);
+  if (!selectedPlayer) {
+    currentLabel.textContent = 'Select a player in the preview first.';
+    return;
+  }
+  currentLabel.textContent = `Replacing ${selectedPlayer.name} on Team ${selectedTeam.name}.`;
+  if (!membersLoaded) {
+    currentLabel.textContent += membersLoading
+      ? ' Loading the Members list…'
+      : ' Open the Members tab and refresh the member list before replacing players.';
+    return;
+  }
+
+  const assignedIds = new Set(currentRoundDraft.teams.flatMap((team) =>
+    team.players.map((player) => player.discordId).filter(Boolean)));
+  const teammates = selectedTeam.players.filter((player) =>
+    player.discordId && player.discordId !== selectedRoundPlayerId);
+  const query = search.value.trim().toLowerCase();
+  const candidates = memberRecords.filter((member) => {
+    const discordId = member.discordId || '';
+    const region = (member.region || '').trim();
+    if (!/^\d{17,20}$/.test(discordId) || assignedIds.has(discordId) ||
+        !['East', 'West', 'Both'].includes(region)) {
+      return false;
+    }
+    if (teammates.some((teammate) =>
+      (region === 'East' && teammate.region === 'West') ||
+      (region === 'West' && teammate.region === 'East'))) {
+      return false;
+    }
+    const searchText = [
+      member.nickname,
+      member.username,
+      discordId,
+      region
+    ].join(' ').toLowerCase();
+    return !query || searchText.includes(query);
+  });
+
+  for (const member of candidates.slice(0, 50)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'round-replacement-option';
+    button.dataset.discordId = member.discordId;
+    const name = document.createElement('span');
+    name.textContent = member.nickname || member.username || member.discordId;
+    const details = document.createElement('small');
+    details.textContent = `${member.username ? `@${member.username} · ` : ''}${member.region}`;
+    button.append(name, details);
+    results.append(button);
+  }
+  currentLabel.textContent = candidates.length
+    ? `Choose a registered member to replace ${selectedPlayer.name}.` +
+      (candidates.length > 50 ? ' Showing the first 50 matches.' : '')
+    : 'No eligible, unassigned members match your search.';
+}
+
+function showRoundDraftFillerTeamImmediately() {
+  const card = document.createElement('article');
+  card.className = 'round-preview-team';
+  const heading = document.createElement('h3');
+  heading.textContent = 'Adding filler team…';
+  const list = document.createElement('ul');
+  for (let slot = 0; slot < 3; slot += 1) {
+    const row = document.createElement('li');
+    const name = document.createElement('span');
+    name.className = 'round-preview-player';
+    name.textContent = 'Filler';
+    const region = document.createElement('span');
+    region.className = 'round-preview-region';
+    region.textContent = 'Filler';
+    row.append(name, region);
+    list.append(row);
+  }
+  card.append(heading, list);
+  document.getElementById('round-preview-teams').append(card);
+}
+
+function showRoundDraftPlayerReplacementImmediately(member) {
+  const row = [...document.querySelectorAll('#round-preview-teams li[data-discord-id]')]
+    .find((candidate) => candidate.dataset.discordId === selectedRoundPlayerId);
+  const player = row?.querySelector('.round-preview-player[data-discord-id]');
+  const region = row?.querySelector('.round-preview-region');
+  if (!row || !player || !region) return false;
+
+  player.textContent = member.nickname || member.username || member.discordId;
+  player.dataset.discordId = member.discordId;
+  player.dataset.team = row.dataset.team;
+  player.setAttribute('aria-pressed', 'false');
+  player.classList.remove('avoid-highlight', 'previous-pairing-highlight', 'dragging');
+  player.draggable = false;
+  player.disabled = true;
+  row.dataset.discordId = member.discordId;
+  region.textContent = member.region;
+  clearRoundDraftRelationshipHighlights();
+  updateRoundDraftConflictMarkers(
+    document.getElementById('round-preview-teams'),
+    currentRoundDraft?.pairingRelations
+  );
+  return true;
 }
 
 async function refreshRoundDraftStatus() {
@@ -807,6 +918,7 @@ async function refreshRoundDraftStatus() {
     if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
     if (!result.ok) {
       currentRoundDraft = null;
+      selectedRoundPlayerId = '';
       applyRoundPreviewIndicator(null);
       renderRoundReviewers([], /no pending Team Check draft/i.test(result.error || '')
         ? 'No pending draft.'
@@ -819,10 +931,13 @@ async function refreshRoundDraftStatus() {
       }
       return;
     }
+    if (roundPreviewOpen) {
+      renderRoundDraft(result.draft);
+      return;
+    }
     currentRoundDraft = result.draft;
     applyRoundPreviewIndicator(result.draft);
     renderRoundReviewers(result.draft.reviewActivity);
-    if (roundPreviewOpen) renderRoundDraft(result.draft);
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
       currentRoundDraft = null;
@@ -865,25 +980,58 @@ async function saveRoundDraftReview(vote) {
   }
 }
 
-async function saveRoundDraftPlayerSwap(input) {
+function showRoundDraftPlayerSwapImmediately(input) {
+  const rows = [...document.querySelectorAll('#round-preview-teams li[data-team][data-slot-index]')];
+  const sourceRow = rows.find((row) => row.dataset.discordId === input.playerDiscordId);
+  const targetRow = rows.find((row) =>
+    row.dataset.team === input.targetTeam &&
+    row.dataset.slotIndex === String(input.targetSlotIndex));
+  if (!sourceRow || !targetRow || sourceRow === targetRow ||
+      targetRow.dataset.discordId !== (input.targetDiscordId || '')) {
+    return false;
+  }
+
+  const sourceChildren = [...sourceRow.children];
+  const targetChildren = [...targetRow.children];
+  sourceRow.replaceChildren(...targetChildren);
+  targetRow.replaceChildren(...sourceChildren);
+  sourceRow.dataset.discordId = input.targetDiscordId || '';
+  targetRow.dataset.discordId = input.playerDiscordId;
+
+  for (const row of [sourceRow, targetRow]) {
+    const player = row.querySelector('.round-preview-player');
+    if (!player) continue;
+    player.classList.remove('dragging');
+    player.dataset.team = row.dataset.team;
+    player.draggable = false;
+    if (player.tagName === 'BUTTON') player.disabled = true;
+  }
+  updateRoundDraftConflictMarkers(
+    document.getElementById('round-preview-teams'),
+    currentRoundDraft?.pairingRelations
+  );
+  return true;
+}
+
+async function saveRoundDraftMutation(submitRequest, savingMessage, successMessage, onStart) {
   if (!currentRoundDraft || roundDraftActionPending) return;
   const viewGeneration = roundDraftViewGeneration;
+  const generationId = currentRoundDraft.generationId;
+  const actionStatus = document.getElementById('round-draft-action-status');
   roundDraftActionPending = true;
-  const adjustmentStatus = document.getElementById('round-adjust-status');
-  adjustmentStatus.textContent = 'Saving the team adjustment and refreshing Discord…';
-  updateRoundSwapTargets();
+  actionStatus.textContent = savingMessage;
+  document.getElementById('round-preview-status').textContent = savingMessage;
+  updateRoundDraftControls();
   try {
-    const result = await window.hoedown.swapCurrentRoundDraftPlayers({
-      generationId: currentRoundDraft.generationId,
-      ...input
-    });
+    onStart?.();
+    const result = await submitRequest(generationId);
     if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
     if (result.draft) renderRoundDraft(result.draft);
     if (!result.ok) throw new Error(result.error || 'Could not save the team adjustment.');
-    adjustmentStatus.textContent = 'Team adjustment saved. The Discord preview is up to date.';
+    actionStatus.textContent = successMessage;
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
-      adjustmentStatus.textContent = error.message || 'Could not save the team adjustment.';
+      actionStatus.textContent = error.message || 'Could not save the team adjustment.';
     }
   } finally {
     if (viewGeneration === roundDraftViewGeneration) {
@@ -891,6 +1039,48 @@ async function saveRoundDraftPlayerSwap(input) {
       if (currentRoundDraft) renderRoundDraft(currentRoundDraft);
     }
   }
+}
+
+function saveRoundDraftPlayerSwap(input) {
+  return saveRoundDraftMutation(
+    (generationId) => window.hoedown.swapCurrentRoundDraftPlayers({ generationId, ...input }),
+    'Saving the team adjustment and refreshing Discord…',
+    'Team adjustment saved. The Discord preview is up to date.',
+    () => {
+      if (showRoundDraftPlayerSwapImmediately(input)) {
+        document.getElementById('round-preview-status').textContent =
+          'Swap shown. Saving the adjustment and refreshing Discord…';
+      }
+    }
+  );
+}
+
+function saveRoundDraftFillerTeam() {
+  return saveRoundDraftMutation(
+    (generationId) => window.hoedown.addCurrentRoundDraftFillerTeam({ generationId }),
+    'Adding a filler team and refreshing Discord…',
+    'Filler team added. The Discord preview is up to date.',
+    showRoundDraftFillerTeamImmediately
+  );
+}
+
+function saveRoundDraftPlayerReplacement(member) {
+  const playerDiscordId = selectedRoundPlayerId;
+  return saveRoundDraftMutation(
+    (generationId) => window.hoedown.replaceCurrentRoundDraftPlayer({
+      generationId,
+      playerDiscordId,
+      replacementDiscordId: member.discordId
+    }),
+    'Replacing the player and refreshing Discord…',
+    'Player replaced. The Discord preview is up to date.',
+    () => {
+      if (showRoundDraftPlayerReplacementImmediately(member)) {
+        document.getElementById('round-replacement-current').textContent =
+          'Replacement shown. Saving the player change…';
+      }
+    }
+  );
 }
 
 document.getElementById('app-navigation').addEventListener('click', (event) => {
@@ -1080,6 +1270,7 @@ function applyMemberChange(change) {
     }
     updateAvoidMemberOptions();
     renderMembers();
+    renderRoundReplacementMembers();
     return;
   }
   const updatedMember = change.member;
@@ -1104,6 +1295,7 @@ function applyMemberChange(change) {
   }
   updateAvoidMemberOptions();
   renderMembers();
+  renderRoundReplacementMembers();
 }
 
 async function saveMemberRow(member) {
@@ -1266,6 +1458,7 @@ async function loadMembers(options = {}) {
     membersLoaded = true;
     updateAvoidMemberOptions();
     renderMembers();
+    renderRoundReplacementMembers();
     if (result.truncated) {
       document.getElementById('members-summary').textContent += ' Only the first 5,000 records are shown.';
     }
@@ -1279,6 +1472,8 @@ async function loadMembers(options = {}) {
     refreshButton.disabled = false;
     document.getElementById('add-avoid-pairing').disabled =
       !membersLoaded || !memberRecords.some((member) => member.username);
+    updateRoundDraftControls();
+    renderRoundReplacementMembers();
     if (memberResyncPending) {
       memberResyncPending = false;
       void loadMembers({ preserveEdits: true });
@@ -2116,6 +2311,7 @@ document.getElementById('open-round-preview').addEventListener('click', async (e
   panel.hidden = false;
   roundPreviewOpen = true;
   currentRoundDraft = null;
+  selectedRoundPlayerId = '';
   document.getElementById('round-preview-teams').replaceChildren();
   document.getElementById('round-reviewers').replaceChildren();
   previewStatus.textContent = 'Loading the current Team Check draft…';
@@ -2134,9 +2330,48 @@ document.getElementById('open-round-preview').addEventListener('click', async (e
 });
 document.getElementById('close-round-preview').addEventListener('click', () => {
   roundPreviewOpen = false;
+  selectedRoundPlayerId = '';
+  document.getElementById('round-replacement-panel').hidden = true;
+  clearRoundDraftRelationshipHighlights();
+  updateRoundPlayerSelection();
   document.getElementById('round-preview-panel').hidden = true;
 });
+document.getElementById('round-add-filler-team').addEventListener('click', () => {
+  void saveRoundDraftFillerTeam();
+});
+document.getElementById('round-open-replacement').addEventListener('click', () => {
+  if (!selectedRoundPlayerId || roundDraftActionPending) return;
+  const panel = document.getElementById('round-replacement-panel');
+  panel.hidden = false;
+  document.getElementById('round-replacement-search').value = '';
+  renderRoundReplacementMembers();
+  document.getElementById('round-replacement-search').focus();
+  if (!membersLoaded && !membersLoading) void loadMembers();
+});
+document.getElementById('round-close-replacement').addEventListener('click', () => {
+  document.getElementById('round-replacement-panel').hidden = true;
+});
+document.getElementById('round-replacement-search').addEventListener('input', () => {
+  renderRoundReplacementMembers();
+});
+document.getElementById('round-replacement-results').addEventListener('click', (event) => {
+  const choice = event.target.closest('button[data-discord-id]');
+  if (!choice || roundDraftActionPending) return;
+  const member = memberRecords.find((entry) => entry.discordId === choice.dataset.discordId);
+  if (member) void saveRoundDraftPlayerReplacement(member);
+});
 const roundPreviewTeams = document.getElementById('round-preview-teams');
+roundPreviewTeams.addEventListener('click', (event) => {
+  const player = event.target.closest('.round-preview-player[data-discord-id]');
+  if (!player || roundDraftActionPending) return;
+  selectedRoundPlayerId = selectedRoundPlayerId === player.dataset.discordId
+    ? ''
+    : player.dataset.discordId;
+  if (!selectedRoundPlayerId) document.getElementById('round-replacement-panel').hidden = true;
+  updateRoundPlayerSelection();
+  if (selectedRoundPlayerId) highlightRoundDraftRelations(selectedRoundPlayerId);
+  else clearRoundDraftRelationshipHighlights();
+});
 roundPreviewTeams.addEventListener('dragstart', (event) => {
   const player = event.target.closest('.round-preview-player');
   if (!player?.dataset.discordId || roundDraftActionPending) {
@@ -2146,12 +2381,15 @@ roundPreviewTeams.addEventListener('dragstart', (event) => {
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', player.dataset.discordId);
   draggedRoundPlayerId = player.dataset.discordId;
+  selectedRoundPlayerId = draggedRoundPlayerId;
+  updateRoundPlayerSelection();
   player.classList.add('dragging');
-  highlightRoundDraftDragRelations(draggedRoundPlayerId);
+  highlightRoundDraftRelations(draggedRoundPlayerId);
 });
 roundPreviewTeams.addEventListener('dragend', (event) => {
   event.target.closest('.round-preview-player')?.classList.remove('dragging');
-  clearRoundDraftDragHighlights();
+  if (selectedRoundPlayerId) highlightRoundDraftRelations(selectedRoundPlayerId);
+  else clearRoundDraftRelationshipHighlights();
   draggedRoundPlayerId = '';
   roundPreviewTeams.querySelectorAll('.drop-target').forEach((target) => {
     target.classList.remove('drop-target');
@@ -2189,25 +2427,11 @@ roundPreviewTeams.addEventListener('drop', async (event) => {
     targetDiscordId: target.dataset.discordId || ''
   });
 });
-document.getElementById('round-adjust-player').addEventListener('change', updateRoundSwapTargets);
-document.getElementById('round-adjust-team').addEventListener('change', updateRoundSwapTargets);
 document.getElementById('round-review-approve').addEventListener('click', () => {
   void saveRoundDraftReview('approve');
 });
 document.getElementById('round-review-changes').addEventListener('click', () => {
   void saveRoundDraftReview('changes');
-});
-document.getElementById('round-adjust-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (!currentRoundDraft || roundDraftActionPending) return;
-  const targetOption = document.getElementById('round-adjust-target').selectedOptions[0];
-  if (!targetOption) return;
-  await saveRoundDraftPlayerSwap({
-    playerDiscordId: document.getElementById('round-adjust-player').value,
-    targetTeam: document.getElementById('round-adjust-team').value,
-    targetSlotIndex: Number(targetOption.value),
-    targetDiscordId: targetOption.dataset.discordId || ''
-  });
 });
 document.getElementById('grab-round-reactions').addEventListener('click', async (event) => {
   if (roundActionState.running || localRoundActionPending) return;

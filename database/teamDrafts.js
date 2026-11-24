@@ -833,6 +833,54 @@ async function recordCurrentDraftReview(options) {
   return updateCurrentDraftReviewer(options);
 }
 
+async function saveCurrentDraftTeamChange({
+  teamCheckCollection,
+  avoidsCollection,
+  previousPairingsCollection,
+  generationId,
+  draft,
+  teams,
+  now,
+  regionError
+}) {
+  const [avoids, previousPairings] = await Promise.all([
+    loadPairingKeys(avoidsCollection, 'avoids'),
+    loadPairingKeys(previousPairingsCollection, 'previousPairings')
+  ]);
+  const finalAudit = inspectTeams(teams, previousPairings, avoids);
+  if (finalAudit.regionErrors.length) {
+    const error = new Error(regionError);
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const timestamp = now();
+  const reviewActivity = (Array.isArray(draft.reviewActivity) ? draft.reviewActivity : [])
+    .map((entry) => ({ ...entry, vote: null, reviewedAt: null }));
+  const checks = {
+    ...draft.checks,
+    final: finalAudit,
+    unresolvedAvoids: finalAudit.avoidConflicts.length,
+    unresolvedPrevious: finalAudit.previousConflicts.length,
+    manualAdjustments: (draft.checks?.manualAdjustments || 0) + 1
+  };
+  const updated = await teamCheckCollection.updateOne({
+    _id: CURRENT_SNAPSHOT_ID,
+    generationId,
+    status: 'pending',
+    updatedAt: draft.updatedAt
+  }, {
+    $set: { teams, checks, reviewActivity, updatedAt: timestamp }
+  });
+  if (!updated.matchedCount) {
+    const error = new Error('The Team Check draft changed while saving. Reload the draft and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return { ...draft, teams, checks, reviewActivity, updatedAt: timestamp };
+}
+
 async function swapCurrentDraftPlayers({
   teamCheckCollection,
   avoidsCollection,
@@ -896,42 +944,184 @@ async function swapCurrentDraftPlayers({
   [teams[source.teamIndex].players[source.slotIndex], teams[targetTeamIndex].players[targetSlotIndex]] =
     [teams[targetTeamIndex].players[targetSlotIndex], teams[source.teamIndex].players[source.slotIndex]];
 
-  const [avoids, previousPairings] = await Promise.all([
-    loadPairingKeys(avoidsCollection, 'avoids'),
-    loadPairingKeys(previousPairingsCollection, 'previousPairings')
-  ]);
-  const finalAudit = inspectTeams(teams, previousPairings, avoids);
-  if (finalAudit.regionErrors.length) {
-    const error = new Error('That swap would mix East and West players on a team.');
-    error.statusCode = 422;
+  return saveCurrentDraftTeamChange({
+    teamCheckCollection,
+    avoidsCollection,
+    previousPairingsCollection,
+    generationId,
+    draft,
+    teams,
+    now,
+    regionError: 'That swap would mix East and West players on a team.'
+  });
+}
+
+async function addCurrentDraftFillerTeam({
+  teamCheckCollection,
+  avoidsCollection,
+  previousPairingsCollection,
+  generationId,
+  now = () => new Date()
+}) {
+  const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
     throw error;
   }
-
-  const timestamp = now();
-  const reviewActivity = (Array.isArray(draft.reviewActivity) ? draft.reviewActivity : [])
-    .map((entry) => ({ ...entry, vote: null, reviewedAt: null }));
-  const checks = {
-    ...draft.checks,
-    final: finalAudit,
-    unresolvedAvoids: finalAudit.avoidConflicts.length,
-    unresolvedPrevious: finalAudit.previousConflicts.length,
-    manualAdjustments: (draft.checks?.manualAdjustments || 0) + 1
-  };
-  const updated = await teamCheckCollection.updateOne({
-    _id: CURRENT_SNAPSHOT_ID,
-    generationId,
-    status: 'pending',
-    updatedAt: draft.updatedAt
-  }, {
-    $set: { teams, checks, reviewActivity, updatedAt: timestamp }
-  });
-  if (!updated.matchedCount) {
-    const error = new Error('The Team Check draft changed while saving the swap. Reload it and try again.');
+  if (!Array.isArray(draft.teams) || draft.teams.some((team) =>
+    !Array.isArray(team.players) || team.players.length !== TEAM_SIZE)) {
+    const error = new Error('This draft does not have the expected three-player team structure.');
     error.statusCode = 409;
     throw error;
   }
 
-  return { ...draft, teams, checks, reviewActivity, updatedAt: timestamp };
+  const teams = draft.teams.map((team) => ({
+    ...team,
+    players: team.players.map((player) => ({ ...player }))
+  }));
+  const teamNames = new Set(teams.map((team) => team.name));
+  const lastTeam = teams[teams.length - 1];
+  const nextLabelIndex = lastTeam ? labelIndex(lastTeam.name) + 1 : 0;
+  let teamName = '';
+  for (let offset = 0; offset < 78; offset += 1) {
+    const candidate = labelForTeam(nextLabelIndex + offset);
+    if (!teamNames.has(candidate)) {
+      teamName = candidate;
+      break;
+    }
+  }
+  if (!teamName) {
+    const error = new Error('No unused team label is available for this draft.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  let nextFillerNumber = teams.flatMap((team) => team.players)
+    .filter((player) => player.region === 'Filler').length + 1;
+  teams.push({
+    name: teamName,
+    players: Array.from({ length: TEAM_SIZE }, () => {
+      const fillerNumber = nextFillerNumber++;
+      return {
+        id: `FILLER_${fillerNumber}`,
+        name: `Filler #${fillerNumber}`,
+        region: 'Filler'
+      };
+    })
+  });
+
+  return saveCurrentDraftTeamChange({
+    teamCheckCollection,
+    avoidsCollection,
+    previousPairingsCollection,
+    generationId,
+    draft,
+    teams,
+    now,
+    regionError: 'Adding a filler team cannot create a region conflict.'
+  });
+}
+
+async function replaceCurrentDraftPlayer({
+  teamCheckCollection,
+  membersCollection,
+  avoidsCollection,
+  previousPairingsCollection,
+  generationId,
+  playerDiscordId,
+  replacementDiscordId,
+  now = () => new Date()
+}) {
+  const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!Array.isArray(draft.teams) || draft.teams.some((team) =>
+    !Array.isArray(team.players) || team.players.length !== TEAM_SIZE)) {
+    const error = new Error('This draft does not have the expected three-player team structure.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!/^\d{17,20}$/.test(playerDiscordId || '') ||
+      !/^\d{17,20}$/.test(replacementDiscordId || '')) {
+    const error = new Error('Choose a valid player and replacement member.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const teams = draft.teams.map((team) => ({
+    ...team,
+    players: team.players.map((player) => ({ ...player }))
+  }));
+  const sourceMatches = [];
+  const assignedDiscordIds = new Set();
+  teams.forEach((team, teamIndex) => {
+    team.players.forEach((player, slotIndex) => {
+      const discordId = String(player.discordId || '');
+      if (discordId) assignedDiscordIds.add(discordId);
+      if (discordId === playerDiscordId) sourceMatches.push({ teamIndex, slotIndex });
+    });
+  });
+  if (sourceMatches.length !== 1) {
+    const error = new Error('The selected player is not in exactly one team in this draft.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (assignedDiscordIds.has(replacementDiscordId)) {
+    const error = new Error('The replacement member is already assigned to this draft.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const profile = await membersCollection?.findOne({ _id: replacementDiscordId }) ||
+    await membersCollection?.findOne({ discordId: replacementDiscordId });
+  if (!profile || String(profile.discordId || profile._id || '') !== replacementDiscordId) {
+    const error = new Error('The replacement member is no longer in the Members list.');
+    error.statusCode = 404;
+    throw error;
+  }
+  const region = typeof profile.region === 'string' ? profile.region.trim() : '';
+  if (!VALID_REGIONS.has(region)) {
+    const error = new Error('The replacement member needs a valid East, West, or Both region.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const source = sourceMatches[0];
+  const team = teams[source.teamIndex];
+  const teammates = team.players.filter((_, slotIndex) => slotIndex !== source.slotIndex);
+  if (teammates.some((teammate) => !regionSwapAllowed(
+    { region },
+    teammate
+  ))) {
+    const error = new Error('That replacement would mix East and West players on a team.');
+    error.statusCode = 422;
+    throw error;
+  }
+  const username = String(profile.username || '').trim();
+  team.players[source.slotIndex] = {
+    id: replacementDiscordId,
+    discordId: replacementDiscordId,
+    username,
+    name: String(profile.nickname || username || replacementDiscordId).trim(),
+    region,
+    steamId: profile.steamId || null,
+    streamLink: profile.streamLink || null
+  };
+
+  return saveCurrentDraftTeamChange({
+    teamCheckCollection,
+    avoidsCollection,
+    previousPairingsCollection,
+    generationId,
+    draft,
+    teams,
+    now,
+    regionError: 'That replacement would mix East and West players on a team.'
+  });
 }
 
 async function beginCurrentDraftApproval({ teamCheckCollection, roundsDatabase, round, now = () => new Date() }) {
@@ -1065,6 +1255,7 @@ async function completeCurrentDraftApproval({ teamCheckCollection, roundCollecti
 
 module.exports = {
   CURRENT_SNAPSHOT_ID,
+  addCurrentDraftFillerTeam,
   beginCurrentDraftApproval,
   completeCurrentDraftApproval,
   createCurrentTeamDraft,
@@ -1077,6 +1268,7 @@ module.exports = {
   recordCurrentDraftReview,
   recordCurrentDraftViewer,
   recordPreviousPairings,
+  replaceCurrentDraftPlayer,
   saveReactedPlayersSnapshot,
   splitDiscordMessage,
   swapCurrentDraftPlayers

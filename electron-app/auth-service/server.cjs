@@ -9,10 +9,12 @@ const { createUpdateFeed } = require('./update-feed.cjs');
 const { addAvoidRelationships } = require('../../database/pairingImport');
 const config = require('../../config.json');
 const {
+  addCurrentDraftFillerTeam,
   findNextRound,
   formatTeamCheckPreview,
   recordCurrentDraftReview,
   recordCurrentDraftViewer,
+  replaceCurrentDraftPlayer,
   splitDiscordMessage,
   swapCurrentDraftPlayers
 } = require('../../database/teamDrafts');
@@ -603,6 +605,61 @@ function createApp({
     for (const stream of memberStreams) {
       writeMemberEvent(stream.response, eventName, data);
     }
+  };
+  const respondWithUpdatedRoundDraft = async (updatedDraft, session, res, changeDescription) => {
+    const generationId = updatedDraft.generationId;
+    if (updatedDraft.previewStatus !== 'disabled') {
+      try {
+        if (typeof syncRoundDraftPreview !== 'function') {
+          throw new Error('Discord Team Check preview synchronization is not configured.');
+        }
+        const synced = await syncRoundDraftPreview(updatedDraft);
+        const savedPreview = await roundDraftCollection.updateOne({
+          _id: 'current',
+          generationId,
+          status: 'pending'
+        }, {
+          $set: {
+            previewMessageIds: synced.previewMessageIds,
+            previewStatus: 'posted'
+          },
+          $unset: { previewError: '' }
+        });
+        if (!savedPreview.matchedCount) {
+          throw new Error('The saved draft changed while the Discord preview was being updated.');
+        }
+        updatedDraft = {
+          ...updatedDraft,
+          previewMessageIds: synced.previewMessageIds,
+          previewStatus: 'posted'
+        };
+      } catch (error) {
+        const previewError = String(error.message || 'Unknown Discord preview error').slice(0, 1000);
+        await roundDraftCollection.updateOne({
+          _id: 'current',
+          generationId,
+          status: 'pending'
+        }, {
+          $set: { previewStatus: 'failed', previewError, updatedAt: new Date() }
+        });
+        broadcastMemberEvent('round-draft-updated', { generationId });
+        res.set('Cache-Control', 'private, no-store');
+        return res.status(502).json({
+          error: `The ${changeDescription} was saved, but the Discord preview could not be updated: ${previewError}`,
+          partial: true,
+          draft: await serializeCurrentRoundDraft({
+            ...updatedDraft,
+            previewStatus: 'failed'
+          }, session.user.discordId)
+        });
+      }
+    }
+
+    broadcastMemberEvent('round-draft-updated', { generationId });
+    res.set('Cache-Control', 'private, no-store');
+    return res.status(200).json({
+      draft: await serializeCurrentRoundDraft(updatedDraft, session.user.discordId)
+    });
   };
   const broadcastAvoidsResync = () => broadcastMemberEvent('avoids-resync', {});
   const broadcastTicketsResync = () => broadcastMemberEvent('tickets-resync', {});
@@ -2026,6 +2083,70 @@ function createApp({
     }
   });
 
+  app.post('/api/rounds/draft/current/add-filler-team', limited(30), async (req, res) => {
+    let mutationLockAcquired = false;
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const { generationId } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64) {
+        return res.status(400).json({ error: 'Choose a valid pending Team Check draft.' });
+      }
+      if (roundDraftMutationRunning) {
+        return res.status(409).json({ error: 'Another team adjustment is being saved. Try again shortly.' });
+      }
+      roundDraftMutationRunning = true;
+      mutationLockAcquired = true;
+      const updatedDraft = await addCurrentDraftFillerTeam({
+        teamCheckCollection: roundDraftCollection,
+        avoidsCollection: roundAvoidsCollection,
+        previousPairingsCollection,
+        generationId
+      });
+      return await respondWithUpdatedRoundDraft(updatedDraft, session, res, 'filler team addition');
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Adding a filler team failed:');
+    } finally {
+      if (mutationLockAcquired) roundDraftMutationRunning = false;
+    }
+  });
+
+  app.post('/api/rounds/draft/current/replace-player', limited(30), async (req, res) => {
+    let mutationLockAcquired = false;
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      if (!members) return res.status(503).json({ error: 'Member data is not configured.' });
+      const { generationId, playerDiscordId, replacementDiscordId } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64 ||
+          !MEMBER_ID_PATTERN.test(playerDiscordId || '') ||
+          !MEMBER_ID_PATTERN.test(replacementDiscordId || '')) {
+        return res.status(400).json({ error: 'Choose a valid player and replacement member.' });
+      }
+      if (roundDraftMutationRunning) {
+        return res.status(409).json({ error: 'Another team adjustment is being saved. Try again shortly.' });
+      }
+      roundDraftMutationRunning = true;
+      mutationLockAcquired = true;
+      const updatedDraft = await replaceCurrentDraftPlayer({
+        teamCheckCollection: roundDraftCollection,
+        membersCollection: members,
+        avoidsCollection: roundAvoidsCollection,
+        previousPairingsCollection,
+        generationId,
+        playerDiscordId,
+        replacementDiscordId
+      });
+      return await respondWithUpdatedRoundDraft(updatedDraft, session, res, 'player replacement');
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Replacing a draft player failed:');
+    } finally {
+      if (mutationLockAcquired) roundDraftMutationRunning = false;
+    }
+  });
+
   app.post('/api/rounds/draft/current/swap', limited(30), async (req, res) => {
     let updatedDraft = null;
     let mutationLockAcquired = false;
@@ -2062,58 +2183,7 @@ function createApp({
         targetDiscordId
       });
 
-      if (updatedDraft.previewStatus !== 'disabled') {
-        try {
-          if (typeof syncRoundDraftPreview !== 'function') {
-            throw new Error('Discord Team Check preview synchronization is not configured.');
-          }
-          const synced = await syncRoundDraftPreview(updatedDraft);
-          const savedPreview = await roundDraftCollection.updateOne({
-            _id: 'current',
-            generationId,
-            status: 'pending'
-          }, {
-            $set: {
-              previewMessageIds: synced.previewMessageIds,
-              previewStatus: 'posted'
-            },
-            $unset: { previewError: '' }
-          });
-          if (!savedPreview.matchedCount) {
-            throw new Error('The saved draft changed while the Discord preview was being updated.');
-          }
-          updatedDraft = {
-            ...updatedDraft,
-            previewMessageIds: synced.previewMessageIds,
-            previewStatus: 'posted'
-          };
-        } catch (error) {
-          const previewError = String(error.message || 'Unknown Discord preview error').slice(0, 1000);
-          await roundDraftCollection.updateOne({
-            _id: 'current',
-            generationId,
-            status: 'pending'
-          }, {
-            $set: { previewStatus: 'failed', previewError, updatedAt: new Date() }
-          });
-          broadcastMemberEvent('round-draft-updated', { generationId });
-          res.set('Cache-Control', 'private, no-store');
-          return res.status(502).json({
-            error: `The team swap was saved, but the Discord preview could not be updated: ${previewError}`,
-            partial: true,
-            draft: await serializeCurrentRoundDraft({
-              ...updatedDraft,
-              previewStatus: 'failed'
-            }, session.user.discordId)
-          });
-        }
-      }
-
-      broadcastMemberEvent('round-draft-updated', { generationId });
-      res.set('Cache-Control', 'private, no-store');
-      return res.status(200).json({
-        draft: await serializeCurrentRoundDraft(updatedDraft, session.user.discordId)
-      });
+      return await respondWithUpdatedRoundDraft(updatedDraft, session, res, 'team swap');
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
       return sendError(res, error, 'Team Check adjustment failed:');

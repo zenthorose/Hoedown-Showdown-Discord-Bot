@@ -689,9 +689,52 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     assert.equal(result.draft.previewStatus, 'posted');
     assert.equal(previewUpdates.length, 1);
     assert.equal(previewUpdates[0][1].players[2].discordId, '10000000000000001');
+
+    const replacement = await fetch(`${baseUrl}/api/rounds/draft/current/replace-player`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        generationId: 'generation-review-1',
+        playerDiscordId: '10000000000000001',
+        replacementDiscordId: '10000000000000006'
+      })
+    });
+    assert.equal(replacement.status, 200);
+    const replacedDraft = (await replacement.json()).draft;
+    assert.equal(replacedDraft.teams[1].players[2].discordId, '10000000000000006');
+    assert.equal(replacedDraft.teams.flatMap((team) => team.players)
+      .some((player) => player.discordId === '10000000000000001'), false);
+
+    const addTeam = await fetch(`${baseUrl}/api/rounds/draft/current/add-filler-team`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1' })
+    });
+    assert.equal(addTeam.status, 200);
+    const expandedDraft = (await addTeam.json()).draft;
+    assert.equal(expandedDraft.teams.length, 3);
+    assert.equal(expandedDraft.teams[2].name, 'C');
+    assert.deepEqual(expandedDraft.teams[2].players.map((player) => player.region),
+      ['Filler', 'Filler', 'Filler']);
+    assert.equal(previewUpdates.length, 3);
   }, {
     discordId: '123456789012345678',
     canGrabRoundReactions: async () => true,
+    memberRecords: [
+      {
+        _id: '123456789012345678',
+        discordId: '123456789012345678',
+        username: 'test.player',
+        nickname: 'Test Player',
+        region: 'East'
+      },
+      {
+        _id: '10000000000000006',
+        username: 'replacement.player',
+        nickname: 'Replacement Player',
+        region: 'East'
+      }
+    ],
     roundDraftCollection,
     roundAvoidsCollection: new MemoryCollection([{
       _id: '10000000000000001',
