@@ -705,6 +705,22 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     assert.equal(replacedDraft.teams.flatMap((team) => team.players)
       .some((player) => player.discordId === '10000000000000001'), false);
 
+    const replaceWithFiller = await fetch(
+      `${baseUrl}/api/rounds/draft/current/replace-player-with-filler`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          generationId: 'generation-review-1',
+          playerDiscordId: '10000000000000002'
+        })
+      });
+    assert.equal(replaceWithFiller.status, 200);
+    const fillerDraft = (await replaceWithFiller.json()).draft;
+    assert.equal(fillerDraft.teams[0].players[1].name, 'Filler #1');
+    assert.equal(fillerDraft.teams[0].players[1].discordId, '');
+    assert.equal(fillerDraft.teams.flatMap((team) => team.players)
+      .some((player) => player.discordId === '10000000000000002'), false);
+
     const addTeam = await fetch(`${baseUrl}/api/rounds/draft/current/add-filler-team`, {
       method: 'POST',
       headers,
@@ -716,6 +732,22 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     assert.equal(expandedDraft.teams[2].name, 'C');
     assert.deepEqual(expandedDraft.teams[2].players.map((player) => player.region),
       ['Filler', 'Filler', 'Filler']);
+
+    const deleteTeam = await fetch(`${baseUrl}/api/rounds/draft/current/delete-filler-team`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1', teamName: 'C' })
+    });
+    assert.equal(deleteTeam.status, 200);
+    assert.equal((await deleteTeam.json()).draft.teams.length, 2);
+
+    const reAddTeam = await fetch(`${baseUrl}/api/rounds/draft/current/add-filler-team`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1' })
+    });
+    assert.equal(reAddTeam.status, 200);
+    assert.equal((await reAddTeam.json()).draft.teams[2].name, 'C');
 
     const fillSlot = await fetch(`${baseUrl}/api/rounds/draft/current/fill-slot`, {
       method: 'POST',
@@ -741,15 +773,15 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
         sourceSlotIndex: 1,
         sourceDiscordId: '',
         targetTeam: 'A',
-        targetSlotIndex: 1,
-        targetDiscordId: '10000000000000002'
+        targetSlotIndex: 2,
+        targetDiscordId: '10000000000000003'
       })
     });
     assert.equal(moveFiller.status, 200);
     const movedDraft = (await moveFiller.json()).draft;
-    assert.equal(movedDraft.teams[0].players[1].region, 'Filler');
-    assert.equal(movedDraft.teams[2].players[1].discordId, '10000000000000002');
-    assert.equal(previewUpdates.length, 5);
+    assert.equal(movedDraft.teams[0].players[2].region, 'Filler');
+    assert.equal(movedDraft.teams[2].players[1].discordId, '10000000000000003');
+    assert.equal(previewUpdates.length, 8);
   }, {
     discordId: '123456789012345678',
     canGrabRoundReactions: async () => true,

@@ -937,8 +937,20 @@ app.whenReady().then(async () => {
       body: input,
       timeoutMs: 60000
     }));
+  ipcMain.handle('rounds:delete-current-draft-filler-team', (event, input) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/delete-filler-team', {
+      method: 'POST',
+      body: input,
+      timeoutMs: 60000
+    }));
   ipcMain.handle('rounds:replace-current-draft-player', (event, input) =>
     requestRoundDraftApi(event, '/api/rounds/draft/current/replace-player', {
+      method: 'POST',
+      body: input,
+      timeoutMs: 60000
+    }));
+  ipcMain.handle('rounds:replace-current-draft-player-with-filler', (event, input) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/replace-player-with-filler', {
       method: 'POST',
       body: input,
       timeoutMs: 60000

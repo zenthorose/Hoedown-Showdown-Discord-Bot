@@ -102,6 +102,30 @@ function labelIndex(label) {
   return (length === 1 ? 0 : length === 2 ? 26 : 52) + code;
 }
 
+function getUsedFillerNumbers(teams) {
+  const usedNumbers = new Set();
+  for (const team of teams) {
+    for (const player of team.players) {
+      for (const value of [player.id, player.name]) {
+        const match = String(value || '').match(/^(?:FILLER_|Filler #)(\d+)$/i);
+        if (match) usedNumbers.add(Number(match[1]));
+      }
+    }
+  }
+  return usedNumbers;
+}
+
+function nextFillerPlayer(usedNumbers) {
+  let number = 1;
+  while (usedNumbers.has(number)) number += 1;
+  usedNumbers.add(number);
+  return {
+    id: `FILLER_${number}`,
+    name: `Filler #${number}`,
+    region: 'Filler'
+  };
+}
+
 function inspectTeams(teams, previousPairings, avoids) {
   const previousConflicts = [];
   const avoidConflicts = [];
@@ -1031,18 +1055,10 @@ async function addCurrentDraftFillerTeam({
     throw error;
   }
 
-  let nextFillerNumber = teams.flatMap((team) => team.players)
-    .filter((player) => player.region === 'Filler').length + 1;
+  const usedFillerNumbers = getUsedFillerNumbers(teams);
   teams.push({
     name: teamName,
-    players: Array.from({ length: TEAM_SIZE }, () => {
-      const fillerNumber = nextFillerNumber++;
-      return {
-        id: `FILLER_${fillerNumber}`,
-        name: `Filler #${fillerNumber}`,
-        region: 'Filler'
-      };
-    })
+    players: Array.from({ length: TEAM_SIZE }, () => nextFillerPlayer(usedFillerNumbers))
   });
 
   return saveCurrentDraftTeamChange({
@@ -1054,6 +1070,57 @@ async function addCurrentDraftFillerTeam({
     teams,
     now,
     regionError: 'Adding a filler team cannot create a region conflict.'
+  });
+}
+
+async function deleteCurrentDraftFillerTeam({
+  teamCheckCollection,
+  avoidsCollection,
+  previousPairingsCollection,
+  generationId,
+  teamName,
+  now = () => new Date()
+}) {
+  const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!Array.isArray(draft.teams) || draft.teams.length <= 1) {
+    const error = new Error('The last team cannot be deleted from a draft.');
+    error.statusCode = 409;
+    throw error;
+  }
+  const teamIndex = draft.teams.findIndex((team) => team.name === teamName);
+  if (teamIndex < 0) {
+    const error = new Error('The selected team no longer exists in this draft.');
+    error.statusCode = 404;
+    throw error;
+  }
+  const team = draft.teams[teamIndex];
+  if (!Array.isArray(team.players) || team.players.length !== TEAM_SIZE ||
+      team.players.some((player) => player.region !== 'Filler' || player.discordId)) {
+    const error = new Error('Only a team with three empty filler slots can be deleted.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const teams = draft.teams
+    .filter((_, index) => index !== teamIndex)
+    .map((entry) => ({
+      ...entry,
+      players: entry.players.map((player) => ({ ...player }))
+    }));
+  return saveCurrentDraftTeamChange({
+    teamCheckCollection,
+    avoidsCollection,
+    previousPairingsCollection,
+    generationId,
+    draft,
+    teams,
+    now,
+    regionError: 'Deleting a filler team cannot create a region conflict.'
   });
 }
 
@@ -1155,6 +1222,65 @@ async function replaceCurrentDraftPlayer({
     teams,
     now,
     regionError: 'That replacement would mix East and West players on a team.'
+  });
+}
+
+async function replaceCurrentDraftPlayerWithFiller({
+  teamCheckCollection,
+  avoidsCollection,
+  previousPairingsCollection,
+  generationId,
+  playerDiscordId,
+  now = () => new Date()
+}) {
+  const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!Array.isArray(draft.teams) || draft.teams.some((team) =>
+    !Array.isArray(team.players) || team.players.length !== TEAM_SIZE)) {
+    const error = new Error('This draft does not have the expected three-player team structure.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!/^\d{17,20}$/.test(playerDiscordId || '')) {
+    const error = new Error('Choose a valid player to replace with a filler.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const teams = draft.teams.map((team) => ({
+    ...team,
+    players: team.players.map((player) => ({ ...player }))
+  }));
+  const sourceMatches = [];
+  teams.forEach((team, teamIndex) => {
+    team.players.forEach((player, slotIndex) => {
+      if (String(player.discordId || '') === playerDiscordId) {
+        sourceMatches.push({ teamIndex, slotIndex });
+      }
+    });
+  });
+  if (sourceMatches.length !== 1) {
+    const error = new Error('The selected player is not in exactly one team in this draft.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const source = sourceMatches[0];
+  const filler = nextFillerPlayer(getUsedFillerNumbers(teams));
+  teams[source.teamIndex].players[source.slotIndex] = filler;
+  return saveCurrentDraftTeamChange({
+    teamCheckCollection,
+    avoidsCollection,
+    previousPairingsCollection,
+    generationId,
+    draft,
+    teams,
+    now,
+    regionError: 'Replacing a player with a filler cannot create a region conflict.'
   });
 }
 
@@ -1385,6 +1511,7 @@ module.exports = {
   beginCurrentDraftApproval,
   completeCurrentDraftApproval,
   createCurrentTeamDraft,
+  deleteCurrentDraftFillerTeam,
   findNextRound,
   formatTeamCheckPreview,
   generateTeamGroups,
@@ -1395,6 +1522,7 @@ module.exports = {
   recordCurrentDraftViewer,
   recordPreviousPairings,
   replaceCurrentDraftPlayer,
+  replaceCurrentDraftPlayerWithFiller,
   saveReactedPlayersSnapshot,
   splitDiscordMessage,
   swapCurrentDraftPlayers

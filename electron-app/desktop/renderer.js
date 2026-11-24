@@ -659,6 +659,7 @@ function updateRoundPlayerSelection() {
 function updateRoundDraftControls() {
   const addTeamButton = document.getElementById('round-add-filler-team');
   const replaceButton = document.getElementById('round-open-replacement');
+  const replaceWithFillerButton = document.getElementById('round-replace-with-filler');
   const selectedPlayerExists = Boolean(currentRoundDraft?.teams.some((team) =>
     team.players.some((player) => player.discordId === selectedRoundPlayerId)));
   const selectedFillerExists = Boolean(selectedRoundFillerSlot &&
@@ -670,9 +671,16 @@ function updateRoundDraftControls() {
     replaceButton.textContent = selectedFillerExists ? 'Fill selected slot' : 'Replace selected player';
     replaceButton.disabled = (!selectedPlayerExists && !selectedFillerExists) || roundDraftActionPending;
   }
+  if (replaceWithFillerButton) {
+    replaceWithFillerButton.hidden = !selectedPlayerExists;
+    replaceWithFillerButton.disabled = roundDraftActionPending;
+  }
   document.querySelectorAll('button.round-preview-player').forEach((player) => {
     player.disabled = roundDraftActionPending;
     player.draggable = !roundDraftActionPending;
+  });
+  document.querySelectorAll('.round-preview-delete-filler-team').forEach((button) => {
+    button.disabled = roundDraftActionPending;
   });
   document.getElementById('round-review-approve').disabled = roundDraftActionPending;
   document.getElementById('round-review-changes').disabled = roundDraftActionPending;
@@ -777,8 +785,24 @@ function renderRoundDraft(draft) {
   for (const team of draft.teams) {
     const card = document.createElement('article');
     card.className = 'round-preview-team';
+    card.dataset.team = team.name;
+    const teamHeader = document.createElement('div');
+    teamHeader.className = 'round-preview-team-header';
     const heading = document.createElement('h3');
     heading.textContent = `Team ${team.name}`;
+    teamHeader.append(heading);
+    const isAllFillerTeam = team.players.length === 3 &&
+      team.players.every((player) => player.region === 'Filler' && !player.discordId);
+    if (isAllFillerTeam && draft.teams.length > 1) {
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'round-preview-delete-filler-team';
+      deleteButton.textContent = '×';
+      deleteButton.setAttribute('aria-label', `Delete all-filler Team ${team.name}`);
+      deleteButton.title = 'Delete this all-filler team';
+      deleteButton.disabled = roundDraftActionPending;
+      teamHeader.append(deleteButton);
+    }
     const list = document.createElement('ul');
     team.players.forEach((player, slotIndex) => {
       const row = document.createElement('li');
@@ -820,7 +844,7 @@ function renderRoundDraft(draft) {
       row.append(playerLabel, region);
       list.append(row);
     });
-    card.append(heading, list);
+    card.append(teamHeader, list);
     teamsContainer.append(card);
   }
   updateRoundDraftConflictMarkers(teamsContainer, draft.pairingRelations);
@@ -848,6 +872,7 @@ function renderRoundReplacementMembers() {
     : null;
   const selectedFiller = selectedFillerTeam?.players[selectedRoundFillerSlot?.slotIndex];
   const fillingFillerSlot = selectedFiller?.region === 'Filler' && !selectedFiller.discordId;
+  document.getElementById('round-replace-with-filler').hidden = !selectedPlayer;
   if (!selectedPlayer && !fillingFillerSlot) {
     currentLabel.textContent = 'Select a player in the preview first.';
     return;
@@ -916,8 +941,12 @@ function renderRoundReplacementMembers() {
 function showRoundDraftFillerTeamImmediately() {
   const card = document.createElement('article');
   card.className = 'round-preview-team';
+  card.dataset.team = '';
   const heading = document.createElement('h3');
   heading.textContent = 'Adding filler team…';
+  const teamHeader = document.createElement('div');
+  teamHeader.className = 'round-preview-team-header';
+  teamHeader.append(heading);
   const list = document.createElement('ul');
   for (let slot = 0; slot < 3; slot += 1) {
     const row = document.createElement('li');
@@ -930,8 +959,16 @@ function showRoundDraftFillerTeamImmediately() {
     row.append(name, region);
     list.append(row);
   }
-  card.append(heading, list);
+  card.append(teamHeader, list);
   document.getElementById('round-preview-teams').append(card);
+}
+
+function showRoundDraftFillerTeamDeletionImmediately(teamName) {
+  const card = [...document.querySelectorAll('#round-preview-teams .round-preview-team')]
+    .find((candidate) => candidate.dataset.team === teamName);
+  if (!card) return false;
+  card.remove();
+  return true;
 }
 
 function showRoundDraftPlayerReplacementImmediately(member) {
@@ -956,6 +993,49 @@ function showRoundDraftPlayerReplacementImmediately(member) {
   player.disabled = true;
   row.dataset.discordId = member.discordId;
   region.textContent = member.region;
+  clearRoundDraftRelationshipHighlights();
+  updateRoundDraftConflictMarkers(
+    document.getElementById('round-preview-teams'),
+    currentRoundDraft?.pairingRelations
+  );
+  return true;
+}
+
+function showRoundDraftPlayerFillerImmediately() {
+  const playerDiscordId = selectedRoundPlayerId;
+  const row = [...document.querySelectorAll('#round-preview-teams li[data-discord-id]')]
+    .find((candidate) => candidate.dataset.discordId === playerDiscordId);
+  const player = row?.querySelector('.round-preview-player');
+  const region = row?.querySelector('.round-preview-region');
+  if (!row || !player || !region) return false;
+
+  const usedNumbers = new Set();
+  for (const team of currentRoundDraft?.teams || []) {
+    for (const draftPlayer of team.players) {
+      for (const value of [draftPlayer.id, draftPlayer.name]) {
+        const match = String(value || '').match(/^(?:FILLER_|Filler #)(\d+)$/i);
+        if (match) usedNumbers.add(Number(match[1]));
+      }
+    }
+  }
+  let fillerNumber = 1;
+  while (usedNumbers.has(fillerNumber)) fillerNumber += 1;
+
+  player.textContent = `Filler #${fillerNumber}`;
+  delete player.dataset.discordId;
+  player.dataset.fillerSlot = 'true';
+  player.dataset.team = row.dataset.team;
+  player.dataset.slotIndex = row.dataset.slotIndex;
+  player.classList.add('filler-slot');
+  player.classList.remove('avoid-highlight', 'previous-pairing-highlight', 'dragging');
+  player.setAttribute('aria-pressed', 'false');
+  player.draggable = false;
+  player.disabled = true;
+  row.dataset.discordId = '';
+  region.textContent = 'Filler';
+  selectedRoundPlayerId = '';
+  selectedRoundFillerSlot = null;
+  document.getElementById('round-replacement-panel').hidden = true;
   clearRoundDraftRelationshipHighlights();
   updateRoundDraftConflictMarkers(
     document.getElementById('round-preview-teams'),
@@ -1140,6 +1220,20 @@ function saveRoundDraftFillerTeam() {
   );
 }
 
+function saveRoundDraftFillerTeamDeletion(teamName) {
+  return saveRoundDraftMutation(
+    (generationId) => window.hoedown.deleteCurrentRoundDraftFillerTeam({
+      generationId,
+      teamName
+    }),
+    `Deleting all-filler Team ${teamName} and refreshing Discord…`,
+    `Team ${teamName} deleted. The Discord preview is up to date.`,
+    () => {
+      showRoundDraftFillerTeamDeletionImmediately(teamName);
+    }
+  );
+}
+
 function saveRoundDraftPlayerReplacement(member) {
   const playerDiscordId = selectedRoundPlayerId;
   const fillerSlot = selectedRoundFillerSlot ? { ...selectedRoundFillerSlot } : null;
@@ -1167,6 +1261,21 @@ function saveRoundDraftPlayerReplacement(member) {
         document.getElementById('round-replacement-current').textContent =
           'Replacement shown. Saving the player change…';
       }
+    }
+  );
+}
+
+function saveRoundDraftPlayerWithFiller() {
+  const playerDiscordId = selectedRoundPlayerId;
+  return saveRoundDraftMutation(
+    (generationId) => window.hoedown.replaceCurrentRoundDraftPlayerWithFiller({
+      generationId,
+      playerDiscordId
+    }),
+    'Replacing the player with a filler and refreshing Discord…',
+    'Player replaced with a filler. The Discord preview is up to date.',
+    () => {
+      showRoundDraftPlayerFillerImmediately();
     }
   );
 }
@@ -2443,6 +2552,10 @@ document.getElementById('round-open-replacement').addEventListener('click', () =
 document.getElementById('round-close-replacement').addEventListener('click', () => {
   document.getElementById('round-replacement-panel').hidden = true;
 });
+document.getElementById('round-replace-with-filler').addEventListener('click', () => {
+  if (!selectedRoundPlayerId || roundDraftActionPending) return;
+  void saveRoundDraftPlayerWithFiller();
+});
 document.getElementById('round-replacement-search').addEventListener('input', () => {
   renderRoundReplacementMembers();
 });
@@ -2454,6 +2567,14 @@ document.getElementById('round-replacement-results').addEventListener('click', (
 });
 const roundPreviewTeams = document.getElementById('round-preview-teams');
 roundPreviewTeams.addEventListener('click', (event) => {
+  const deleteTeamButton = event.target.closest('.round-preview-delete-filler-team');
+  if (deleteTeamButton) {
+    const teamCard = deleteTeamButton.closest('.round-preview-team[data-team]');
+    if (teamCard && !roundDraftActionPending) {
+      void saveRoundDraftFillerTeamDeletion(teamCard.dataset.team);
+    }
+    return;
+  }
   const player = event.target.closest('.round-preview-player[data-discord-id]');
   const filler = event.target.closest('.round-preview-player[data-filler-slot="true"]');
   if ((!player && !filler) || roundDraftActionPending) return;

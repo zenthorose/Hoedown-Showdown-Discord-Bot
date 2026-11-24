@@ -11,11 +11,13 @@ const config = require('../../config.json');
 const {
   addCurrentDraftFillerTeam,
   addCurrentDraftMemberToFillerSlot,
+  deleteCurrentDraftFillerTeam,
   findNextRound,
   formatTeamCheckPreview,
   recordCurrentDraftReview,
   recordCurrentDraftViewer,
   replaceCurrentDraftPlayer,
+  replaceCurrentDraftPlayerWithFiller,
   splitDiscordMessage,
   swapCurrentDraftPlayers
 } = require('../../database/teamDrafts');
@@ -2113,6 +2115,37 @@ function createApp({
     }
   });
 
+  app.post('/api/rounds/draft/current/delete-filler-team', limited(30), async (req, res) => {
+    let mutationLockAcquired = false;
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const { generationId, teamName } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64 ||
+          typeof teamName !== 'string' || !teamName.trim() || teamName.length > 32) {
+        return res.status(400).json({ error: 'Choose a valid filler team to delete.' });
+      }
+      if (roundDraftMutationRunning) {
+        return res.status(409).json({ error: 'Another team adjustment is being saved. Try again shortly.' });
+      }
+      roundDraftMutationRunning = true;
+      mutationLockAcquired = true;
+      const updatedDraft = await deleteCurrentDraftFillerTeam({
+        teamCheckCollection: roundDraftCollection,
+        avoidsCollection: roundAvoidsCollection,
+        previousPairingsCollection,
+        generationId,
+        teamName: teamName.trim()
+      });
+      return await respondWithUpdatedRoundDraft(updatedDraft, session, res, 'filler team deletion');
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Deleting the filler team failed:');
+    } finally {
+      if (mutationLockAcquired) roundDraftMutationRunning = false;
+    }
+  });
+
   app.post('/api/rounds/draft/current/replace-player', limited(30), async (req, res) => {
     let mutationLockAcquired = false;
     try {
@@ -2143,6 +2176,37 @@ function createApp({
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
       return sendError(res, error, 'Replacing a draft player failed:');
+    } finally {
+      if (mutationLockAcquired) roundDraftMutationRunning = false;
+    }
+  });
+
+  app.post('/api/rounds/draft/current/replace-player-with-filler', limited(30), async (req, res) => {
+    let mutationLockAcquired = false;
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const { generationId, playerDiscordId } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64 ||
+          !MEMBER_ID_PATTERN.test(playerDiscordId || '')) {
+        return res.status(400).json({ error: 'Choose a valid player to replace with a filler.' });
+      }
+      if (roundDraftMutationRunning) {
+        return res.status(409).json({ error: 'Another team adjustment is being saved. Try again shortly.' });
+      }
+      roundDraftMutationRunning = true;
+      mutationLockAcquired = true;
+      const updatedDraft = await replaceCurrentDraftPlayerWithFiller({
+        teamCheckCollection: roundDraftCollection,
+        avoidsCollection: roundAvoidsCollection,
+        previousPairingsCollection,
+        generationId,
+        playerDiscordId
+      });
+      return await respondWithUpdatedRoundDraft(updatedDraft, session, res, 'player-to-filler replacement');
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Replacing a draft player with a filler failed:');
     } finally {
       if (mutationLockAcquired) roundDraftMutationRunning = false;
     }

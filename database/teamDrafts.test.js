@@ -6,6 +6,7 @@ const {
   addCurrentDraftFillerTeam,
   completeCurrentDraftApproval,
   createCurrentTeamDraft,
+  deleteCurrentDraftFillerTeam,
   formatTeamCheckPreview,
   generateTeamGroups,
   inspectTeams,
@@ -13,6 +14,7 @@ const {
   recordCurrentDraftViewer,
   recordPreviousPairings,
   replaceCurrentDraftPlayer,
+  replaceCurrentDraftPlayerWithFiller,
   swapCurrentDraftPlayers
 } = require('./teamDrafts');
 
@@ -523,6 +525,51 @@ test('adding a filler team appends three filler slots and clears review votes', 
   assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null]);
 });
 
+test('deleting an all-filler team removes it and recalculates the draft', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-delete-filler-team',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [
+      {
+        name: 'A',
+        players: [
+          { discordId: '10000000000000001', name: 'East 1', region: 'East' },
+          { discordId: '10000000000000002', name: 'East 2', region: 'East' },
+          { discordId: '10000000000000003', name: 'East 3', region: 'East' }
+        ]
+      },
+      {
+        name: 'B',
+        players: [
+          { id: 'FILLER_1', name: 'Filler #1', region: 'Filler' },
+          { id: 'FILLER_2', name: 'Filler #2', region: 'Filler' },
+          { id: 'FILLER_3', name: 'Filler #3', region: 'Filler' }
+        ]
+      }
+    ],
+    checks: {
+      manualAdjustments: 1,
+      final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] }
+    },
+    reviewActivity: []
+  }]);
+
+  const updatedDraft = await deleteCurrentDraftFillerTeam({
+    teamCheckCollection,
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-delete-filler-team',
+    teamName: 'B',
+    now: () => new Date('2026-03-01T00:01:00.000Z')
+  });
+
+  assert.deepEqual(updatedDraft.teams.map((team) => team.name), ['A']);
+  assert.equal(updatedDraft.checks.manualAdjustments, 2);
+  assert.deepEqual(updatedDraft.checks.final.regionErrors, []);
+});
+
 test('replacing a player with a registered member removes the original from the teams', async () => {
   const teamCheckCollection = new MemoryCollection([{
     _id: 'current',
@@ -566,6 +613,65 @@ test('replacing a player with a registered member removes the original from the 
   assert.equal(updatedDraft.teams.flatMap((team) => team.players)
     .some((player) => player.discordId === '10000000000000001'), false);
   assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null]);
+});
+
+test('replacing a player with a filler uses the next unused number across draft edits', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-replace-with-filler',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [
+      {
+        name: 'A',
+        players: [
+          { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+          { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+          { discordId: '10000000000000003', name: 'Player 3', region: 'East' }
+        ]
+      },
+      {
+        name: 'B',
+        players: [
+          { id: 'FILLER_1', name: 'Filler #1', region: 'Filler' },
+          { id: 'FILLER_3', name: 'Filler #3', region: 'Filler' },
+          { id: 'FILLER_4', name: 'Filler #4', region: 'Filler' }
+        ]
+      }
+    ],
+    checks: {
+      manualAdjustments: 0,
+      final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] }
+    },
+    reviewActivity: []
+  }]);
+
+  const updatedDraft = await replaceCurrentDraftPlayerWithFiller({
+    teamCheckCollection,
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-replace-with-filler',
+    playerDiscordId: '10000000000000001',
+    now: () => new Date('2026-03-01T00:01:00.000Z')
+  });
+
+  assert.deepEqual(updatedDraft.teams[0].players[0], {
+    id: 'FILLER_2',
+    name: 'Filler #2',
+    region: 'Filler'
+  });
+  assert.equal(updatedDraft.teams.flatMap((team) => team.players)
+    .some((player) => player.discordId === '10000000000000001'), false);
+  assert.equal(updatedDraft.checks.manualAdjustments, 1);
+
+  const expandedDraft = await addCurrentDraftFillerTeam({
+    teamCheckCollection,
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-replace-with-filler'
+  });
+  assert.deepEqual(expandedDraft.teams[2].players.map((player) => player.id),
+    ['FILLER_5', 'FILLER_6', 'FILLER_7']);
 });
 
 test('filling a filler slot adds an eligible unassigned member', async () => {
