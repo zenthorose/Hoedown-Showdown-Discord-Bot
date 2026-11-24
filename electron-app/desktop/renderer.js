@@ -559,18 +559,27 @@ async function refreshRoundActionStatus() {
 function applyRoundPreviewIndicator(draft) {
   const indicator = document.getElementById('round-preview-indicator');
   const finalChecks = draft?.checks?.final;
-  const hasIssues = !draft || !finalChecks ||
-    !Array.isArray(finalChecks.avoidConflicts) ||
-    !Array.isArray(finalChecks.previousConflicts) ||
-    !Array.isArray(finalChecks.regionErrors) ||
+  const checksAvailable = Boolean(draft && finalChecks &&
+    Array.isArray(finalChecks.avoidConflicts) &&
+    Array.isArray(finalChecks.previousConflicts) &&
+    Array.isArray(finalChecks.regionErrors));
+  const hasConflicts = Boolean(checksAvailable && (
     finalChecks.avoidConflicts.length > 0 ||
     finalChecks.previousConflicts.length > 0 ||
-    finalChecks.regionErrors.length > 0;
-  indicator.classList.remove('loading', 'complete', 'pending');
-  indicator.classList.add(hasIssues ? 'pending' : 'complete');
-  indicator.textContent = hasIssues ? '✕' : '✓';
+    finalChecks.regionErrors.length > 0));
+  const hasIssues = !draft || !checksAvailable || hasConflicts;
+  const approvedWithConflicts = hasConflicts && draft.myVote === 'approve';
+  indicator.classList.remove('loading', 'complete', 'pending', 'accepted-with-conflicts');
+  indicator.classList.add(approvedWithConflicts
+    ? 'accepted-with-conflicts'
+    : hasIssues
+      ? 'pending'
+      : 'complete');
+  indicator.textContent = approvedWithConflicts || !hasIssues ? '✓' : '✕';
   indicator.setAttribute('aria-label', !draft
     ? 'No pending team preview'
+    : approvedWithConflicts
+    ? 'Team preview marked Looks good with known conflicts'
     : hasIssues
       ? 'Team preview has issues'
       : 'Team preview has no issues');
@@ -1161,6 +1170,33 @@ async function refreshRoundDraftStatus() {
 
 async function saveRoundDraftReview(vote) {
   if (!currentRoundDraft || roundDraftActionPending) return;
+  const finalChecks = currentRoundDraft.checks?.final || {};
+  const conflicts = [
+    ['Avoid', finalChecks.avoidConflicts],
+    ['previous pairing', finalChecks.previousConflicts],
+    ['region', finalChecks.regionErrors]
+  ].flatMap(([label, entries]) => {
+    const count = Array.isArray(entries) ? entries.length : 0;
+    return count ? [`${count} ${label} conflict${count === 1 ? '' : 's'}`] : [];
+  });
+  if (vote === 'approve' && conflicts.length) {
+    roundDraftActionPending = true;
+    updateRoundDraftControls();
+    let confirmed = false;
+    try {
+      confirmed = await confirmRoundReviewWithConflicts(
+        `This draft still has ${conflicts.join(', ')}. You are marking the list “Looks good” with these known conflicts. Approve anyway?`
+      );
+    } catch (error) {
+      document.getElementById('round-preview-status').textContent =
+        error.message || 'Could not open the conflict confirmation.';
+    } finally {
+      roundDraftActionPending = false;
+      updateRoundDraftControls();
+    }
+    if (!confirmed) return;
+  }
+  if (!currentRoundDraft || roundDraftActionPending) return;
   const viewGeneration = roundDraftViewGeneration;
   roundDraftActionPending = true;
   document.getElementById('round-review-approve').disabled = true;
@@ -1240,6 +1276,17 @@ function showRoundDraftPlayerSwapImmediately(input) {
     currentRoundDraft?.pairingRelations
   );
   return true;
+}
+
+function confirmRoundReviewWithConflicts(message) {
+  const dialog = document.getElementById('round-review-conflicts-confirmation');
+  document.getElementById('round-review-conflicts-message').textContent = message;
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => {
+      resolve(dialog.returnValue === 'approve');
+    }, { once: true });
+    dialog.showModal();
+  });
 }
 
 async function saveRoundDraftMutation(submitRequest, savingMessage, successMessage, onStart) {
@@ -2749,6 +2796,12 @@ roundPreviewTeams.addEventListener('drop', async (event) => {
 });
 document.getElementById('round-review-approve').addEventListener('click', () => {
   void saveRoundDraftReview('approve');
+});
+document.getElementById('cancel-round-review-conflicts').addEventListener('click', () => {
+  document.getElementById('round-review-conflicts-confirmation').close('cancel');
+});
+document.getElementById('confirm-round-review-conflicts').addEventListener('click', () => {
+  document.getElementById('round-review-conflicts-confirmation').close('approve');
 });
 document.getElementById('round-review-changes').addEventListener('click', () => {
   void saveRoundDraftReview('changes');

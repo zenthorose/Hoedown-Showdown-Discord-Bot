@@ -187,6 +187,18 @@
                     <button id="round-review-changes" type="button" aria-pressed="false">✕ Needs changes</button>
                   </div>
                 </div>
+                <dialog id="round-review-conflicts-confirmation" class="ticket-dialog">
+                  <h2>Approve with known conflicts?</h2>
+                  <p id="round-review-conflicts-message"></p>
+                  <div class="ticket-dialog-actions">
+                    <button id="cancel-round-review-conflicts" class="secondary" type="button" autofocus>
+                      Cancel
+                    </button>
+                    <button id="confirm-round-review-conflicts" type="button">
+                      Approve with conflicts
+                    </button>
+                  </div>
+                </dialog>
                 <div id="round-preview-teams" class="round-preview-teams"></div>
                 <div class="round-preview-actions">
                   <button id="round-add-filler-team" type="button">Add team with all fillers</button>

@@ -308,6 +308,7 @@ footer { margin-top: 20px; font-size: 12px; }
   font-weight: 800;
 }
 .rounds-generation-indicator.complete { color: #55c878; }
+.rounds-generation-indicator.accepted-with-conflicts { color: #f0c75e; }
 .rounds-generation-indicator.loading {
   border: 3px solid #536044;
   border-top-color: var(--theme-accent-text);
