@@ -170,6 +170,23 @@
                   </div>
                 </div>
               </div>
+              <div class="rounds-approval-launch">
+                <button id="round-approve-final" type="button" disabled>Approve round</button>
+                <span id="round-approval-indicator" class="rounds-generation-indicator pending"
+                  role="img" aria-label="Round not approved">✕</span>
+                <p id="round-approval-activity" class="rounds-last-clicked" role="status"
+                  aria-live="polite">No approval attempt yet.</p>
+              </div>
+              <dialog id="round-approve-confirmation" class="ticket-dialog">
+                <h2>Approve this round?</h2>
+                <p id="round-approve-confirmation-message"></p>
+                <div class="ticket-dialog-actions">
+                  <button id="cancel-round-approve" class="secondary" type="button" autofocus>
+                    Cancel
+                  </button>
+                  <button id="confirm-round-approve" type="button">Approve round</button>
+                </div>
+              </dialog>
               <section id="round-preview-panel" class="round-preview-panel" aria-label="Team preview and review"
                 hidden>
                 <header class="round-preview-header">

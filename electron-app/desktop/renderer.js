@@ -631,6 +631,77 @@ function renderRoundReviewers(activity, emptyMessage = 'No one is viewing this d
   }
 }
 
+function renderRoundApprovalActivity(draft) {
+  const indicator = document.getElementById('round-approval-indicator');
+  const activity = document.getElementById('round-approval-activity');
+  const approval = draft?.approvalActivity;
+  const approvalStatus = approval?.status ||
+    (draft?.status === 'approved' ? 'sent' : draft?.status === 'approving' ? 'failed' : 'pending');
+  indicator.classList.remove('loading', 'complete', 'pending');
+  if (approvalStatus === 'sending') {
+    indicator.classList.add('loading');
+    indicator.textContent = '';
+    indicator.setAttribute('aria-label', 'Round approval in progress');
+  } else if (approvalStatus === 'sent') {
+    indicator.classList.add('complete');
+    indicator.textContent = '✓';
+    indicator.setAttribute('aria-label', 'Round approved');
+  } else {
+    indicator.classList.add('pending');
+    indicator.textContent = '✕';
+    indicator.setAttribute('aria-label', approvalStatus === 'failed'
+      ? 'Round approval incomplete'
+      : 'Round not approved');
+  }
+
+  const actor = approval?.actor;
+  if (!actor) {
+    activity.textContent = draft?.status === 'approved'
+      ? 'Round approved.'
+      : approvalStatus === 'sending'
+        ? 'Approving round…'
+        : approvalStatus === 'failed'
+          ? 'Approval incomplete. Retry to continue.'
+          : 'No approval attempt yet.';
+    return;
+  }
+  const accountName = actor.username || actor.discordUsername || 'Unknown account';
+  const initials = accountName
+    .split(/[.\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase() || '?';
+  const avatar = document.createElement('span');
+  avatar.className = 'rounds-last-clicked-avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = initials;
+  if (typeof actor.avatarUrl === 'string' && actor.avatarUrl.length <= 512 &&
+      /^https:\/\/cdn\.discordapp\.com\//.test(actor.avatarUrl)) {
+    const image = document.createElement('img');
+    image.src = actor.avatarUrl;
+    image.alt = '';
+    image.loading = 'lazy';
+    image.referrerPolicy = 'no-referrer';
+    image.addEventListener('error', () => {
+      avatar.replaceChildren();
+      avatar.textContent = initials;
+    }, { once: true });
+    avatar.replaceChildren(image);
+  }
+  const label = document.createElement('span');
+  label.textContent = approvalStatus === 'sending'
+    ? 'Approving now · requested by'
+    : approvalStatus === 'sent'
+      ? 'Approved by'
+      : 'Approval incomplete · last tried by';
+  const name = document.createElement('span');
+  name.className = 'rounds-last-clicked-name';
+  name.textContent = accountName;
+  activity.replaceChildren(label, avatar, name);
+}
+
 function clearRoundDraftRelationshipHighlights() {
   document.querySelectorAll('.round-preview-player').forEach((player) => {
     player.classList.remove('avoid-highlight', 'previous-pairing-highlight');
@@ -674,36 +745,47 @@ function updateRoundDraftControls() {
   const addTeamButton = document.getElementById('round-add-filler-team');
   const replaceButton = document.getElementById('round-open-replacement');
   const replaceWithFillerButton = document.getElementById('round-replace-with-filler');
+  const canEditDraft = currentRoundDraft?.status === 'pending';
+  const canApproveDraft = ['pending', 'approving'].includes(currentRoundDraft?.status);
+  const approveFinalButton = document.getElementById('round-approve-final');
   const selectedPlayerExists = Boolean(currentRoundDraft?.teams.some((team) =>
     team.players.some((player) => player.discordId === selectedRoundPlayerId)));
   const selectedFillerExists = Boolean(selectedRoundFillerSlot &&
     currentRoundDraft?.teams.some((team) => team.name === selectedRoundFillerSlot.teamName &&
       team.players[selectedRoundFillerSlot.slotIndex]?.region === 'Filler' &&
       !team.players[selectedRoundFillerSlot.slotIndex]?.discordId));
-  if (addTeamButton) addTeamButton.disabled = !currentRoundDraft || roundDraftActionPending;
+  if (addTeamButton) addTeamButton.disabled = !canEditDraft || roundDraftActionPending;
   if (replaceButton) {
     replaceButton.textContent = selectedFillerExists ? 'Fill selected slot' : 'Replace selected player';
-    replaceButton.disabled = (!selectedPlayerExists && !selectedFillerExists) || roundDraftActionPending;
+    replaceButton.disabled = !canEditDraft ||
+      (!selectedPlayerExists && !selectedFillerExists) || roundDraftActionPending;
   }
   if (replaceWithFillerButton) {
     replaceWithFillerButton.hidden = !selectedPlayerExists;
-    replaceWithFillerButton.disabled = roundDraftActionPending;
+    replaceWithFillerButton.disabled = !canEditDraft || roundDraftActionPending;
   }
   document.querySelectorAll('button.round-preview-player').forEach((player) => {
-    player.disabled = roundDraftActionPending;
-    player.draggable = !roundDraftActionPending;
+    player.disabled = !canEditDraft || roundDraftActionPending;
+    player.draggable = canEditDraft && !roundDraftActionPending;
   });
   document.querySelectorAll('.round-preview-delete-filler-team').forEach((button) => {
-    button.disabled = roundDraftActionPending;
+    button.disabled = !canEditDraft || roundDraftActionPending;
   });
-  document.getElementById('round-review-approve').disabled = roundDraftActionPending;
-  document.getElementById('round-review-changes').disabled = roundDraftActionPending;
+  document.getElementById('round-review-approve').disabled = !canEditDraft || roundDraftActionPending;
+  document.getElementById('round-review-changes').disabled = !canEditDraft || roundDraftActionPending;
+  if (approveFinalButton) {
+    approveFinalButton.disabled = !canApproveDraft || roundDraftActionPending;
+    approveFinalButton.textContent = currentRoundDraft?.status === 'approving'
+      ? 'Retry round approval'
+      : 'Approve round';
+  }
+  renderRoundApprovalActivity(currentRoundDraft);
   const search = document.getElementById('round-replacement-search');
   const closeButton = document.getElementById('round-close-replacement');
-  if (search) search.disabled = roundDraftActionPending;
+  if (search) search.disabled = !canEditDraft || roundDraftActionPending;
   if (closeButton) closeButton.disabled = roundDraftActionPending;
   document.querySelectorAll('#round-replacement-results button').forEach((button) => {
-    button.disabled = roundDraftActionPending;
+    button.disabled = !canEditDraft || roundDraftActionPending;
   });
 }
 
@@ -765,6 +847,7 @@ function renderRoundDraft(draft) {
     document.getElementById('round-replacement-panel').hidden = true;
   }
   currentRoundDraft = draft;
+  renderRoundApprovalActivity(draft);
   const panel = document.getElementById('round-preview-panel');
   const title = document.getElementById('round-preview-title');
   const previewStatus = document.getElementById('round-preview-status');
@@ -781,8 +864,14 @@ function renderRoundDraft(draft) {
   if (avoidCount) statusParts.push(`${avoidCount} Avoid conflict${avoidCount === 1 ? '' : 's'}`);
   if (previousCount) statusParts.push(`${previousCount} previous pairing${previousCount === 1 ? '' : 's'}`);
   if (regionCount) statusParts.push(`${regionCount} region conflict${regionCount === 1 ? '' : 's'}`);
+  if (draft.status === 'approving') statusParts.push('Approval incomplete; retry when ready');
+  if (draft.status === 'approved') statusParts.push('Round approved');
   title.textContent = `Round #${draft.round} Team Preview`;
-  previewStatus.textContent = draft.previewStatus === 'failed'
+  previewStatus.textContent = draft.status === 'approved'
+    ? `Round #${draft.round} is approved.`
+    : draft.status === 'approving'
+      ? `Round #${draft.round} approval is incomplete; retry it to continue${statusParts.length ? ` · ${statusParts.join(' · ')}` : ''}.`
+      : draft.previewStatus === 'failed'
     ? `Teams are saved, but the Discord preview needs attention${statusParts.length ? ` · ${statusParts.join(' · ')}` : ''}.`
     : statusParts.length
       ? `Draft warnings: ${statusParts.join(' · ')}.`
@@ -792,8 +881,8 @@ function renderRoundDraft(draft) {
   const changesButton = document.getElementById('round-review-changes');
   approveButton.setAttribute('aria-pressed', String(draft.myVote === 'approve'));
   changesButton.setAttribute('aria-pressed', String(draft.myVote === 'changes'));
-  approveButton.disabled = roundDraftActionPending;
-  changesButton.disabled = roundDraftActionPending;
+  approveButton.disabled = draft.status !== 'pending' || roundDraftActionPending;
+  changesButton.disabled = draft.status !== 'pending' || roundDraftActionPending;
 
   teamsContainer.replaceChildren();
   for (const team of draft.teams) {
@@ -1137,6 +1226,8 @@ async function refreshRoundDraftStatus() {
       selectedRoundPlayerId = '';
       selectedRoundFillerSlot = null;
       applyRoundPreviewIndicator(null);
+      renderRoundApprovalActivity(null);
+      updateRoundDraftControls();
       renderRoundReviewers([], /no pending Team Check draft/i.test(result.error || '')
         ? 'No pending draft.'
         : 'Preview activity unavailable.');
@@ -1155,12 +1246,16 @@ async function refreshRoundDraftStatus() {
     currentRoundDraft = result.draft;
     applyRoundPreviewIndicator(result.draft);
     renderRoundReviewers(result.draft.activeViewers);
+    renderRoundApprovalActivity(result.draft);
+    updateRoundDraftControls();
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
       currentRoundDraft = null;
       selectedRoundPlayerId = '';
       selectedRoundFillerSlot = null;
       applyRoundPreviewIndicator(null);
+      renderRoundApprovalActivity(null);
+      updateRoundDraftControls();
       renderRoundReviewers([], 'Preview activity unavailable.');
       document.getElementById('round-preview-status').textContent =
         error.message || 'Could not refresh the Team Check draft.';
@@ -1289,6 +1384,18 @@ function confirmRoundReviewWithConflicts(message) {
   });
 }
 
+function confirmRoundApproval(message) {
+  const dialog = document.getElementById('round-approve-confirmation');
+  if (dialog.open) return Promise.resolve(false);
+  document.getElementById('round-approve-confirmation-message').textContent = message;
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => {
+      resolve(dialog.returnValue === 'approve');
+    }, { once: true });
+    dialog.showModal();
+  });
+}
+
 async function saveRoundDraftMutation(submitRequest, savingMessage, successMessage, onStart) {
   if (!currentRoundDraft || roundDraftActionPending) return;
   const viewGeneration = roundDraftViewGeneration;
@@ -1308,6 +1415,72 @@ async function saveRoundDraftMutation(submitRequest, savingMessage, successMessa
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
       actionStatus.textContent = error.message || 'Could not save the team adjustment.';
+    }
+  } finally {
+    if (viewGeneration === roundDraftViewGeneration) {
+      roundDraftActionPending = false;
+      if (currentRoundDraft) renderRoundDraft(currentRoundDraft);
+    }
+  }
+}
+
+async function approveCurrentRoundDraft() {
+  const draft = currentRoundDraft;
+  if (!draft || !['pending', 'approving'].includes(draft.status) || roundDraftActionPending) return;
+  const finalChecks = draft.checks?.final || {};
+  const avoidCount = Array.isArray(finalChecks.avoidConflicts) ? finalChecks.avoidConflicts.length : 0;
+  const previousCount = Array.isArray(finalChecks.previousConflicts)
+    ? finalChecks.previousConflicts.length
+    : 0;
+  const regionCount = Array.isArray(finalChecks.regionErrors) ? finalChecks.regionErrors.length : 0;
+  const conflictCount = avoidCount + previousCount + regionCount;
+  const conflictMessage = conflictCount
+    ? ` This draft currently has ${avoidCount} Avoid conflict(s), ${previousCount} previous-pairing conflict(s), and ${regionCount} region conflict(s).`
+    : ' No team conflicts are currently reported.';
+  const retryMessage = draft.status === 'approving'
+    ? ' This will retry any incomplete approval steps.'
+    : '';
+  const confirmed = await confirmRoundApproval(
+    `This finalizes Round #${draft.round} and applies the configured Discord actions.${conflictMessage}${retryMessage} Continue?`
+  );
+  if (!confirmed || currentRoundDraft?.generationId !== draft.generationId) return;
+
+  const viewGeneration = roundDraftViewGeneration;
+  const actionStatus = document.getElementById('round-draft-action-status');
+  roundDraftActionPending = true;
+  draft.approvalActivity = {
+    status: 'sending',
+    actor: {
+      username: document.getElementById('account-name').textContent || 'Your account',
+      discordUsername: '',
+      avatarUrl: ''
+    }
+  };
+  renderRoundApprovalActivity(draft);
+  actionStatus.textContent = `Approving Round #${draft.round} and applying configured Discord actions…`;
+  document.getElementById('round-preview-status').textContent = actionStatus.textContent;
+  updateRoundDraftControls();
+  try {
+    const result = await window.hoedown.approveCurrentRoundDraft({
+      generationId: draft.generationId
+    });
+    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
+    if (result.draft) renderRoundDraft(result.draft);
+    if (!result.ok) throw new Error(result.error || 'Round approval is incomplete and can be retried.');
+    actionStatus.textContent = result.message || `Round #${draft.round} approved successfully.`;
+    stopRoundDraftViewerPresence(draft.generationId);
+  } catch (error) {
+    if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
+      if (currentRoundDraft?.generationId === draft.generationId &&
+          currentRoundDraft.approvalActivity?.status === 'sending') {
+        currentRoundDraft.approvalActivity = {
+          ...currentRoundDraft.approvalActivity,
+          status: 'failed',
+          error: error.message || 'Could not approve this round.'
+        };
+        renderRoundApprovalActivity(currentRoundDraft);
+      }
+      actionStatus.textContent = error.message || 'Could not approve this round.';
     }
   } finally {
     if (viewGeneration === roundDraftViewGeneration) {
@@ -2796,6 +2969,15 @@ roundPreviewTeams.addEventListener('drop', async (event) => {
 });
 document.getElementById('round-review-approve').addEventListener('click', () => {
   void saveRoundDraftReview('approve');
+});
+document.getElementById('round-approve-final').addEventListener('click', () => {
+  void approveCurrentRoundDraft();
+});
+document.getElementById('cancel-round-approve').addEventListener('click', () => {
+  document.getElementById('round-approve-confirmation').close('cancel');
+});
+document.getElementById('confirm-round-approve').addEventListener('click', () => {
+  document.getElementById('round-approve-confirmation').close('approve');
 });
 document.getElementById('cancel-round-review-conflicts').addEventListener('click', () => {
   document.getElementById('round-review-conflicts-confirmation').close('cancel');

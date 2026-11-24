@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('hoedown', {
     ipcRenderer.invoke('rounds:update-current-draft-presence', input),
   reviewCurrentRoundDraft: (input) =>
     ipcRenderer.invoke('rounds:review-current-draft', input),
+  approveCurrentRoundDraft: (input) =>
+    ipcRenderer.invoke('rounds:approve-current-draft', input),
   addCurrentRoundDraftFillerTeam: (input) =>
     ipcRenderer.invoke('rounds:add-current-draft-filler-team', input),
   deleteCurrentRoundDraftFillerTeam: (input) =>

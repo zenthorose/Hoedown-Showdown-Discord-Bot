@@ -183,6 +183,7 @@ async function withServer(run, options = {}) {
     roundDraftCollection: options.roundDraftCollection,
     roundAvoidsCollection: options.roundAvoidsCollection,
     previousPairingsCollection: options.previousPairingsCollection,
+    approveCurrentRound: options.approveCurrentRound,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
@@ -635,6 +636,7 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     previewChannelId: 'team-check-channel'
   }]);
   const previewUpdates = [];
+  let approvalAttempts = 0;
   await withServer(async ({ baseUrl, password }) => {
     const login = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
@@ -801,6 +803,37 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     assert.equal(movedDraft.teams[0].players[2].region, 'Filler');
     assert.equal(movedDraft.teams[2].players[1].discordId, '10000000000000003');
     assert.equal(previewUpdates.length, 8);
+
+    const staleApproval = await fetch(`${baseUrl}/api/rounds/draft/current/approve`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'stale-generation' })
+    });
+    assert.equal(staleApproval.status, 409);
+    assert.equal(approvalAttempts, 0);
+
+    const incompleteApproval = await fetch(`${baseUrl}/api/rounds/draft/current/approve`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1' })
+    });
+    assert.equal(incompleteApproval.status, 409);
+    const incompleteResult = await incompleteApproval.json();
+    assert.equal(incompleteResult.partial, true);
+    assert.equal(incompleteResult.draft.status, 'approving');
+
+    const approvalRetry = await fetch(`${baseUrl}/api/rounds/draft/current/approve`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1' })
+    });
+    assert.equal(approvalRetry.status, 200);
+    const approvedDraft = (await approvalRetry.json()).draft;
+    assert.equal(approvedDraft.round, 1);
+    assert.equal(approvedDraft.status, 'approved');
+    assert.equal(approvedDraft.approvalActivity.status, 'sent');
+    assert.equal(approvedDraft.approvalActivity.actor.username, 'cowboy');
+    assert.equal(approvalAttempts, 2);
   }, {
     discordId: '123456789012345678',
     canGrabRoundReactions: async () => true,
@@ -834,6 +867,65 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
       _id: '10000000000000005',
       previousPairings: [{ discordId: '10000000000000001' }]
     }]),
+    approveCurrentRound: async ({ generationId }) => {
+      assert.equal(generationId, 'generation-review-1');
+      approvalAttempts += 1;
+      const currentDraft = await roundDraftCollection.findOne({ _id: 'current' });
+      if (approvalAttempts === 1) {
+        const approvalActivity = {
+          status: 'failed',
+          actor: {
+            discordId: '123456789012345678',
+            username: 'cowboy',
+            discordUsername: 'test.player',
+            avatarUrl: ''
+          },
+          startedAt: new Date('2026-03-01T00:00:00.000Z'),
+          completedAt: new Date('2026-03-01T00:00:01.000Z')
+        };
+        await roundDraftCollection.updateOne({
+          _id: 'current',
+          generationId
+        }, { $set: { status: 'approving', activeViewers: {}, approvalActivity } });
+        return {
+          approved: false,
+          round: currentDraft.round,
+          failures: ['A Discord step failed.'],
+          draft: {
+            ...currentDraft,
+            status: 'approving',
+            activeViewers: {},
+            approvalActivity
+          }
+        };
+      }
+      const approvalActivity = {
+        status: 'sent',
+        actor: {
+          discordId: '123456789012345678',
+          username: 'cowboy',
+          discordUsername: 'test.player',
+          avatarUrl: ''
+        },
+        startedAt: new Date('2026-03-01T00:00:00.000Z'),
+        completedAt: new Date('2026-03-01T00:00:01.000Z')
+      };
+      await roundDraftCollection.updateOne({
+        _id: 'current',
+        generationId
+      }, { $set: { status: 'approved', activeViewers: {}, approvalActivity } });
+      return {
+        approved: true,
+        round: currentDraft.round,
+        warnings: [],
+        draft: {
+          ...currentDraft,
+          status: 'approved',
+          activeViewers: {},
+          approvalActivity
+        }
+      };
+    },
     syncRoundDraftPreview: async (draft) => {
       previewUpdates.push(draft.teams);
       return { previewMessageIds: ['preview-1'] };

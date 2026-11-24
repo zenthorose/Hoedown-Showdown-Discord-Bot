@@ -25,6 +25,10 @@ const {
 const { findLatestRoundOptInMessage } = require('../../utils/optInReactions');
 const { TeamGenerationError, generateTeamDraftFromMessage } = require('../../utils/teamGeneration');
 const {
+  approveLatestRound,
+  subscribeRoundApprovalUpdates
+} = require('../../utils/roundApproval');
+const {
   BOT_SETTINGS_COLLECTION,
   BOT_SETTINGS_ID,
   normalizeStoredBotSettings,
@@ -107,6 +111,21 @@ function serializeRoundDraft(draft, currentDiscordId, pairingRelations = { avoid
       vote: ['approve', 'changes'].includes(entry.vote) ? entry.vote : null,
       reviewedAt: toIso(entry.reviewedAt)
     })),
+    approvalActivity: draft.approvalActivity && ['sending', 'sent', 'failed'].includes(draft.approvalActivity.status)
+      ? {
+        status: draft.approvalActivity.status,
+        actor: {
+          discordId: String(draft.approvalActivity.actor?.discordId || '').slice(0, 20),
+          username: String(draft.approvalActivity.actor?.username || 'Unknown account').slice(0, 64),
+          discordUsername: String(draft.approvalActivity.actor?.discordUsername || '').slice(0, 64),
+          avatarUrl: validDiscordAvatarUrl(draft.approvalActivity.actor?.avatarUrl)
+            ? draft.approvalActivity.actor.avatarUrl
+            : ''
+        },
+        startedAt: toIso(draft.approvalActivity.startedAt),
+        completedAt: toIso(draft.approvalActivity.completedAt)
+      }
+      : null,
     activeViewers: activeViewers.map((viewer) => ({
       discordId: String(viewer.discordId),
       username: String(viewer.username || 'Unknown account').slice(0, 64),
@@ -434,7 +453,8 @@ function createApp({
   previousPairingsCollection,
   syncRoundDraftPreview,
   grabRoundReactions,
-  canGrabRoundReactions
+  canGrabRoundReactions,
+  approveCurrentRound
 }) {
   const app = express();
   app.disable('x-powered-by');
@@ -623,6 +643,8 @@ function createApp({
       writeMemberEvent(stream.response, eventName, data);
     }
   };
+  app.locals.broadcastRoundDraftUpdate = (generationId) =>
+    broadcastMemberEvent('round-draft-updated', { generationId });
   const respondWithUpdatedRoundDraft = async (updatedDraft, session, res, changeDescription) => {
     const generationId = updatedDraft.generationId;
     if (updatedDraft.previewStatus !== 'disabled') {
@@ -2021,7 +2043,7 @@ function createApp({
       const session = await readRoundDraftSession(req, res);
       if (!session) return;
       const draft = await roundDraftCollection.findOne({ _id: 'current' });
-      if (!draft || draft.status !== 'pending') {
+      if (!draft || !['pending', 'approving', 'approved'].includes(draft.status)) {
         return res.status(404).json({ error: 'There is no pending Team Check draft to preview.' });
       }
       res.set('Cache-Control', 'private, no-store');
@@ -2038,7 +2060,7 @@ function createApp({
       const session = await readRoundDraftSession(req, res);
       if (!session) return;
       const currentDraft = await roundDraftCollection.findOne({ _id: 'current' });
-      if (!currentDraft || currentDraft.status !== 'pending') {
+      if (!currentDraft || !['pending', 'approving', 'approved'].includes(currentDraft.status)) {
         return res.status(404).json({ error: 'There is no pending Team Check draft to preview.' });
       }
       const generationId = currentDraft.generationId;
@@ -2050,11 +2072,19 @@ function createApp({
           ? session.user.discordAvatarUrl
           : ''
       };
-      await recordCurrentDraftViewer({
-        teamCheckCollection: roundDraftCollection,
-        generationId,
-        reviewer
-      });
+      if (currentDraft.status === 'pending') {
+        await recordCurrentDraftViewer({
+          teamCheckCollection: roundDraftCollection,
+          generationId,
+          reviewer
+        });
+      }
+      if (currentDraft.status === 'approved') {
+        res.set('Cache-Control', 'private, no-store');
+        return res.status(200).json({
+          draft: await serializeCurrentRoundDraft(currentDraft, session.user.discordId)
+        });
+      }
       const draft = await updateCurrentDraftViewerPresence({
         teamCheckCollection: roundDraftCollection,
         generationId,
@@ -2105,6 +2135,56 @@ function createApp({
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
       return sendError(res, error, 'Team Check viewer presence update failed:');
+    }
+  });
+
+  app.post('/api/rounds/draft/current/approve', limited(10), async (req, res) => {
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      if (typeof approveCurrentRound !== 'function') {
+        return res.status(503).json({ error: 'Round approval is not available right now.' });
+      }
+      const { generationId } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length < 1 || generationId.length > 64) {
+        return res.status(400).json({ error: 'Choose a valid pending round to approve.' });
+      }
+      const currentDraft = await roundDraftCollection.findOne({ _id: 'current' });
+      if (!currentDraft || !['pending', 'approving'].includes(currentDraft.status) ||
+          currentDraft.generationId !== generationId) {
+        return res.status(409).json({ error: 'The current round changed. Reload the preview and try again.' });
+      }
+      const result = await approveCurrentRound({
+        generationId,
+        actor: {
+          discordId: session.user.discordId,
+          username: session.user.username,
+          discordUsername: session.user.discordUsername || session.user.discordId,
+          avatarUrl: validDiscordAvatarUrl(session.user.discordAvatarUrl)
+            ? session.user.discordAvatarUrl
+            : ''
+        }
+      });
+      const draft = result.draft
+        ? await serializeCurrentRoundDraft(result.draft, session.user.discordId)
+        : null;
+      if (!result.approved) {
+        return res.status(409).json({
+          error: `Approval is incomplete and can be retried. ${(result.failures || []).join(' ')}`,
+          partial: true,
+          ...(draft ? { draft } : {})
+        });
+      }
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        draft,
+        message: result.warnings?.length
+          ? `Round #${result.round} approved with warnings: ${result.warnings.join(' ')}`
+          : `Round #${result.round} approved successfully.`
+      });
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Current round approval failed:');
     }
   });
 
@@ -3475,6 +3555,29 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
     await audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_SECONDS });
     const dummyPasswordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+    const approveCurrentRound = discordClient && discordGuildId &&
+      roundCollections?.teamCheck && roundsDatabase && hoedownDatabase
+      ? async ({ generationId, actor }) => {
+        if (!discordClient.isReady()) {
+          const error = new Error('The Discord bot is not ready to approve a round.');
+          error.statusCode = 503;
+          throw error;
+        }
+        const guild = discordClient.guilds.cache.get(discordGuildId)
+          || await discordClient.guilds.fetch(discordGuildId);
+        const settings = await readBotSettings(botSettingsCollection);
+        return approveLatestRound({
+          teamCheckCollection: roundCollections.teamCheck,
+          roundsDatabase,
+          previousPairingsCollection: hoedownDatabase.collection('PreviousPairings'),
+          botSettings: settings,
+          discordClient,
+          guild,
+          generationId,
+          actor
+        });
+      }
+      : null;
     const app = createApp({
       users,
       devices,
@@ -3500,6 +3603,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       closeTicket,
       grabRoundReactions,
       canGrabRoundReactions,
+      approveCurrentRound,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,
@@ -3526,10 +3630,14 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         }
         : null
     });
+    const unsubscribeRoundApprovalUpdates = subscribeRoundApprovalUpdates(
+      app.locals.broadcastRoundDraftUpdate
+    );
     return {
       app,
       closeMembersLiveUpdates: app.locals.closeMembersLiveUpdates,
       close: async () => {
+        unsubscribeRoundApprovalUpdates();
         await app.locals.closeMembersLiveUpdates();
         await client.close();
       }

@@ -364,6 +364,35 @@ test('approval saves round data, records pairings once, and finalizes both snaps
   assert.deepEqual(completedDraft.reviewActivity, []);
 });
 
+test('approval retry finalizes the draft after the round record was already approved', async () => {
+  const collections = createCollections();
+  const draft = await createDraft(collections);
+  const approval = await beginCurrentDraftApproval({
+    teamCheckCollection: collections.teamCheck,
+    roundsDatabase: collections.roundsDatabase,
+    round: draft.round
+  });
+  const approvedAt = new Date('2026-03-02T00:00:00.000Z');
+  await approval.roundCollection.updateOne({ _id: 'current' }, {
+    $set: { status: 'approved', approvedAt }
+  });
+
+  const retry = await beginCurrentDraftApproval({
+    teamCheckCollection: collections.teamCheck,
+    roundsDatabase: collections.roundsDatabase,
+    round: draft.round,
+    generationId: draft.generationId
+  });
+  await completeCurrentDraftApproval({
+    teamCheckCollection: collections.teamCheck,
+    roundCollection: retry.roundCollection,
+    generationId: draft.generationId
+  });
+
+  assert.equal((await retry.roundCollection.findOne({ _id: 'current' })).status, 'approved');
+  assert.equal((await collections.teamCheck.findOne({ _id: 'current' })).status, 'approved');
+});
+
 test('draft review tracks multiple viewers and resets marks after a team swap', async () => {
   const teamCheckCollection = new MemoryCollection([{
     _id: 'current',

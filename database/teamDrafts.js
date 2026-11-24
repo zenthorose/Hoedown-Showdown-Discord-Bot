@@ -866,7 +866,9 @@ async function updateCurrentDraftViewerPresence({
     throw error;
   }
   const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
-  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+  if (!draft || draft.generationId !== generationId ||
+      (!['pending', 'approving'].includes(draft.status) &&
+        !(draft.status === 'approved' && viewing === false))) {
     const error = new Error('The pending Team Check draft changed. Reload it and try again.');
     error.statusCode = 409;
     throw error;
@@ -905,7 +907,7 @@ async function updateCurrentDraftViewerPresence({
   const result = await teamCheckCollection.updateOne({
     _id: CURRENT_SNAPSHOT_ID,
     generationId,
-    status: 'pending'
+    status: draft.status
   }, update);
   if (!result.matchedCount) {
     const error = new Error('The pending Team Check draft changed. Reload it and try again.');
@@ -915,7 +917,7 @@ async function updateCurrentDraftViewerPresence({
   const updatedDraft = await teamCheckCollection.findOne({
     _id: CURRENT_SNAPSHOT_ID,
     generationId,
-    status: 'pending'
+    status: draft.status
   });
   if (!updatedDraft) {
     const error = new Error('The pending Team Check draft changed. Reload it and try again.');
@@ -1450,9 +1452,16 @@ async function addCurrentDraftMemberToFillerSlot({
   });
 }
 
-async function beginCurrentDraftApproval({ teamCheckCollection, roundsDatabase, round, now = () => new Date() }) {
+async function beginCurrentDraftApproval({
+  teamCheckCollection,
+  roundsDatabase,
+  round,
+  generationId,
+  now = () => new Date()
+}) {
   const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
-  if (!draft || draft.round !== round || !['pending', 'approving', 'approved'].includes(draft.status)) {
+  if (!draft || draft.round !== round || (generationId && draft.generationId !== generationId) ||
+      !['pending', 'approving', 'approved'].includes(draft.status)) {
     throw new Error(`No pending Team Check draft exists for Round #${round}.`);
   }
 
@@ -1472,7 +1481,7 @@ async function beginCurrentDraftApproval({ teamCheckCollection, roundsDatabase, 
         generationId: draft.generationId,
         status: 'pending'
       }, {
-        $set: { status: 'approving', updatedAt: now() }
+        $set: { status: 'approving', updatedAt: now(), activeViewers: {} }
       });
       if (!updated.matchedCount) throw new Error('The Team Check draft changed before approval started.');
     }
@@ -1493,12 +1502,12 @@ async function beginCurrentDraftApproval({ teamCheckCollection, roundsDatabase, 
       const concurrentRound = await roundCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
       if (concurrentRound?.generationId !== draft.generationId) throw error;
     }
-  } else if (existingRound.status === 'approved') {
+  } else if (existingRound.status === 'approved' && draft.status !== 'approving') {
     throw new Error(`Round #${round} has already been approved.`);
   }
 
   return {
-    draft: { ...draft, status: 'approving' },
+    draft: { ...draft, status: 'approving', activeViewers: {} },
     roundCollection,
     roundRecord: existingRound || await roundCollection.findOne({ _id: CURRENT_SNAPSHOT_ID })
   };
@@ -1541,13 +1550,31 @@ async function completeCurrentDraftApproval({ teamCheckCollection, roundCollecti
   if (!currentRound || currentRound.generationId !== generationId) {
     throw new Error('Could not find the matching round record to finalize.');
   }
-  if (currentRound.status === 'approved') return currentRound.approvedAt;
+  if (!['approving', 'approved'].includes(currentRound.status)) {
+    throw new Error('The matching round record is not ready to finalize.');
+  }
 
-  const approvedAt = now();
+  const approvedAt = currentRound.approvedAt || now();
+  if (currentRound.status !== 'approved') {
+    const roundResult = await roundCollection.updateOne({
+      _id: CURRENT_SNAPSHOT_ID,
+      generationId,
+      status: 'approving'
+    }, {
+      $set: { status: 'approved', approvedAt }
+    });
+    if (!roundResult.matchedCount) {
+      const updatedRound = await roundCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+      if (updatedRound?.generationId !== generationId || updatedRound.status !== 'approved') {
+        throw new Error('Could not finalize the approved round record.');
+      }
+    }
+  }
+
   const draftResult = await teamCheckCollection.updateOne({
     _id: CURRENT_SNAPSHOT_ID,
     generationId,
-    status: 'approving'
+    status: { $in: ['approving', 'approved'] }
   }, {
     $set: {
       status: 'approved',
@@ -1564,19 +1591,6 @@ async function completeCurrentDraftApproval({ teamCheckCollection, roundCollecti
     }
   }
 
-  const roundResult = await roundCollection.updateOne({
-    _id: CURRENT_SNAPSHOT_ID,
-    generationId,
-    status: 'approving'
-  }, {
-    $set: { status: 'approved', approvedAt }
-  });
-  if (!roundResult.matchedCount) {
-    const updatedRound = await roundCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
-    if (updatedRound?.generationId !== generationId || updatedRound.status !== 'approved') {
-      throw new Error('Could not finalize the approved round record.');
-    }
-  }
   return approvedAt;
 }
 

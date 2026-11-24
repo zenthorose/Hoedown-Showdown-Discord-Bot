@@ -300,7 +300,7 @@ function isRoundDraft(value) {
   return value && typeof value === 'object' &&
     typeof value.generationId === 'string' &&
     Number.isSafeInteger(value.round) &&
-    value.status === 'pending' &&
+    ['pending', 'approving', 'approved'].includes(value.status) &&
     Array.isArray(value.teams) &&
     value.teams.every((team) => team && typeof team.name === 'string' &&
       Array.isArray(team.players) && team.players.every((player) =>
@@ -320,6 +320,15 @@ function isRoundDraft(value) {
       (reviewer.avatarUrl === '' ||
         normalizeDiscordAvatarUrl(reviewer.avatarUrl) === reviewer.avatarUrl) &&
       (reviewer.vote === null || ['approve', 'changes'].includes(reviewer.vote))) &&
+    (value.approvalActivity === null || (
+      value.approvalActivity && typeof value.approvalActivity === 'object' &&
+      ['sending', 'sent', 'failed'].includes(value.approvalActivity.status) &&
+      value.approvalActivity.actor && typeof value.approvalActivity.actor.username === 'string' &&
+      typeof value.approvalActivity.actor.discordUsername === 'string' &&
+      (value.approvalActivity.actor.avatarUrl === '' ||
+        normalizeDiscordAvatarUrl(value.approvalActivity.actor.avatarUrl) ===
+          value.approvalActivity.actor.avatarUrl)
+    )) &&
     ['approve', 'changes', null].includes(value.myVote) &&
     typeof value.previewStatus === 'string';
 }
@@ -347,13 +356,18 @@ async function requestRoundDraftApi(event, route, { method = 'GET', body, timeou
         ok: false,
         error: data.error || 'Could not load the Team Check draft.',
         partial: data.partial === true,
+        ...(typeof data.message === 'string' ? { message: data.message } : {}),
         ...(isRoundDraft(data.draft) ? { draft: data.draft } : {})
       };
     }
     if (!isRoundDraft(data.draft)) {
       throw new Error('The service returned an invalid Team Check draft.');
     }
-    return { ok: true, draft: data.draft };
+    return {
+      ok: true,
+      draft: data.draft,
+      ...(typeof data.message === 'string' ? { message: data.message } : {})
+    };
   } catch (error) {
     return { ok: false, error: error.message || 'Could not reach the round service.' };
   }
@@ -935,6 +949,12 @@ app.whenReady().then(async () => {
     requestRoundDraftApi(event, '/api/rounds/draft/current/review', {
       method: 'POST',
       body: input
+    }));
+  ipcMain.handle('rounds:approve-current-draft', (event, input) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/approve', {
+      method: 'POST',
+      body: input,
+      timeoutMs: 120000
     }));
   ipcMain.handle('rounds:add-current-draft-filler-team', (event, input) =>
     requestRoundDraftApi(event, '/api/rounds/draft/current/add-filler-team', {
