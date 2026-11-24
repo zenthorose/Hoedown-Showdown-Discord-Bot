@@ -943,6 +943,12 @@ app.whenReady().then(async () => {
       body: input,
       timeoutMs: 60000
     }));
+  ipcMain.handle('rounds:fill-current-draft-slot', (event, input) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/fill-slot', {
+      method: 'POST',
+      body: input,
+      timeoutMs: 60000
+    }));
   ipcMain.handle('rounds:swap-current-draft-players', (event, input) =>
     requestRoundDraftApi(event, '/api/rounds/draft/current/swap', {
       method: 'POST',

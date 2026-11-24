@@ -24,6 +24,8 @@ let roundDraftActionPending = false;
 let roundDraftViewGeneration = 0;
 let draggedRoundPlayerId = '';
 let selectedRoundPlayerId = '';
+let selectedRoundFillerSlot = null;
+let draggedRoundSlot = null;
 let memberRecords = [];
 let membersLoaded = false;
 let membersLoading = false;
@@ -267,6 +269,8 @@ function showSignedOut(profileSelected = true) {
   roundPreviewOpen = false;
   currentRoundDraft = null;
   selectedRoundPlayerId = '';
+  selectedRoundFillerSlot = null;
+  draggedRoundSlot = null;
   roundDraftActionPending = false;
   roundDraftViewGeneration += 1;
   document.getElementById('open-round-preview').disabled = false;
@@ -640,8 +644,13 @@ function highlightRoundDraftRelations(discordId) {
 }
 
 function updateRoundPlayerSelection() {
-  document.querySelectorAll('.round-preview-player[data-discord-id]').forEach((player) => {
-    player.setAttribute('aria-pressed', String(player.dataset.discordId === selectedRoundPlayerId));
+  document.querySelectorAll('button.round-preview-player').forEach((player) => {
+    const pressed = player.dataset.discordId
+      ? player.dataset.discordId === selectedRoundPlayerId
+      : Boolean(selectedRoundFillerSlot &&
+        player.dataset.team === selectedRoundFillerSlot.teamName &&
+        player.dataset.slotIndex === String(selectedRoundFillerSlot.slotIndex));
+    player.setAttribute('aria-pressed', String(pressed));
   });
   updateRoundDraftControls();
   renderRoundReplacementMembers();
@@ -652,11 +661,16 @@ function updateRoundDraftControls() {
   const replaceButton = document.getElementById('round-open-replacement');
   const selectedPlayerExists = Boolean(currentRoundDraft?.teams.some((team) =>
     team.players.some((player) => player.discordId === selectedRoundPlayerId)));
+  const selectedFillerExists = Boolean(selectedRoundFillerSlot &&
+    currentRoundDraft?.teams.some((team) => team.name === selectedRoundFillerSlot.teamName &&
+      team.players[selectedRoundFillerSlot.slotIndex]?.region === 'Filler' &&
+      !team.players[selectedRoundFillerSlot.slotIndex]?.discordId));
   if (addTeamButton) addTeamButton.disabled = !currentRoundDraft || roundDraftActionPending;
   if (replaceButton) {
-    replaceButton.disabled = !selectedPlayerExists || roundDraftActionPending;
+    replaceButton.textContent = selectedFillerExists ? 'Fill selected slot' : 'Replace selected player';
+    replaceButton.disabled = (!selectedPlayerExists && !selectedFillerExists) || roundDraftActionPending;
   }
-  document.querySelectorAll('.round-preview-player[data-discord-id]').forEach((player) => {
+  document.querySelectorAll('button.round-preview-player').forEach((player) => {
     player.disabled = roundDraftActionPending;
     player.draggable = !roundDraftActionPending;
   });
@@ -713,11 +727,19 @@ function updateRoundDraftConflictMarkers(teamsContainer, pairingRelations) {
 function renderRoundDraft(draft) {
   if (currentRoundDraft && currentRoundDraft.generationId !== draft.generationId) {
     selectedRoundPlayerId = '';
+    selectedRoundFillerSlot = null;
     document.getElementById('round-replacement-panel').hidden = true;
   }
-  if (selectedRoundPlayerId && !draft.teams.some((team) =>
-    team.players.some((player) => player.discordId === selectedRoundPlayerId))) {
+  const selectedSlotStillExists = Boolean(selectedRoundFillerSlot &&
+    draft.teams.some((team) => team.name === selectedRoundFillerSlot.teamName &&
+      team.players[selectedRoundFillerSlot.slotIndex]?.region === 'Filler' &&
+      !team.players[selectedRoundFillerSlot.slotIndex]?.discordId));
+  const selectedPlayerStillExists = Boolean(selectedRoundPlayerId && draft.teams.some((team) =>
+    team.players.some((player) => player.discordId === selectedRoundPlayerId)));
+  if ((selectedRoundPlayerId && !selectedPlayerStillExists) ||
+      (selectedRoundFillerSlot && !selectedSlotStillExists)) {
     selectedRoundPlayerId = '';
+    selectedRoundFillerSlot = null;
     document.getElementById('round-replacement-panel').hidden = true;
   }
   currentRoundDraft = draft;
@@ -763,19 +785,31 @@ function renderRoundDraft(draft) {
       row.dataset.team = team.name;
       row.dataset.slotIndex = String(slotIndex);
       row.dataset.discordId = player.discordId || '';
-      const name = player.discordId
+      const isFillerSlot = player.region === 'Filler' && !player.discordId;
+      const name = player.discordId || isFillerSlot
         ? document.createElement('button')
         : document.createElement('span');
       name.className = 'round-preview-player';
+      if (isFillerSlot) name.classList.add('filler-slot');
       name.textContent = player.name;
-      name.draggable = Boolean(player.discordId) && !roundDraftActionPending;
-      if (player.discordId) {
+      name.draggable = Boolean(player.discordId || isFillerSlot) && !roundDraftActionPending;
+      if (player.discordId || isFillerSlot) {
         name.type = 'button';
         name.disabled = roundDraftActionPending;
-        name.setAttribute('aria-pressed', String(player.discordId === selectedRoundPlayerId));
-        name.dataset.discordId = player.discordId;
         name.dataset.team = team.name;
-        name.title = 'Click to show Avoids and previous pairings, or drag to swap';
+        name.dataset.slotIndex = String(slotIndex);
+        name.setAttribute('aria-pressed', String(
+          player.discordId === selectedRoundPlayerId ||
+          (isFillerSlot && selectedRoundFillerSlot?.teamName === team.name &&
+            selectedRoundFillerSlot.slotIndex === slotIndex)
+        ));
+        if (player.discordId) {
+          name.dataset.discordId = player.discordId;
+          name.title = 'Click to show Avoids and previous pairings, or drag to swap';
+        } else {
+          name.dataset.fillerSlot = 'true';
+          name.title = 'Click to add an unassigned member, or drag onto a player to move them here';
+        }
       }
       const region = document.createElement('span');
       region.className = 'round-preview-region';
@@ -809,11 +843,20 @@ function renderRoundReplacementMembers() {
     team.players.some((player) => player.discordId === selectedRoundPlayerId));
   const selectedPlayer = selectedTeam?.players.find((player) =>
     player.discordId === selectedRoundPlayerId);
-  if (!selectedPlayer) {
+  const selectedFillerTeam = selectedRoundFillerSlot
+    ? currentRoundDraft?.teams.find((team) => team.name === selectedRoundFillerSlot.teamName)
+    : null;
+  const selectedFiller = selectedFillerTeam?.players[selectedRoundFillerSlot?.slotIndex];
+  const fillingFillerSlot = selectedFiller?.region === 'Filler' && !selectedFiller.discordId;
+  if (!selectedPlayer && !fillingFillerSlot) {
     currentLabel.textContent = 'Select a player in the preview first.';
     return;
   }
-  currentLabel.textContent = `Replacing ${selectedPlayer.name} on Team ${selectedTeam.name}.`;
+  document.querySelector('#round-replacement-panel h3').textContent =
+    fillingFillerSlot ? 'Fill filler slot' : 'Replace selected player';
+  currentLabel.textContent = fillingFillerSlot
+    ? `Adding a member to Team ${selectedFillerTeam.name}.`
+    : `Replacing ${selectedPlayer.name} on Team ${selectedTeam.name}.`;
   if (!membersLoaded) {
     currentLabel.textContent += membersLoading
       ? ' Loading the Members list…'
@@ -823,8 +866,11 @@ function renderRoundReplacementMembers() {
 
   const assignedIds = new Set(currentRoundDraft.teams.flatMap((team) =>
     team.players.map((player) => player.discordId).filter(Boolean)));
-  const teammates = selectedTeam.players.filter((player) =>
-    player.discordId && player.discordId !== selectedRoundPlayerId);
+  const teammates = (fillingFillerSlot ? selectedFillerTeam : selectedTeam).players.filter(
+    (player, index) => player.discordId &&
+      (fillingFillerSlot || player.discordId !== selectedRoundPlayerId) &&
+      (!fillingFillerSlot || index !== selectedRoundFillerSlot.slotIndex)
+  );
   const query = search.value.trim().toLowerCase();
   const candidates = memberRecords.filter((member) => {
     const discordId = member.discordId || '';
@@ -860,7 +906,9 @@ function renderRoundReplacementMembers() {
     results.append(button);
   }
   currentLabel.textContent = candidates.length
-    ? `Choose a registered member to replace ${selectedPlayer.name}.` +
+    ? `Choose a registered member to ${fillingFillerSlot
+      ? `fill the slot on Team ${selectedFillerTeam.name}`
+      : `replace ${selectedPlayer.name}`}.` +
       (candidates.length > 50 ? ' Showing the first 50 matches.' : '')
     : 'No eligible, unassigned members match your search.';
 }
@@ -887,15 +935,21 @@ function showRoundDraftFillerTeamImmediately() {
 }
 
 function showRoundDraftPlayerReplacementImmediately(member) {
-  const row = [...document.querySelectorAll('#round-preview-teams li[data-discord-id]')]
-    .find((candidate) => candidate.dataset.discordId === selectedRoundPlayerId);
-  const player = row?.querySelector('.round-preview-player[data-discord-id]');
+  const row = selectedRoundFillerSlot
+    ? [...document.querySelectorAll('#round-preview-teams li[data-team][data-slot-index]')]
+      .find((candidate) => candidate.dataset.team === selectedRoundFillerSlot.teamName &&
+        candidate.dataset.slotIndex === String(selectedRoundFillerSlot.slotIndex))
+    : [...document.querySelectorAll('#round-preview-teams li[data-discord-id]')]
+      .find((candidate) => candidate.dataset.discordId === selectedRoundPlayerId);
+  const player = row?.querySelector('.round-preview-player');
   const region = row?.querySelector('.round-preview-region');
   if (!row || !player || !region) return false;
 
   player.textContent = member.nickname || member.username || member.discordId;
   player.dataset.discordId = member.discordId;
   player.dataset.team = row.dataset.team;
+  player.dataset.slotIndex = row.dataset.slotIndex;
+  delete player.dataset.fillerSlot;
   player.setAttribute('aria-pressed', 'false');
   player.classList.remove('avoid-highlight', 'previous-pairing-highlight', 'dragging');
   player.draggable = false;
@@ -919,6 +973,7 @@ async function refreshRoundDraftStatus() {
     if (!result.ok) {
       currentRoundDraft = null;
       selectedRoundPlayerId = '';
+      selectedRoundFillerSlot = null;
       applyRoundPreviewIndicator(null);
       renderRoundReviewers([], /no pending Team Check draft/i.test(result.error || '')
         ? 'No pending draft.'
@@ -941,6 +996,8 @@ async function refreshRoundDraftStatus() {
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
       currentRoundDraft = null;
+      selectedRoundPlayerId = '';
+      selectedRoundFillerSlot = null;
       applyRoundPreviewIndicator(null);
       renderRoundReviewers([], 'Preview activity unavailable.');
       document.getElementById('round-preview-status').textContent =
@@ -982,7 +1039,11 @@ async function saveRoundDraftReview(vote) {
 
 function showRoundDraftPlayerSwapImmediately(input) {
   const rows = [...document.querySelectorAll('#round-preview-teams li[data-team][data-slot-index]')];
-  const sourceRow = rows.find((row) => row.dataset.discordId === input.playerDiscordId);
+  const sourceRow = input.sourceTeam && Number.isInteger(input.sourceSlotIndex)
+    ? rows.find((row) => row.dataset.team === input.sourceTeam &&
+      row.dataset.slotIndex === String(input.sourceSlotIndex) &&
+      row.dataset.discordId === (input.sourceDiscordId || ''))
+    : rows.find((row) => row.dataset.discordId === input.playerDiscordId);
   const targetRow = rows.find((row) =>
     row.dataset.team === input.targetTeam &&
     row.dataset.slotIndex === String(input.targetSlotIndex));
@@ -1003,9 +1064,24 @@ function showRoundDraftPlayerSwapImmediately(input) {
     if (!player) continue;
     player.classList.remove('dragging');
     player.dataset.team = row.dataset.team;
+    player.dataset.slotIndex = row.dataset.slotIndex;
+    if (row.dataset.discordId) {
+      player.dataset.discordId = row.dataset.discordId;
+      delete player.dataset.fillerSlot;
+    } else {
+      delete player.dataset.discordId;
+      player.dataset.fillerSlot = 'true';
+    }
     player.draggable = false;
     if (player.tagName === 'BUTTON') player.disabled = true;
   }
+  if (!input.sourceDiscordId && input.sourceTeam && Number.isInteger(input.sourceSlotIndex)) {
+    selectedRoundFillerSlot = {
+      teamName: input.targetTeam,
+      slotIndex: input.targetSlotIndex
+    };
+  }
+  updateRoundPlayerSelection();
   updateRoundDraftConflictMarkers(
     document.getElementById('round-preview-teams'),
     currentRoundDraft?.pairingRelations
@@ -1066,14 +1142,26 @@ function saveRoundDraftFillerTeam() {
 
 function saveRoundDraftPlayerReplacement(member) {
   const playerDiscordId = selectedRoundPlayerId;
+  const fillerSlot = selectedRoundFillerSlot ? { ...selectedRoundFillerSlot } : null;
   return saveRoundDraftMutation(
-    (generationId) => window.hoedown.replaceCurrentRoundDraftPlayer({
-      generationId,
-      playerDiscordId,
-      replacementDiscordId: member.discordId
-    }),
-    'Replacing the player and refreshing Discord…',
-    'Player replaced. The Discord preview is up to date.',
+    (generationId) => fillerSlot
+      ? window.hoedown.fillCurrentRoundDraftSlot({
+        generationId,
+        targetTeam: fillerSlot.teamName,
+        targetSlotIndex: fillerSlot.slotIndex,
+        replacementDiscordId: member.discordId
+      })
+      : window.hoedown.replaceCurrentRoundDraftPlayer({
+        generationId,
+        playerDiscordId,
+        replacementDiscordId: member.discordId
+      }),
+    fillerSlot
+      ? 'Filling the slot and refreshing Discord…'
+      : 'Replacing the player and refreshing Discord…',
+    fillerSlot
+      ? 'Filler slot filled. The Discord preview is up to date.'
+      : 'Player replaced. The Discord preview is up to date.',
     () => {
       if (showRoundDraftPlayerReplacementImmediately(member)) {
         document.getElementById('round-replacement-current').textContent =
@@ -2312,6 +2400,8 @@ document.getElementById('open-round-preview').addEventListener('click', async (e
   roundPreviewOpen = true;
   currentRoundDraft = null;
   selectedRoundPlayerId = '';
+  selectedRoundFillerSlot = null;
+  draggedRoundSlot = null;
   document.getElementById('round-preview-teams').replaceChildren();
   document.getElementById('round-reviewers').replaceChildren();
   previewStatus.textContent = 'Loading the current Team Check draft…';
@@ -2331,6 +2421,8 @@ document.getElementById('open-round-preview').addEventListener('click', async (e
 document.getElementById('close-round-preview').addEventListener('click', () => {
   roundPreviewOpen = false;
   selectedRoundPlayerId = '';
+  selectedRoundFillerSlot = null;
+  draggedRoundSlot = null;
   document.getElementById('round-replacement-panel').hidden = true;
   clearRoundDraftRelationshipHighlights();
   updateRoundPlayerSelection();
@@ -2340,7 +2432,7 @@ document.getElementById('round-add-filler-team').addEventListener('click', () =>
   void saveRoundDraftFillerTeam();
 });
 document.getElementById('round-open-replacement').addEventListener('click', () => {
-  if (!selectedRoundPlayerId || roundDraftActionPending) return;
+  if ((!selectedRoundPlayerId && !selectedRoundFillerSlot) || roundDraftActionPending) return;
   const panel = document.getElementById('round-replacement-panel');
   panel.hidden = false;
   document.getElementById('round-replacement-search').value = '';
@@ -2363,34 +2455,60 @@ document.getElementById('round-replacement-results').addEventListener('click', (
 const roundPreviewTeams = document.getElementById('round-preview-teams');
 roundPreviewTeams.addEventListener('click', (event) => {
   const player = event.target.closest('.round-preview-player[data-discord-id]');
-  if (!player || roundDraftActionPending) return;
-  selectedRoundPlayerId = selectedRoundPlayerId === player.dataset.discordId
-    ? ''
-    : player.dataset.discordId;
-  if (!selectedRoundPlayerId) document.getElementById('round-replacement-panel').hidden = true;
+  const filler = event.target.closest('.round-preview-player[data-filler-slot="true"]');
+  if ((!player && !filler) || roundDraftActionPending) return;
+  if (filler) {
+    const sameFiller = selectedRoundFillerSlot?.teamName === filler.dataset.team &&
+      selectedRoundFillerSlot.slotIndex === Number(filler.dataset.slotIndex);
+    selectedRoundPlayerId = '';
+    selectedRoundFillerSlot = sameFiller
+      ? null
+      : { teamName: filler.dataset.team, slotIndex: Number(filler.dataset.slotIndex) };
+  } else {
+    selectedRoundPlayerId = selectedRoundPlayerId === player.dataset.discordId
+      ? ''
+      : player.dataset.discordId;
+    selectedRoundFillerSlot = null;
+  }
+  if (!selectedRoundPlayerId && !selectedRoundFillerSlot) {
+    document.getElementById('round-replacement-panel').hidden = true;
+  }
   updateRoundPlayerSelection();
   if (selectedRoundPlayerId) highlightRoundDraftRelations(selectedRoundPlayerId);
   else clearRoundDraftRelationshipHighlights();
 });
 roundPreviewTeams.addEventListener('dragstart', (event) => {
   const player = event.target.closest('.round-preview-player');
-  if (!player?.dataset.discordId || roundDraftActionPending) {
+  if ((!player?.dataset.discordId && player?.dataset.fillerSlot !== 'true') ||
+      roundDraftActionPending) {
     event.preventDefault();
     return;
   }
   event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', player.dataset.discordId);
-  draggedRoundPlayerId = player.dataset.discordId;
-  selectedRoundPlayerId = draggedRoundPlayerId;
+  const sourceRow = player.closest('li[data-team][data-slot-index]');
+  const sourceDiscordId = player.dataset.discordId || '';
+  event.dataTransfer.setData('text/plain', sourceDiscordId);
+  draggedRoundPlayerId = sourceDiscordId;
+  draggedRoundSlot = {
+    teamName: sourceRow.dataset.team,
+    slotIndex: Number(sourceRow.dataset.slotIndex),
+    discordId: sourceDiscordId
+  };
+  selectedRoundPlayerId = sourceDiscordId;
+  selectedRoundFillerSlot = sourceDiscordId
+    ? null
+    : { teamName: draggedRoundSlot.teamName, slotIndex: draggedRoundSlot.slotIndex };
   updateRoundPlayerSelection();
   player.classList.add('dragging');
-  highlightRoundDraftRelations(draggedRoundPlayerId);
+  if (draggedRoundPlayerId) highlightRoundDraftRelations(draggedRoundPlayerId);
+  else clearRoundDraftRelationshipHighlights();
 });
 roundPreviewTeams.addEventListener('dragend', (event) => {
   event.target.closest('.round-preview-player')?.classList.remove('dragging');
   if (selectedRoundPlayerId) highlightRoundDraftRelations(selectedRoundPlayerId);
   else clearRoundDraftRelationshipHighlights();
   draggedRoundPlayerId = '';
+  draggedRoundSlot = null;
   roundPreviewTeams.querySelectorAll('.drop-target').forEach((target) => {
     target.classList.remove('drop-target');
   });
@@ -2400,6 +2518,7 @@ roundPreviewTeams.addEventListener('dragover', (event) => {
   const draggedPlayer = roundPreviewTeams.querySelector('.round-preview-player.dragging');
   if (!target || !draggedPlayer ||
       target.dataset.team === draggedPlayer.dataset.team ||
+      (draggedPlayer.dataset.fillerSlot === 'true' && !target.dataset.discordId) ||
       roundDraftActionPending) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
@@ -2413,15 +2532,20 @@ roundPreviewTeams.addEventListener('dragleave', (event) => {
 });
 roundPreviewTeams.addEventListener('drop', async (event) => {
   const target = event.target.closest('li[data-team][data-slot-index]');
-  const sourceDiscordId = event.dataTransfer.getData('text/plain');
+  const source = draggedRoundSlot;
+  const sourceDiscordId = source?.discordId || '';
   const sourceTeam = currentRoundDraft?.teams.find((team) =>
-    team.players.some((player) => player.discordId === sourceDiscordId));
-  if (!target || !sourceTeam || target.dataset.team === sourceTeam.name ||
+    team.name === source?.teamName);
+  if (!target || !source || !sourceTeam || target.dataset.team === sourceTeam.name ||
+      (source.discordId === '' && !target.dataset.discordId) ||
       roundDraftActionPending || !currentRoundDraft) return;
   event.preventDefault();
   target.classList.remove('drop-target');
   await saveRoundDraftPlayerSwap({
     playerDiscordId: sourceDiscordId,
+    sourceTeam: source.teamName,
+    sourceSlotIndex: source.slotIndex,
+    sourceDiscordId,
     targetTeam: target.dataset.team,
     targetSlotIndex: Number(target.dataset.slotIndex),
     targetDiscordId: target.dataset.discordId || ''

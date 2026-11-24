@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('hoedown', {
     ipcRenderer.invoke('rounds:add-current-draft-filler-team', input),
   replaceCurrentRoundDraftPlayer: (input) =>
     ipcRenderer.invoke('rounds:replace-current-draft-player', input),
+  fillCurrentRoundDraftSlot: (input) =>
+    ipcRenderer.invoke('rounds:fill-current-draft-slot', input),
   swapCurrentRoundDraftPlayers: (input) =>
     ipcRenderer.invoke('rounds:swap-current-draft-players', input),
   getTickets: (filters) => ipcRenderer.invoke('tickets:list', filters),

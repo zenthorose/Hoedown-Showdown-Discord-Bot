@@ -390,6 +390,7 @@ footer { margin-top: 20px; font-size: 12px; }
   text-decoration: underline #f0c75e 2px;
   text-underline-offset: 2px;
 }
+.round-preview-player.filler-slot { color: var(--theme-muted); border-bottom: 1px dashed var(--theme-border); }
 .round-preview-region { color: var(--theme-muted); font-size: 12px; }
 .round-preview-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .round-draft-action-status { margin: 0; }

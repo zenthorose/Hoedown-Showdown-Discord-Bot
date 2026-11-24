@@ -887,6 +887,9 @@ async function swapCurrentDraftPlayers({
   previousPairingsCollection,
   generationId,
   playerDiscordId,
+  sourceTeamName,
+  sourceSlotIndex,
+  sourceDiscordId,
   targetTeamName,
   targetSlotIndex,
   targetDiscordId,
@@ -909,24 +912,50 @@ async function swapCurrentDraftPlayers({
     ...team,
     players: team.players.map((player) => ({ ...player }))
   }));
-  const sourceMatches = [];
-  teams.forEach((team, teamIndex) => {
-    team.players.forEach((player, slotIndex) => {
-      if (String(player.discordId || '') === playerDiscordId) {
-        sourceMatches.push({ teamIndex, slotIndex });
-      }
+  let source;
+  if (sourceTeamName !== undefined || sourceSlotIndex !== undefined ||
+      sourceDiscordId !== undefined) {
+    const sourceTeamIndex = teams.findIndex((team) => team.name === sourceTeamName);
+    if (!Number.isInteger(sourceSlotIndex) || sourceSlotIndex < 0 ||
+        sourceSlotIndex >= TEAM_SIZE || sourceTeamIndex < 0) {
+      const error = new Error('Choose a valid source team slot.');
+      error.statusCode = 400;
+      throw error;
+    }
+    const sourcePlayer = teams[sourceTeamIndex].players[sourceSlotIndex];
+    if (String(sourcePlayer.discordId || '') !== (sourceDiscordId || '') ||
+        (playerDiscordId && sourcePlayer.discordId !== playerDiscordId)) {
+      const error = new Error('The selected source slot changed. Reload the draft and try again.');
+      error.statusCode = 409;
+      throw error;
+    }
+    if (!sourcePlayer.discordId && sourcePlayer.region !== 'Filler') {
+      const error = new Error('Only a filler slot can be moved without a player.');
+      error.statusCode = 400;
+      throw error;
+    }
+    source = { teamIndex: sourceTeamIndex, slotIndex: sourceSlotIndex };
+  } else {
+    const sourceMatches = [];
+    teams.forEach((team, teamIndex) => {
+      team.players.forEach((player, slotIndex) => {
+        if (String(player.discordId || '') === playerDiscordId) {
+          sourceMatches.push({ teamIndex, slotIndex });
+        }
+      });
     });
-  });
-  if (sourceMatches.length !== 1) {
-    const error = new Error('The selected player is not in exactly one team in this draft.');
-    error.statusCode = 409;
-    throw error;
+    if (sourceMatches.length !== 1) {
+      const error = new Error('The selected player is not in exactly one team in this draft.');
+      error.statusCode = 409;
+      throw error;
+    }
+    source = sourceMatches[0];
   }
 
   const targetTeamIndex = teams.findIndex((team) => team.name === targetTeamName);
   if (!Number.isInteger(targetSlotIndex) || targetSlotIndex < 0 ||
       targetSlotIndex >= TEAM_SIZE || targetTeamIndex < 0 ||
-      targetTeamIndex === sourceMatches[0].teamIndex) {
+      targetTeamIndex === source.teamIndex) {
     const error = new Error('Choose a different team and a valid player slot.');
     error.statusCode = 400;
     throw error;
@@ -939,8 +968,13 @@ async function swapCurrentDraftPlayers({
     error.statusCode = 409;
     throw error;
   }
+  if (teams[source.teamIndex].players[source.slotIndex].region === 'Filler' &&
+      (!target.discordId || target.region === 'Filler')) {
+    const error = new Error('Move a filler slot onto an assigned player to move that player.');
+    error.statusCode = 400;
+    throw error;
+  }
 
-  const source = sourceMatches[0];
   [teams[source.teamIndex].players[source.slotIndex], teams[targetTeamIndex].players[targetSlotIndex]] =
     [teams[targetTeamIndex].players[targetSlotIndex], teams[source.teamIndex].players[source.slotIndex]];
 
@@ -1124,6 +1158,97 @@ async function replaceCurrentDraftPlayer({
   });
 }
 
+async function addCurrentDraftMemberToFillerSlot({
+  teamCheckCollection,
+  membersCollection,
+  avoidsCollection,
+  previousPairingsCollection,
+  generationId,
+  targetTeamName,
+  targetSlotIndex,
+  replacementDiscordId,
+  now = () => new Date()
+}) {
+  const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (!Array.isArray(draft.teams) || draft.teams.some((team) =>
+    !Array.isArray(team.players) || team.players.length !== TEAM_SIZE)) {
+    const error = new Error('This draft does not have the expected three-player team structure.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (typeof targetTeamName !== 'string' || !Number.isInteger(targetSlotIndex) ||
+      targetSlotIndex < 0 || targetSlotIndex >= TEAM_SIZE ||
+      !/^\d{17,20}$/.test(replacementDiscordId || '')) {
+    const error = new Error('Choose a valid filler slot and replacement member.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const teams = draft.teams.map((team) => ({
+    ...team,
+    players: team.players.map((player) => ({ ...player }))
+  }));
+  const teamIndex = teams.findIndex((team) => team.name === targetTeamName);
+  const target = teams[teamIndex]?.players[targetSlotIndex];
+  if (!target || target.region !== 'Filler' || target.discordId) {
+    const error = new Error('The selected slot is no longer an empty filler slot.');
+    error.statusCode = 409;
+    throw error;
+  }
+  if (teams.some((team) => team.players.some((player) =>
+    player.discordId === replacementDiscordId))) {
+    const error = new Error('The replacement member is already assigned to this draft.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const profile = await membersCollection?.findOne({ _id: replacementDiscordId }) ||
+    await membersCollection?.findOne({ discordId: replacementDiscordId });
+  if (!profile || String(profile.discordId || profile._id || '') !== replacementDiscordId) {
+    const error = new Error('The replacement member is no longer in the Members list.');
+    error.statusCode = 404;
+    throw error;
+  }
+  const region = typeof profile.region === 'string' ? profile.region.trim() : '';
+  if (!VALID_REGIONS.has(region)) {
+    const error = new Error('The replacement member needs a valid East, West, or Both region.');
+    error.statusCode = 422;
+    throw error;
+  }
+  const teammates = teams[teamIndex].players.filter((_, index) => index !== targetSlotIndex);
+  if (teammates.some((teammate) => !regionSwapAllowed({ region }, teammate))) {
+    const error = new Error('That replacement would mix East and West players on a team.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const username = String(profile.username || '').trim();
+  teams[teamIndex].players[targetSlotIndex] = {
+    id: replacementDiscordId,
+    discordId: replacementDiscordId,
+    username,
+    name: String(profile.nickname || username || replacementDiscordId).trim(),
+    region,
+    steamId: profile.steamId || null,
+    streamLink: profile.streamLink || null
+  };
+  return saveCurrentDraftTeamChange({
+    teamCheckCollection,
+    avoidsCollection,
+    previousPairingsCollection,
+    generationId,
+    draft,
+    teams,
+    now,
+    regionError: 'That replacement would mix East and West players on a team.'
+  });
+}
+
 async function beginCurrentDraftApproval({ teamCheckCollection, roundsDatabase, round, now = () => new Date() }) {
   const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
   if (!draft || draft.round !== round || !['pending', 'approving', 'approved'].includes(draft.status)) {
@@ -1256,6 +1381,7 @@ async function completeCurrentDraftApproval({ teamCheckCollection, roundCollecti
 module.exports = {
   CURRENT_SNAPSHOT_ID,
   addCurrentDraftFillerTeam,
+  addCurrentDraftMemberToFillerSlot,
   beginCurrentDraftApproval,
   completeCurrentDraftApproval,
   createCurrentTeamDraft,

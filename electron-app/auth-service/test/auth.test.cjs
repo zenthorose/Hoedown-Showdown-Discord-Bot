@@ -716,7 +716,40 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     assert.equal(expandedDraft.teams[2].name, 'C');
     assert.deepEqual(expandedDraft.teams[2].players.map((player) => player.region),
       ['Filler', 'Filler', 'Filler']);
-    assert.equal(previewUpdates.length, 3);
+
+    const fillSlot = await fetch(`${baseUrl}/api/rounds/draft/current/fill-slot`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        generationId: 'generation-review-1',
+        targetTeam: 'C',
+        targetSlotIndex: 0,
+        replacementDiscordId: '10000000000000007'
+      })
+    });
+    assert.equal(fillSlot.status, 200);
+    const filledDraft = (await fillSlot.json()).draft;
+    assert.equal(filledDraft.teams[2].players[0].discordId, '10000000000000007');
+
+    const moveFiller = await fetch(`${baseUrl}/api/rounds/draft/current/swap`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        generationId: 'generation-review-1',
+        playerDiscordId: '',
+        sourceTeam: 'C',
+        sourceSlotIndex: 1,
+        sourceDiscordId: '',
+        targetTeam: 'A',
+        targetSlotIndex: 1,
+        targetDiscordId: '10000000000000002'
+      })
+    });
+    assert.equal(moveFiller.status, 200);
+    const movedDraft = (await moveFiller.json()).draft;
+    assert.equal(movedDraft.teams[0].players[1].region, 'Filler');
+    assert.equal(movedDraft.teams[2].players[1].discordId, '10000000000000002');
+    assert.equal(previewUpdates.length, 5);
   }, {
     discordId: '123456789012345678',
     canGrabRoundReactions: async () => true,
@@ -733,6 +766,12 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
         username: 'replacement.player',
         nickname: 'Replacement Player',
         region: 'East'
+      },
+      {
+        _id: '10000000000000007',
+        username: 'filler.player',
+        nickname: 'Filler Player',
+        region: 'Both'
       }
     ],
     roundDraftCollection,

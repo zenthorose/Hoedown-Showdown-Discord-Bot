@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+  addCurrentDraftMemberToFillerSlot,
   beginCurrentDraftApproval,
   addCurrentDraftFillerTeam,
   completeCurrentDraftApproval,
@@ -565,4 +566,90 @@ test('replacing a player with a registered member removes the original from the 
   assert.equal(updatedDraft.teams.flatMap((team) => team.players)
     .some((player) => player.discordId === '10000000000000001'), false);
   assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null]);
+});
+
+test('filling a filler slot adds an eligible unassigned member', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-fill-slot',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [{
+      name: 'A',
+      players: [
+        { discordId: '10000000000000001', name: 'East 1', region: 'East' },
+        { discordId: '10000000000000002', name: 'East 2', region: 'East' },
+        { id: 'FILLER_1', name: 'Filler #1', region: 'Filler' }
+      ]
+    }],
+    checks: { manualAdjustments: 0, final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] } },
+    reviewActivity: []
+  }]);
+  const replacementDiscordId = '10000000000000003';
+
+  const updatedDraft = await addCurrentDraftMemberToFillerSlot({
+    teamCheckCollection,
+    membersCollection: new MemoryCollection([{
+      _id: replacementDiscordId,
+      username: 'replacement',
+      nickname: 'Replacement',
+      region: 'Both'
+    }]),
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-fill-slot',
+    targetTeamName: 'A',
+    targetSlotIndex: 2,
+    replacementDiscordId
+  });
+
+  assert.equal(updatedDraft.teams[0].players[2].discordId, replacementDiscordId);
+  assert.equal(updatedDraft.teams[0].players[2].region, 'Both');
+  assert.equal(updatedDraft.checks.manualAdjustments, 1);
+});
+
+test('dragging a filler slot onto a player moves the player into the filler team', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-move-filler',
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [
+      {
+        name: 'A',
+        players: [
+          { discordId: '10000000000000001', name: 'East 1', region: 'East' },
+          { discordId: '10000000000000002', name: 'East 2', region: 'East' },
+          { discordId: '10000000000000003', name: 'East 3', region: 'East' }
+        ]
+      },
+      {
+        name: 'B',
+        players: [
+          { id: 'FILLER_1', name: 'Filler #1', region: 'Filler' },
+          { id: 'FILLER_2', name: 'Filler #2', region: 'Filler' },
+          { id: 'FILLER_3', name: 'Filler #3', region: 'Filler' }
+        ]
+      }
+    ],
+    checks: { manualAdjustments: 0, final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] } },
+    reviewActivity: []
+  }]);
+
+  const updatedDraft = await swapCurrentDraftPlayers({
+    teamCheckCollection,
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    generationId: 'generation-move-filler',
+    playerDiscordId: '',
+    sourceTeamName: 'B',
+    sourceSlotIndex: 0,
+    sourceDiscordId: '',
+    targetTeamName: 'A',
+    targetSlotIndex: 0,
+    targetDiscordId: '10000000000000001'
+  });
+
+  assert.equal(updatedDraft.teams[0].players[0].region, 'Filler');
+  assert.equal(updatedDraft.teams[1].players[0].discordId, '10000000000000001');
 });

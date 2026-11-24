@@ -10,6 +10,7 @@ const { addAvoidRelationships } = require('../../database/pairingImport');
 const config = require('../../config.json');
 const {
   addCurrentDraftFillerTeam,
+  addCurrentDraftMemberToFillerSlot,
   findNextRound,
   formatTeamCheckPreview,
   recordCurrentDraftReview,
@@ -2147,6 +2148,48 @@ function createApp({
     }
   });
 
+  app.post('/api/rounds/draft/current/fill-slot', limited(30), async (req, res) => {
+    let mutationLockAcquired = false;
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      if (!members) return res.status(503).json({ error: 'Member data is not configured.' });
+      const {
+        generationId,
+        targetTeam,
+        targetSlotIndex,
+        replacementDiscordId
+      } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64 ||
+          typeof targetTeam !== 'string' || !targetTeam.trim() || targetTeam.length > 32 ||
+          !Number.isInteger(targetSlotIndex) ||
+          !MEMBER_ID_PATTERN.test(replacementDiscordId || '')) {
+        return res.status(400).json({ error: 'Choose a valid filler slot and replacement member.' });
+      }
+      if (roundDraftMutationRunning) {
+        return res.status(409).json({ error: 'Another team adjustment is being saved. Try again shortly.' });
+      }
+      roundDraftMutationRunning = true;
+      mutationLockAcquired = true;
+      const updatedDraft = await addCurrentDraftMemberToFillerSlot({
+        teamCheckCollection: roundDraftCollection,
+        membersCollection: members,
+        avoidsCollection: roundAvoidsCollection,
+        previousPairingsCollection,
+        generationId,
+        targetTeamName: targetTeam.trim(),
+        targetSlotIndex,
+        replacementDiscordId
+      });
+      return await respondWithUpdatedRoundDraft(updatedDraft, session, res, 'filler replacement');
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Filling the Team Check slot failed:');
+    } finally {
+      if (mutationLockAcquired) roundDraftMutationRunning = false;
+    }
+  });
+
   app.post('/api/rounds/draft/current/swap', limited(30), async (req, res) => {
     let updatedDraft = null;
     let mutationLockAcquired = false;
@@ -2156,12 +2199,19 @@ function createApp({
       const {
         generationId,
         playerDiscordId,
+        sourceTeam,
+        sourceSlotIndex,
+        sourceDiscordId,
         targetTeam,
         targetSlotIndex,
         targetDiscordId
       } = req.body || {};
+      const hasPlayerId = MEMBER_ID_PATTERN.test(playerDiscordId || '');
+      const hasSourceSlot = typeof sourceTeam === 'string' && sourceTeam.trim() &&
+        sourceTeam.length <= 32 && Number.isInteger(sourceSlotIndex) &&
+        (sourceDiscordId === '' || MEMBER_ID_PATTERN.test(sourceDiscordId || ''));
       if (typeof generationId !== 'string' || generationId.length > 64 ||
-          !MEMBER_ID_PATTERN.test(playerDiscordId || '') ||
+          (!hasPlayerId && !hasSourceSlot) ||
           typeof targetTeam !== 'string' || !targetTeam.trim() || targetTeam.length > 32 ||
           !Number.isInteger(targetSlotIndex) ||
           (targetDiscordId !== '' && !MEMBER_ID_PATTERN.test(targetDiscordId || ''))) {
@@ -2178,6 +2228,9 @@ function createApp({
         previousPairingsCollection,
         generationId,
         playerDiscordId,
+        sourceTeamName: sourceTeam,
+        sourceSlotIndex,
+        sourceDiscordId,
         targetTeamName: targetTeam.trim(),
         targetSlotIndex,
         targetDiscordId
