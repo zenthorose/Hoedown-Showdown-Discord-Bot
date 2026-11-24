@@ -1652,7 +1652,27 @@ function createMemberDetail(fieldName, label, value) {
   const description = document.createElement('span');
   description.className = 'member-detail-value';
   description.dataset.memberField = fieldName;
-  description.textContent = value || '—';
+  if (fieldName === 'streamLink' && value) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      url = null;
+    }
+    if (url && ['http:', 'https:'].includes(url.protocol)) {
+      const link = document.createElement('a');
+      link.href = url.href;
+      link.textContent = value;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.referrerPolicy = 'no-referrer';
+      description.append(link);
+    } else {
+      description.textContent = value;
+    }
+  } else {
+    description.textContent = value || '—';
+  }
   detail.append(term, description);
   return detail;
 }
