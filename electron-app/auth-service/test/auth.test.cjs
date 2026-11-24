@@ -654,6 +654,8 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
     assert.equal(open.status, 200);
     const openedDraft = (await open.json()).draft;
     assert.equal(openedDraft.reviewActivity.length, 1);
+    assert.deepEqual(openedDraft.activeViewers.map((viewer) => viewer.discordId),
+      ['123456789012345678']);
     assert.deepEqual(openedDraft.pairingRelations.avoids, [{
       discordIdA: '10000000000000001',
       discordIdB: '10000000000000004'
@@ -662,6 +664,23 @@ test('authorized reviewers can open, mark, and adjust the current Team Check dra
       discordIdA: '10000000000000001',
       discordIdB: '10000000000000005'
     }]);
+
+    const heartbeat = await fetch(`${baseUrl}/api/rounds/draft/current/presence`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1', viewing: true })
+    });
+    assert.equal(heartbeat.status, 200);
+    assert.deepEqual((await heartbeat.json()).draft.activeViewers.map((viewer) => viewer.discordId),
+      ['123456789012345678']);
+
+    const leavePreview = await fetch(`${baseUrl}/api/rounds/draft/current/presence`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ generationId: 'generation-review-1', viewing: false })
+    });
+    assert.equal(leavePreview.status, 200);
+    assert.deepEqual((await leavePreview.json()).draft.activeViewers, []);
 
     const review = await fetch(`${baseUrl}/api/rounds/draft/current/review`, {
       method: 'POST',

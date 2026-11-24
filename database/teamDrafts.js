@@ -684,7 +684,8 @@ async function createCurrentTeamDraft({
     previewStatus: 'not-posted',
     previewMessageIds: [],
     previewChannelId: String(previewChannelId || ''),
-    reviewActivity: []
+    reviewActivity: [],
+    activeViewers: {}
   };
 
   let generationClaimed = false;
@@ -848,6 +849,80 @@ async function updateCurrentDraftReviewer({
 
 async function recordCurrentDraftViewer(options) {
   return updateCurrentDraftReviewer(options);
+}
+
+async function updateCurrentDraftViewerPresence({
+  teamCheckCollection,
+  generationId,
+  viewer,
+  viewing,
+  now = () => new Date(),
+  staleAfterMs = 45_000
+}) {
+  const discordId = String(viewer?.discordId || '');
+  if (!/^\d{17,20}$/.test(discordId) || typeof viewing !== 'boolean') {
+    const error = new Error('A valid viewer and presence state are required.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const draft = await teamCheckCollection.findOne({ _id: CURRENT_SNAPSHOT_ID });
+  if (!draft || draft.generationId !== generationId || draft.status !== 'pending') {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const timestamp = now();
+  const activeViewers = draft.activeViewers && typeof draft.activeViewers === 'object'
+    ? draft.activeViewers
+    : {};
+  const unset = {};
+  for (const [activeDiscordId, presence] of Object.entries(activeViewers)) {
+    const lastSeenAt = new Date(presence?.lastSeenAt || 0).getTime();
+    if (activeDiscordId !== discordId && (!Number.isFinite(lastSeenAt) ||
+        timestamp.getTime() - lastSeenAt > staleAfterMs)) {
+      unset[`activeViewers.${activeDiscordId}`] = '';
+    }
+  }
+
+  const update = {};
+  if (viewing) {
+    update.$set = {
+      [`activeViewers.${discordId}`]: {
+        discordId,
+        username: String(viewer.username || '').slice(0, 64),
+        discordUsername: String(viewer.discordUsername || '').slice(0, 64),
+        avatarUrl: String(viewer.avatarUrl || '').slice(0, 512),
+        lastSeenAt: timestamp
+      }
+    };
+  } else {
+    unset[`activeViewers.${discordId}`] = '';
+  }
+  if (Object.keys(unset).length) update.$unset = unset;
+  if (!Object.keys(update).length) return draft;
+
+  const result = await teamCheckCollection.updateOne({
+    _id: CURRENT_SNAPSHOT_ID,
+    generationId,
+    status: 'pending'
+  }, update);
+  if (!result.matchedCount) {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+  const updatedDraft = await teamCheckCollection.findOne({
+    _id: CURRENT_SNAPSHOT_ID,
+    generationId,
+    status: 'pending'
+  });
+  if (!updatedDraft) {
+    const error = new Error('The pending Team Check draft changed. Reload it and try again.');
+    error.statusCode = 409;
+    throw error;
+  }
+  return updatedDraft;
 }
 
 async function recordCurrentDraftReview(options) {
@@ -1478,7 +1553,8 @@ async function completeCurrentDraftApproval({ teamCheckCollection, roundCollecti
       status: 'approved',
       approvedAt,
       updatedAt: approvedAt,
-      reviewActivity: []
+      reviewActivity: [],
+      activeViewers: {}
     }
   });
   if (!draftResult.matchedCount) {
@@ -1525,5 +1601,6 @@ module.exports = {
   replaceCurrentDraftPlayerWithFiller,
   saveReactedPlayersSnapshot,
   splitDiscordMessage,
-  swapCurrentDraftPlayers
+  swapCurrentDraftPlayers,
+  updateCurrentDraftViewerPresence
 };

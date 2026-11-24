@@ -15,7 +15,8 @@ const {
   recordPreviousPairings,
   replaceCurrentDraftPlayer,
   replaceCurrentDraftPlayerWithFiller,
-  swapCurrentDraftPlayers
+  swapCurrentDraftPlayers,
+  updateCurrentDraftViewerPresence
 } = require('./teamDrafts');
 
 function matches(document, filter) {
@@ -93,6 +94,12 @@ class MemoryCollection {
       parent[key] ||= [];
       const target = parent[key];
       if (!target.some((entry) => JSON.stringify(entry) === JSON.stringify(value))) target.push(value);
+    }
+    for (const path of Object.keys(update.$unset || {})) {
+      const parts = path.split('.');
+      const key = parts.pop();
+      const parent = parts.reduce((result, part) => result?.[part], document);
+      if (parent) delete parent[key];
     }
     return { matchedCount: 1 };
   }
@@ -444,6 +451,51 @@ test('draft review tracks multiple viewers and resets marks after a team swap', 
     ['Player 1', 'Player 4']
   );
   assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null, null]);
+});
+
+test('viewer presence refreshes active viewers, expires stale entries, and clears on close', async () => {
+  const updatedAt = new Date('2026-03-01T00:00:00.000Z');
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-viewers',
+    status: 'pending',
+    updatedAt,
+    activeViewers: {
+      '10000000000000008': {
+        discordId: '10000000000000008',
+        lastSeenAt: new Date('2026-03-01T00:00:00.000Z')
+      }
+    }
+  }]);
+  const viewer = {
+    discordId: '10000000000000006',
+    username: 'viewer',
+    discordUsername: 'viewer.name',
+    avatarUrl: ''
+  };
+  const now = new Date('2026-03-01T00:01:00.000Z');
+
+  const activeDraft = await updateCurrentDraftViewerPresence({
+    teamCheckCollection,
+    generationId: 'generation-viewers',
+    viewer,
+    viewing: true,
+    now: () => now
+  });
+
+  assert.deepEqual(Object.keys(activeDraft.activeViewers), [viewer.discordId]);
+  assert.equal(activeDraft.activeViewers[viewer.discordId].lastSeenAt, now);
+  assert.equal(activeDraft.updatedAt, updatedAt);
+
+  const closedDraft = await updateCurrentDraftViewerPresence({
+    teamCheckCollection,
+    generationId: 'generation-viewers',
+    viewer,
+    viewing: false,
+    now: () => new Date('2026-03-01T00:01:05.000Z')
+  });
+
+  assert.deepEqual(closedDraft.activeViewers, {});
 });
 
 test('draft adjustment rejects swaps that would mix East and West teams', async () => {

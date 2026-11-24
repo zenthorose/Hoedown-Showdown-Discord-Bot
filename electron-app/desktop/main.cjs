@@ -926,6 +926,11 @@ app.whenReady().then(async () => {
     requestRoundDraftApi(event, '/api/rounds/draft/current/open', {
       method: 'POST'
     }));
+  ipcMain.handle('rounds:update-current-draft-presence', (event, input) =>
+    requestRoundDraftApi(event, '/api/rounds/draft/current/presence', {
+      method: 'POST',
+      body: input
+    }));
   ipcMain.handle('rounds:review-current-draft', (event, input) =>
     requestRoundDraftApi(event, '/api/rounds/draft/current/review', {
       method: 'POST',

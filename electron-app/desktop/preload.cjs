@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('hoedown', {
   getRoundActionStatus: () => ipcRenderer.invoke('rounds:get-status'),
   getCurrentRoundDraft: () => ipcRenderer.invoke('rounds:get-current-draft'),
   openCurrentRoundDraft: () => ipcRenderer.invoke('rounds:open-current-draft'),
+  updateCurrentRoundDraftPresence: (input) =>
+    ipcRenderer.invoke('rounds:update-current-draft-presence', input),
   reviewCurrentRoundDraft: (input) =>
     ipcRenderer.invoke('rounds:review-current-draft', input),
   addCurrentRoundDraftFillerTeam: (input) =>

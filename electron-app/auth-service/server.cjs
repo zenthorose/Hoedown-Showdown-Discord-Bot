@@ -19,7 +19,8 @@ const {
   replaceCurrentDraftPlayer,
   replaceCurrentDraftPlayerWithFiller,
   splitDiscordMessage,
-  swapCurrentDraftPlayers
+  swapCurrentDraftPlayers,
+  updateCurrentDraftViewerPresence
 } = require('../../database/teamDrafts');
 const { findLatestRoundOptInMessage } = require('../../utils/optInReactions');
 const { TeamGenerationError, generateTeamDraftFromMessage } = require('../../utils/teamGeneration');
@@ -34,6 +35,7 @@ const {
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESET_TTL_SECONDS = 15 * 60;
 const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+const ROUND_DRAFT_VIEWER_TTL_MS = 45_000;
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBER_ID_PATTERN = /^\d{17,20}$/;
@@ -63,6 +65,12 @@ function serializeRoundDraft(draft, currentDiscordId, pairingRelations = { avoid
       ? value
       : null;
   const activity = Array.isArray(draft.reviewActivity) ? draft.reviewActivity : [];
+  const activeViewers = Object.values(draft.activeViewers || {}).filter((viewer) => {
+    const lastSeenAt = new Date(viewer?.lastSeenAt || 0).getTime();
+    return MEMBER_ID_PATTERN.test(String(viewer?.discordId || '')) &&
+      Number.isFinite(lastSeenAt) &&
+      Date.now() - lastSeenAt <= ROUND_DRAFT_VIEWER_TTL_MS;
+  });
   const myReview = activity.find((entry) => entry.discordId === currentDiscordId);
   return {
     generationId: String(draft.generationId || ''),
@@ -98,6 +106,12 @@ function serializeRoundDraft(draft, currentDiscordId, pairingRelations = { avoid
       lastOpenedAt: toIso(entry.lastOpenedAt),
       vote: ['approve', 'changes'].includes(entry.vote) ? entry.vote : null,
       reviewedAt: toIso(entry.reviewedAt)
+    })),
+    activeViewers: activeViewers.map((viewer) => ({
+      discordId: String(viewer.discordId),
+      username: String(viewer.username || 'Unknown account').slice(0, 64),
+      discordUsername: String(viewer.discordUsername || '').slice(0, 64),
+      avatarUrl: validDiscordAvatarUrl(viewer.avatarUrl) ? viewer.avatarUrl : ''
     })),
     myVote: ['approve', 'changes'].includes(myReview?.vote) ? myReview.vote : null,
     previewStatus: String(draft.previewStatus || 'not-posted'),
@@ -2036,10 +2050,17 @@ function createApp({
           ? session.user.discordAvatarUrl
           : ''
       };
-      const draft = await recordCurrentDraftViewer({
+      await recordCurrentDraftViewer({
         teamCheckCollection: roundDraftCollection,
         generationId,
         reviewer
+      });
+      const draft = await updateCurrentDraftViewerPresence({
+        teamCheckCollection: roundDraftCollection,
+        generationId,
+        viewer: reviewer,
+        viewing: true,
+        staleAfterMs: ROUND_DRAFT_VIEWER_TTL_MS
       });
       broadcastMemberEvent('round-draft-updated', { generationId });
       res.set('Cache-Control', 'private, no-store');
@@ -2049,6 +2070,41 @@ function createApp({
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
       return sendError(res, error, 'Team Check draft open failed:');
+    }
+  });
+
+  app.post('/api/rounds/draft/current/presence', limited(120), async (req, res) => {
+    try {
+      const session = await readRoundDraftSession(req, res);
+      if (!session) return;
+      const { generationId, viewing } = req.body || {};
+      if (typeof generationId !== 'string' || generationId.length > 64 ||
+          typeof viewing !== 'boolean') {
+        return res.status(400).json({ error: 'Choose a valid draft and viewer presence state.' });
+      }
+      const viewer = {
+        discordId: session.user.discordId,
+        username: session.user.username,
+        discordUsername: session.user.discordUsername || session.user.discordId,
+        avatarUrl: validDiscordAvatarUrl(session.user.discordAvatarUrl)
+          ? session.user.discordAvatarUrl
+          : ''
+      };
+      const draft = await updateCurrentDraftViewerPresence({
+        teamCheckCollection: roundDraftCollection,
+        generationId,
+        viewer,
+        viewing,
+        staleAfterMs: ROUND_DRAFT_VIEWER_TTL_MS
+      });
+      if (!viewing) broadcastMemberEvent('round-draft-updated', { generationId });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        draft: await serializeCurrentRoundDraft(draft, session.user.discordId)
+      });
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      return sendError(res, error, 'Team Check viewer presence update failed:');
     }
   });
 

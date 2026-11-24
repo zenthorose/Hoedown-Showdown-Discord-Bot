@@ -20,6 +20,10 @@ let roundActionState = {
 };
 let currentRoundDraft = null;
 let roundPreviewOpen = false;
+let roundPreviewRequestGeneration = 0;
+let roundDraftPresenceGenerationId = '';
+let roundDraftPresenceRequest = null;
+let roundDraftPresencePending = false;
 let roundDraftActionPending = false;
 let roundDraftViewGeneration = 0;
 let draggedRoundPlayerId = '';
@@ -262,6 +266,7 @@ async function resetThemeColors() {
 }
 
 function showSignedOut(profileSelected = true) {
+  closeRoundDraftPreview();
   profilePicker.hidden = profileSelected;
   loginForm.hidden = !profileSelected;
   passwordForm.hidden = true;
@@ -571,7 +576,7 @@ function applyRoundPreviewIndicator(draft) {
       : 'Team preview has no issues');
 }
 
-function renderRoundReviewers(activity, emptyMessage = 'No one has opened this draft yet.') {
+function renderRoundReviewers(activity, emptyMessage = 'No one is viewing this draft yet.') {
   const reviewers = document.getElementById('round-reviewers');
   reviewers.replaceChildren();
   if (!activity?.length) {
@@ -763,7 +768,7 @@ function renderRoundDraft(draft) {
     : 0;
   const regionCount = Array.isArray(finalChecks.regionErrors) ? finalChecks.regionErrors.length : 0;
   applyRoundPreviewIndicator(draft);
-  renderRoundReviewers(draft.reviewActivity);
+  renderRoundReviewers(draft.activeViewers);
   if (avoidCount) statusParts.push(`${avoidCount} Avoid conflict${avoidCount === 1 ? '' : 's'}`);
   if (previousCount) statusParts.push(`${previousCount} previous pairing${previousCount === 1 ? '' : 's'}`);
   if (regionCount) statusParts.push(`${regionCount} region conflict${regionCount === 1 ? '' : 's'}`);
@@ -1044,6 +1049,74 @@ function showRoundDraftPlayerFillerImmediately() {
   return true;
 }
 
+function stopRoundDraftViewerPresence(generationId) {
+  if (!generationId) return;
+  roundDraftPresenceGenerationId = '';
+  const pendingRequest = roundDraftPresenceRequest;
+  void (async () => {
+    if (pendingRequest) {
+      try {
+        await pendingRequest;
+      } catch {
+        // The release request below still lets the server clear the presence.
+      }
+    }
+    try {
+      const result = await window.hoedown.updateCurrentRoundDraftPresence({
+        generationId,
+        viewing: false
+      });
+      if (!result.ok) {
+        console.warn('Could not clear Team Check viewer presence:', result.error);
+      }
+    } catch (error) {
+      console.warn('Could not clear Team Check viewer presence:', error);
+    }
+  })();
+}
+
+function closeRoundDraftPreview() {
+  roundPreviewRequestGeneration += 1;
+  const generationId = roundDraftPresenceGenerationId ||
+    (roundPreviewOpen ? currentRoundDraft?.generationId : '');
+  roundPreviewOpen = false;
+  stopRoundDraftViewerPresence(generationId);
+  selectedRoundPlayerId = '';
+  selectedRoundFillerSlot = null;
+  draggedRoundSlot = null;
+  document.getElementById('round-replacement-panel').hidden = true;
+  clearRoundDraftRelationshipHighlights();
+  updateRoundPlayerSelection();
+  document.getElementById('round-preview-panel').hidden = true;
+}
+
+async function renewRoundDraftViewerPresence() {
+  const generationId = currentRoundDraft?.generationId;
+  if (!roundPreviewOpen || !generationId || roundDraftPresencePending) return;
+  const viewGeneration = roundDraftViewGeneration;
+  roundDraftPresencePending = true;
+  const request = window.hoedown.updateCurrentRoundDraftPresence({
+    generationId,
+    viewing: true
+  });
+  roundDraftPresenceRequest = request;
+  try {
+    const result = await request;
+    if (viewGeneration !== roundDraftViewGeneration || !roundPreviewOpen) return;
+    if (!result.ok) {
+      console.warn('Could not renew Team Check viewer presence:', result.error);
+      return;
+    }
+    currentRoundDraft.activeViewers = result.draft.activeViewers;
+    renderRoundReviewers(currentRoundDraft.activeViewers);
+  } catch (error) {
+    console.warn('Could not renew Team Check viewer presence:', error);
+  } finally {
+    if (roundDraftPresenceRequest === request) roundDraftPresenceRequest = null;
+    roundDraftPresencePending = false;
+  }
+}
+
 async function refreshRoundDraftStatus() {
   if (roundDraftActionPending || signedInPanel.hidden) return;
   const viewGeneration = roundDraftViewGeneration;
@@ -1072,7 +1145,7 @@ async function refreshRoundDraftStatus() {
     }
     currentRoundDraft = result.draft;
     applyRoundPreviewIndicator(result.draft);
-    renderRoundReviewers(result.draft.reviewActivity);
+    renderRoundReviewers(result.draft.activeViewers);
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
       currentRoundDraft = null;
@@ -1301,6 +1374,7 @@ document.getElementById('app-navigation').addEventListener('click', (event) => {
   const isRounds = button.dataset.tab === 'rounds';
   const isTickets = button.dataset.tab === 'tickets';
   const isSettings = button.dataset.tab === 'settings';
+  if (!isRounds && roundPreviewOpen) closeRoundDraftPreview();
   document.getElementById('members-view').hidden = !isMembers;
   document.getElementById('avoids-view').hidden = !isAvoids;
   document.getElementById('rounds-view').hidden = !isRounds;
@@ -2501,6 +2575,8 @@ document.getElementById('refresh-avoids').addEventListener('click', () => {
 document.getElementById('open-round-preview').addEventListener('click', async (event) => {
   if (roundDraftActionPending) return;
   const viewGeneration = roundDraftViewGeneration;
+  const requestGeneration = ++roundPreviewRequestGeneration;
+  const expectedGenerationId = currentRoundDraft?.generationId || '';
   const button = event.currentTarget;
   const panel = document.getElementById('round-preview-panel');
   const previewStatus = document.getElementById('round-preview-status');
@@ -2516,26 +2592,25 @@ document.getElementById('open-round-preview').addEventListener('click', async (e
   previewStatus.textContent = 'Loading the current Team Check draft…';
   try {
     const result = await window.hoedown.openCurrentRoundDraft();
-    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden) return;
+    if (viewGeneration !== roundDraftViewGeneration || signedInPanel.hidden ||
+        requestGeneration !== roundPreviewRequestGeneration || !roundPreviewOpen) {
+      if (result.draft?.generationId) stopRoundDraftViewerPresence(result.draft.generationId);
+      return;
+    }
     if (result.draft) renderRoundDraft(result.draft);
     if (!result.ok) throw new Error(result.error || 'Could not open the Team Check draft.');
+    roundDraftPresenceGenerationId = result.draft.generationId;
   } catch (error) {
     if (viewGeneration === roundDraftViewGeneration && !signedInPanel.hidden) {
       previewStatus.textContent = error.message || 'Could not open the Team Check draft.';
     }
+    if (expectedGenerationId) stopRoundDraftViewerPresence(expectedGenerationId);
   } finally {
     if (viewGeneration === roundDraftViewGeneration) button.disabled = false;
   }
 });
 document.getElementById('close-round-preview').addEventListener('click', () => {
-  roundPreviewOpen = false;
-  selectedRoundPlayerId = '';
-  selectedRoundFillerSlot = null;
-  draggedRoundSlot = null;
-  document.getElementById('round-replacement-panel').hidden = true;
-  clearRoundDraftRelationshipHighlights();
-  updateRoundPlayerSelection();
-  document.getElementById('round-preview-panel').hidden = true;
+  closeRoundDraftPreview();
 });
 document.getElementById('round-add-filler-team').addEventListener('click', () => {
   void saveRoundDraftFillerTeam();
@@ -3136,6 +3211,14 @@ window.hoedown.onRoundDraftUpdated(() => {
   void refreshRoundDraftStatus();
 });
 window.hoedown.onStatus(applyAuthState);
+setInterval(() => {
+  if (signedInPanel.hidden || document.getElementById('rounds-view').hidden ||
+      roundDraftActionPending) {
+    return;
+  }
+  if (roundPreviewOpen) void renewRoundDraftViewerPresence();
+  else void refreshRoundDraftStatus();
+}, 15_000);
 window.hoedown.getStatus()
   .then(applyAuthState)
   .catch((error) => applyAuthState({ signedIn: false, error: error.message }));
