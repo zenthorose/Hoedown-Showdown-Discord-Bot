@@ -282,6 +282,8 @@ function showSignedOut(profileSelected = true) {
   document.getElementById('round-preview-panel').hidden = true;
   document.getElementById('round-preview-teams').replaceChildren();
   applyRoundPreviewIndicator(null);
+  renderRoundApprovalActivity(null);
+  updateRoundDraftControls();
   renderRoundReviewers([]);
   document.getElementById('auth-header').hidden = false;
   document.getElementById('auth-title').textContent = profileSelected ? 'Sign in' : 'Select your profile';
@@ -635,8 +637,9 @@ function renderRoundApprovalActivity(draft) {
   const indicator = document.getElementById('round-approval-indicator');
   const activity = document.getElementById('round-approval-activity');
   const approval = draft?.approvalActivity;
-  const approvalStatus = approval?.status ||
-    (draft?.status === 'approved' ? 'sent' : draft?.status === 'approving' ? 'failed' : 'pending');
+  const approvalStatus = draft?.status === 'approved'
+    ? 'sent'
+    : approval?.status || (draft?.status === 'approving' ? 'failed' : 'pending');
   indicator.classList.remove('loading', 'complete', 'pending');
   if (approvalStatus === 'sending') {
     indicator.classList.add('loading');
@@ -748,6 +751,8 @@ function updateRoundDraftControls() {
   const canEditDraft = currentRoundDraft?.status === 'pending';
   const canApproveDraft = ['pending', 'approving'].includes(currentRoundDraft?.status);
   const approveFinalButton = document.getElementById('round-approve-final');
+  const approvalInProgress = currentRoundDraft?.status !== 'approved' &&
+    currentRoundDraft?.approvalActivity?.status === 'sending';
   const selectedPlayerExists = Boolean(currentRoundDraft?.teams.some((team) =>
     team.players.some((player) => player.discordId === selectedRoundPlayerId)));
   const selectedFillerExists = Boolean(selectedRoundFillerSlot &&
@@ -774,10 +779,15 @@ function updateRoundDraftControls() {
   document.getElementById('round-review-approve').disabled = !canEditDraft || roundDraftActionPending;
   document.getElementById('round-review-changes').disabled = !canEditDraft || roundDraftActionPending;
   if (approveFinalButton) {
-    approveFinalButton.disabled = !canApproveDraft || roundDraftActionPending;
-    approveFinalButton.textContent = currentRoundDraft?.status === 'approving'
-      ? 'Retry round approval'
-      : 'Approve round';
+    approveFinalButton.disabled = !canApproveDraft || roundDraftActionPending || approvalInProgress;
+    approveFinalButton.classList.toggle('is-loading', approvalInProgress);
+    approveFinalButton.textContent = approvalInProgress
+      ? 'Approving round…'
+      : currentRoundDraft?.status === 'approved'
+        ? 'Round approved'
+        : currentRoundDraft?.status === 'approving'
+          ? 'Retry round approval'
+          : 'Approve round';
   }
   renderRoundApprovalActivity(currentRoundDraft);
   const search = document.getElementById('round-replacement-search');
@@ -1435,13 +1445,13 @@ async function approveCurrentRoundDraft() {
   const regionCount = Array.isArray(finalChecks.regionErrors) ? finalChecks.regionErrors.length : 0;
   const conflictCount = avoidCount + previousCount + regionCount;
   const conflictMessage = conflictCount
-    ? ` This draft currently has ${avoidCount} Avoid conflict(s), ${previousCount} previous-pairing conflict(s), and ${regionCount} region conflict(s).`
-    : ' No team conflicts are currently reported.';
+    ? ` This draft has ${avoidCount} Avoid conflict(s), ${previousCount} previous-pairing conflict(s), and ${regionCount} region conflict(s).`
+    : '';
   const retryMessage = draft.status === 'approving'
     ? ' This will retry any incomplete approval steps.'
     : '';
   const confirmed = await confirmRoundApproval(
-    `This finalizes Round #${draft.round} and applies the configured Discord actions.${conflictMessage}${retryMessage} Continue?`
+    `Approve Round #${draft.round}? This applies the configured Discord actions.${conflictMessage}${retryMessage}`
   );
   if (!confirmed || currentRoundDraft?.generationId !== draft.generationId) return;
 

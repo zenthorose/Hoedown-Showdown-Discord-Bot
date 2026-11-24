@@ -330,6 +330,22 @@ footer { margin-top: 20px; font-size: 12px; }
   margin-top: 10px;
 }
 .rounds-approval-launch .rounds-last-clicked { flex: 1 1 220px; }
+.rounds-approval-launch button:disabled { cursor: not-allowed; }
+.rounds-approval-launch button.is-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: progress;
+}
+.rounds-approval-launch button.is-loading::after {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: rounds-spin .8s linear infinite;
+}
 .round-preview-openers { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .round-preview-opened-label { color: var(--theme-muted); font-size: 12px; }
 .round-preview-panel {
