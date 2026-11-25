@@ -584,6 +584,7 @@ function createApp({
       const backups = await backupDatabase.listCollections({}, { nameOnly: true }).toArray();
       res.set('Cache-Control', 'private, no-store');
       return res.status(200).json({
+        databases: [...availableBackupSources.keys()].sort(),
         sources: sources.sort((left, right) =>
           left.database.localeCompare(right.database) || left.collection.localeCompare(right.collection)),
         backups: backups

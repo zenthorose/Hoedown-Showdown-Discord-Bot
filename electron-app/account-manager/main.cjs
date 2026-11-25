@@ -215,7 +215,7 @@ app.whenReady().then(() => {
   ipcMain.handle('admin:list-backups', async (event) => {
     requireTrusted(event);
     const data = await requestAdmin(await loadSettings(), '/api/admin/backups');
-    if (!Array.isArray(data.sources) || !Array.isArray(data.backups)) {
+    if (!Array.isArray(data.databases) || !Array.isArray(data.sources) || !Array.isArray(data.backups)) {
       throw new Error('Render returned invalid collection backup data.');
     }
     return data;

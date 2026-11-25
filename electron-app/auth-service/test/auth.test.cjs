@@ -306,6 +306,7 @@ test('admin collection backups exclude the admin database and copy documents and
     const listingResponse = await fetch(`${baseUrl}/api/admin/backups`, { headers });
     assert.equal(listingResponse.status, 200);
     const listing = await listingResponse.json();
+    assert.deepEqual(listing.databases, ['HoedownInfo']);
     assert.deepEqual(listing.sources, [{ database: 'HoedownInfo', collection: 'Avoids' }]);
     assert.deepEqual(listing.backups, []);
 

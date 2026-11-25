@@ -129,6 +129,12 @@ function updateBackupControls() {
   const selectedCount = checkboxes.filter((input) => input.checked).length;
   const busy = backupLoading || backupRunning;
   for (const checkbox of checkboxes) checkbox.disabled = busy;
+  for (const group of rows.querySelectorAll('details[data-backup-group]')) {
+    const groupCheckboxes = [...group.querySelectorAll('input[data-backup-database]')];
+    const groupSelected = groupCheckboxes.filter((input) => input.checked).length;
+    const count = group.querySelector('[data-backup-group-count]');
+    count.textContent = `${groupCheckboxes.length} collection(s)${groupSelected ? ` · ${groupSelected} selected` : ''}`;
+  }
   byId('refresh-backups').disabled = busy;
   byId('select-all-backups').disabled = busy || checkboxes.length === 0;
   byId('create-backups').disabled = busy || selectedCount === 0;
@@ -138,20 +144,64 @@ function updateBackupControls() {
 function renderBackupCollections(data) {
   const sourceRows = byId('backup-source-rows');
   sourceRows.replaceChildren();
+  const groupedSources = new Map(data.databases.map((database) => [database, []]));
   for (const source of data.sources) {
-    const row = document.createElement('tr');
-    const selection = document.createElement('td');
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'backup-select';
-    checkbox.dataset.backupDatabase = source.database;
-    checkbox.dataset.backupCollection = source.collection;
-    checkbox.setAttribute('aria-label', `Back up ${source.database}.${source.collection}`);
-    selection.appendChild(checkbox);
-    row.appendChild(selection);
-    addCell(row, source.database);
-    addCell(row, source.collection);
-    sourceRows.appendChild(row);
+    if (!groupedSources.has(source.database)) groupedSources.set(source.database, []);
+    groupedSources.get(source.database).push(source);
+  }
+  const preferredOrder = ['HoedownInfo', 'Rounds', 'Tickets'];
+  const databaseNames = [...groupedSources.keys()].sort((left, right) => {
+    const leftOrder = preferredOrder.indexOf(left);
+    const rightOrder = preferredOrder.indexOf(right);
+    if (leftOrder !== -1 || rightOrder !== -1) {
+      return (leftOrder === -1 ? preferredOrder.length : leftOrder) -
+        (rightOrder === -1 ? preferredOrder.length : rightOrder);
+    }
+    return left.localeCompare(right);
+  });
+  for (const database of databaseNames) {
+    const sources = groupedSources.get(database);
+    const group = document.createElement('details');
+    group.className = 'backup-database-group';
+    group.dataset.backupGroup = '';
+    const summary = document.createElement('summary');
+    const title = document.createElement('strong');
+    title.textContent = database;
+    const count = document.createElement('span');
+    count.className = 'muted';
+    count.dataset.backupGroupCount = '';
+    summary.append(title, count);
+    group.appendChild(summary);
+    if (sources.length) {
+      const tableWrap = document.createElement('div');
+      tableWrap.className = 'table-wrap backup-group-content';
+      const table = document.createElement('table');
+      table.innerHTML = '<thead><tr><th>Select</th><th>Collection</th></tr></thead>';
+      const body = document.createElement('tbody');
+      for (const source of sources) {
+        const row = document.createElement('tr');
+        const selection = document.createElement('td');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'backup-select';
+        checkbox.dataset.backupDatabase = source.database;
+        checkbox.dataset.backupCollection = source.collection;
+        checkbox.setAttribute('aria-label', `Back up ${source.database}.${source.collection}`);
+        selection.appendChild(checkbox);
+        row.appendChild(selection);
+        addCell(row, source.collection);
+        body.appendChild(row);
+      }
+      table.appendChild(body);
+      tableWrap.appendChild(table);
+      group.appendChild(tableWrap);
+    } else {
+      const empty = document.createElement('p');
+      empty.className = 'muted backup-group-empty';
+      empty.textContent = 'No collections found.';
+      group.appendChild(empty);
+    }
+    sourceRows.appendChild(group);
   }
   const historyRows = byId('backup-history-rows');
   historyRows.replaceChildren();
