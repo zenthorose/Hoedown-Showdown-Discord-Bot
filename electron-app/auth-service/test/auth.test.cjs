@@ -35,6 +35,13 @@ class MemoryCollection {
     return { insertedCount: items.length };
   }
 
+  async deleteMany(filter = {}) {
+    const remaining = this.items.filter((item) => !this.matches(item, filter));
+    const deletedCount = this.items.length - remaining.length;
+    this.items = remaining;
+    return { deletedCount };
+  }
+
   async indexes() {
     return this.indexSpecifications;
   }
@@ -348,6 +355,73 @@ test('admin collection backups exclude the admin database and copy documents and
     backupDatabase,
     backupSources: [
       { databaseName: 'HoedownInfo', database: sourceDatabase },
+      { databaseName: 'Admin', database: adminDatabase },
+      { databaseName: 'Backups', database: backupDatabase }
+    ]
+  });
+});
+
+test('admin collection wipe requires authorization and deletes documents without dropping collections or indexes', async () => {
+  const hoedownDatabase = new MemoryTicketDatabase({
+    Avoids: [{ _id: 'pair-1', left: '123', right: '456' }]
+  });
+  const roundsDatabase = new MemoryTicketDatabase({
+    TeamCheck: [{ _id: 'draft-1' }, { _id: 'draft-2' }]
+  });
+  const avoids = hoedownDatabase.collection('Avoids');
+  avoids.indexSpecifications.push({ name: 'left_lookup', key: { left: 1 } });
+  const indexesBefore = [...avoids.indexSpecifications];
+  const adminDatabase = new MemoryTicketDatabase({ users: [{ _id: 'admin-user' }] });
+  const backupDatabase = new MemoryTicketDatabase({ AvoidsBackup: [{ _id: 'saved-copy' }] });
+
+  await withServer(async ({ baseUrl, audit }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/collections/wipe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collections: [{ database: 'HoedownInfo', collection: 'Avoids' }] })
+    });
+    assert.equal(unauthorized.status, 401);
+    assert.equal(avoids.items.length, 1);
+
+    const headers = {
+      Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+      'Content-Type': 'application/json'
+    };
+    const rejected = await fetch(`${baseUrl}/api/admin/collections/wipe`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ collections: [{ database: 'Admin', collection: 'users' }] })
+    });
+    assert.equal(rejected.status, 400);
+    assert.equal(adminDatabase.collection('users').items.length, 1);
+
+    const response = await fetch(`${baseUrl}/api/admin/collections/wipe`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        collections: [
+          { database: 'HoedownInfo', collection: 'Avoids' },
+          { database: 'Rounds', collection: 'TeamCheck' }
+        ]
+      })
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.results.map((item) => [item.success, item.deletedCount]), [
+      [true, 1],
+      [true, 2]
+    ]);
+    assert.deepEqual(avoids.items, []);
+    assert.deepEqual(avoids.indexSpecifications, indexesBefore);
+    assert.equal(hoedownDatabase.collections.has('Avoids'), true);
+    assert.equal(roundsDatabase.collections.has('TeamCheck'), true);
+    assert.equal(backupDatabase.collection('AvoidsBackup').items.length, 1);
+    assert.equal(audit.items.some((entry) => entry.action === 'wipe-collections'), true);
+  }, {
+    backupDatabase,
+    backupSources: [
+      { databaseName: 'HoedownInfo', database: hoedownDatabase },
+      { databaseName: 'Rounds', database: roundsDatabase },
       { databaseName: 'Admin', database: adminDatabase },
       { databaseName: 'Backups', database: backupDatabase }
     ]

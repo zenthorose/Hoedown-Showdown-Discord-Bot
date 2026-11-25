@@ -240,6 +240,26 @@ app.whenReady().then(() => {
     return data;
   });
 
+  ipcMain.handle('admin:wipe-collections', async (event, collections) => {
+    requireTrusted(event);
+    if (!Array.isArray(collections) || collections.length < 1 || collections.length > 25 ||
+        collections.some((item) => !item || typeof item.database !== 'string' ||
+          typeof item.collection !== 'string' || !item.database || !item.collection)) {
+      throw new TypeError('Select between 1 and 25 valid collections to wipe.');
+    }
+    const data = await requestAdmin(await loadSettings(), '/api/admin/collections/wipe', {
+      method: 'POST',
+      body: { collections },
+      timeoutMs: 300000
+    });
+    if (!Array.isArray(data.results) ||
+        data.results.some((result) => typeof result.success !== 'boolean' ||
+          (result.success && !Number.isInteger(result.deletedCount)))) {
+      throw new Error('Render returned invalid collection wipe results.');
+    }
+    return data;
+  });
+
   ipcMain.handle('admin:get-bot-settings', async (event) => {
     requireTrusted(event);
     const data = await requestAdmin(await loadSettings(), '/api/admin/bot-settings');

@@ -138,6 +138,7 @@ function updateBackupControls() {
   byId('refresh-backups').disabled = busy;
   byId('select-all-backups').disabled = busy || checkboxes.length === 0;
   byId('create-backups').disabled = busy || selectedCount === 0;
+  byId('wipe-selected').disabled = busy || selectedCount === 0;
   return selectedCount;
 }
 
@@ -250,16 +251,51 @@ byId('select-all-backups').addEventListener('click', () => {
   showStatus('backup-status', `${selectedCount} collection(s) selected.`);
 });
 
-byId('create-backups').addEventListener('click', async () => {
-  const collections = [...byId('backup-source-rows').querySelectorAll('input[data-backup-database]:checked')]
+function getSelectedBackupCollections() {
+  return [...byId('backup-source-rows').querySelectorAll('input[data-backup-database]:checked')]
     .map((input) => ({
       database: input.dataset.backupDatabase,
       collection: input.dataset.backupCollection
     }));
-  if (!collections.length ||
-      !window.confirm(`Create timestamped backups of ${collections.length} selected collection(s)? This will use additional Atlas storage.`)) {
-    return;
+}
+
+function confirmCollectionAction({ title, message, confirmLabel, collections, danger = false }) {
+  const dialog = byId('collection-confirm-dialog');
+  byId('collection-confirm-title').textContent = title;
+  byId('collection-confirm-message').textContent = message;
+  const list = byId('collection-confirm-items');
+  list.replaceChildren();
+  for (const item of collections) {
+    const row = document.createElement('li');
+    row.textContent = `${item.database}.${item.collection}`;
+    list.appendChild(row);
   }
+  const confirmButton = byId('collection-confirm-accept');
+  confirmButton.textContent = confirmLabel;
+  confirmButton.className = danger ? 'danger' : '';
+  dialog.returnValue = '';
+  return new Promise((resolve, reject) => {
+    const onClose = () => resolve(dialog.returnValue === 'confirm');
+    dialog.addEventListener('close', onClose, { once: true });
+    try {
+      dialog.showModal();
+    } catch (error) {
+      dialog.removeEventListener('close', onClose);
+      reject(error);
+    }
+  });
+}
+
+byId('create-backups').addEventListener('click', async () => {
+  const collections = getSelectedBackupCollections();
+  if (!collections.length) return;
+  const confirmed = await confirmCollectionAction({
+    title: 'Create collection backups?',
+    message: 'Timestamped copies of these collections, including their documents and custom indexes, will be saved in the Backups database.',
+    confirmLabel: 'Create backups',
+    collections
+  });
+  if (!confirmed) return;
   backupRunning = true;
   updateBackupControls();
   showStatus('backup-status', `Creating ${collections.length} backup(s). This may take several minutes; please keep the manager open.`);
@@ -279,6 +315,44 @@ byId('create-backups').addEventListener('click', async () => {
     }
   } catch (error) {
     showStatus('backup-status', error.message || 'Could not create collection backups.');
+  } finally {
+    backupRunning = false;
+    updateBackupControls();
+  }
+});
+
+byId('wipe-selected').addEventListener('click', async () => {
+  const collections = getSelectedBackupCollections();
+  if (!collections.length) return;
+  const confirmed = await confirmCollectionAction({
+    title: 'Wipe selected collection data?',
+    message: 'This permanently deletes every document in these collections. The collections and their indexes will remain. This action cannot be undone.',
+    confirmLabel: 'Wipe data',
+    collections,
+    danger: true
+  });
+  if (!confirmed) return;
+  backupRunning = true;
+  updateBackupControls();
+  showStatus('backup-status', `Wiping data from ${collections.length} collection(s)…`);
+  try {
+    const result = await window.admin.wipeCollections(collections);
+    const succeeded = result.results.filter((item) => item.success);
+    const failed = result.results.filter((item) => !item.success);
+    const deletedCount = succeeded.reduce((count, item) =>
+      count + (Number.isInteger(item.deletedCount) ? item.deletedCount : 0), 0);
+    const summary = `Wiped ${succeeded.length} collection(s), deleting ${deletedCount} document(s)${failed.length ? `; ${failed.length} failed` : ''}.` +
+      (result.auditLogged ? ' Recorded in the admin audit log.' : ' The admin audit log could not be updated.');
+    showStatus('backup-status', failed.length
+      ? `${summary} ${failed.map((item) => `${item.database}.${item.collection}: ${item.error}`).join(' ')}`
+      : summary);
+    try {
+      await loadBackups({ quiet: true });
+    } catch (error) {
+      showStatus('backup-status', `${summary} Could not refresh the collection list: ${error.message}`);
+    }
+  } catch (error) {
+    showStatus('backup-status', error.message || 'Could not wipe selected collections.');
   } finally {
     backupRunning = false;
     updateBackupControls();

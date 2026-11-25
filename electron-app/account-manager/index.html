@@ -14,7 +14,7 @@
       </div>
       <nav>
         <button class="tab active" data-tab="accounts">Accounts</button>
-        <button class="tab" data-tab="backups">Backups</button>
+        <button class="tab" data-tab="backups">DB Manager</button>
         <button class="tab" data-tab="bot-settings">Bot Settings</button>
         <button class="tab" data-tab="releases">Releases</button>
       </nav>
@@ -94,9 +94,14 @@
             Each snapshot adds a collection and uses additional Atlas storage. Backups remain in the same cluster,
             so they are not disaster-recovery copies; remove old snapshots manually in Atlas when needed.
           </p>
+          <p class="backup-warning">
+            Wipe selected permanently deletes every document in those collections but keeps the collections and indexes.
+            Create a backup first if you may need the data later.
+          </p>
           <div class="actions backup-actions">
             <button id="select-all-backups" class="secondary" type="button">Select all</button>
             <button id="create-backups" type="button" disabled>Create selected backups</button>
+            <button id="wipe-selected" class="danger" type="button" disabled>Wipe selected</button>
           </div>
           <div id="backup-source-rows" class="backup-source-groups"></div>
           <p id="backup-status" class="status" role="status" aria-live="polite"></p>
@@ -276,6 +281,17 @@
           <button type="submit">Save link</button>
           <button id="remove-discord-link" class="danger" type="button">Remove link</button>
           <button id="cancel-discord-link" class="secondary" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="collection-confirm-dialog" class="collection-confirm-dialog">
+      <form method="dialog">
+        <h2 id="collection-confirm-title"></h2>
+        <p id="collection-confirm-message" class="muted"></p>
+        <ul id="collection-confirm-items" class="collection-confirm-items"></ul>
+        <div class="actions">
+          <button type="submit" value="cancel" class="secondary">Cancel</button>
+          <button id="collection-confirm-accept" type="submit" value="confirm">Confirm</button>
         </div>
       </form>
     </dialog>

@@ -668,6 +668,64 @@ function createApp({
       return sendError(res, error, 'Admin collection backup failed:');
     }
   });
+  app.post('/api/admin/collections/wipe', adminMutationLimit, async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    const requested = req.body && req.body.collections;
+    if (!Array.isArray(requested) || requested.length < 1 || requested.length > 25) {
+      return res.status(400).json({ error: 'Select between 1 and 25 collections to wipe.' });
+    }
+    try {
+      const selected = [];
+      const selectedKeys = new Set();
+      for (const item of requested) {
+        if (!item || typeof item.database !== 'string' || typeof item.collection !== 'string' ||
+            !item.database || !item.collection) {
+          return res.status(400).json({ error: 'A database and collection are required for each selection.' });
+        }
+        const database = availableBackupSources.get(item.database);
+        if (!database) return res.status(400).json({ error: 'One or more selected databases are not eligible for wiping.' });
+        const key = `${item.database}\0${item.collection}`;
+        if (selectedKeys.has(key)) return res.status(400).json({ error: 'Duplicate collection selections are not allowed.' });
+        selectedKeys.add(key);
+        const matches = await database.listCollections({ name: item.collection }, { nameOnly: true }).toArray();
+        if (!matches.some(({ name }) => name === item.collection && !name.startsWith('system.'))) {
+          return res.status(400).json({ error: 'One or more selected collections no longer exist.' });
+        }
+        selected.push({ databaseName: item.database, collectionName: item.collection });
+      }
+      const results = [];
+      for (const { databaseName, collectionName } of selected) {
+        try {
+          const result = await availableBackupSources.get(databaseName)
+            .collection(collectionName)
+            .deleteMany({});
+          results.push({
+            success: true,
+            database: databaseName,
+            collection: collectionName,
+            deletedCount: result.deletedCount
+          });
+        } catch (error) {
+          console.error(`Admin wipe failed for ${databaseName}.${collectionName}:`, error);
+          results.push({
+            success: false,
+            database: databaseName,
+            collection: collectionName,
+            error: 'Could not wipe this collection. Check service logs.'
+          });
+        }
+      }
+      const auditLogged = await recordAdminAction('wipe-collections', 'collections', {
+        results: results.map(({ success, database, collection, deletedCount }) => ({
+          success, database, collection, ...(deletedCount === undefined ? {} : { deletedCount })
+        }))
+      });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({ results, auditLogged });
+    } catch (error) {
+      return sendError(res, error, 'Admin collection wipe failed:');
+    }
+  });
   app.get('/api/admin/bot-settings', limited(60), async (req, res) => {
     if (!authorizeAdmin(req, res)) return;
     if (!botSettings) return res.status(503).json({ error: 'Bot settings are not configured.' });

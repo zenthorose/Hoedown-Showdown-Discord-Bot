@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('admin', {
   listUsers: () => ipcRenderer.invoke('admin:list-users'),
   listBackups: () => ipcRenderer.invoke('admin:list-backups'),
   createBackups: (collections) => ipcRenderer.invoke('admin:create-backups', collections),
+  wipeCollections: (collections) => ipcRenderer.invoke('admin:wipe-collections', collections),
   getBotSettings: () => ipcRenderer.invoke('admin:get-bot-settings'),
   saveBotSettings: (settings) => ipcRenderer.invoke('admin:save-bot-settings', settings),
   createUser: (account) => ipcRenderer.invoke('admin:create-user', account),
