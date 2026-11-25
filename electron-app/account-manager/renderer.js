@@ -3,6 +3,8 @@ let latestAudit = [];
 let currentSettings = { configured: false, serviceUrl: '', hasR2: false };
 let discordLinkUsername = '';
 let botSettingsLoaded = false;
+let backupLoading = false;
+let backupRunning = false;
 
 function showStatus(id, message) {
   byId(id).textContent = message || '';
@@ -120,6 +122,118 @@ async function loadAudit(filters = {}) {
     showStatus('global-status', error.message || 'Could not load admin activity.');
   }
 }
+
+function updateBackupControls() {
+  const rows = byId('backup-source-rows');
+  const checkboxes = [...rows.querySelectorAll('input[data-backup-database]')];
+  const selectedCount = checkboxes.filter((input) => input.checked).length;
+  const busy = backupLoading || backupRunning;
+  for (const checkbox of checkboxes) checkbox.disabled = busy;
+  byId('refresh-backups').disabled = busy;
+  byId('select-all-backups').disabled = busy || checkboxes.length === 0;
+  byId('create-backups').disabled = busy || selectedCount === 0;
+  return selectedCount;
+}
+
+function renderBackupCollections(data) {
+  const sourceRows = byId('backup-source-rows');
+  sourceRows.replaceChildren();
+  for (const source of data.sources) {
+    const row = document.createElement('tr');
+    const selection = document.createElement('td');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'backup-select';
+    checkbox.dataset.backupDatabase = source.database;
+    checkbox.dataset.backupCollection = source.collection;
+    checkbox.setAttribute('aria-label', `Back up ${source.database}.${source.collection}`);
+    selection.appendChild(checkbox);
+    row.appendChild(selection);
+    addCell(row, source.database);
+    addCell(row, source.collection);
+    sourceRows.appendChild(row);
+  }
+  const historyRows = byId('backup-history-rows');
+  historyRows.replaceChildren();
+  for (const backup of data.backups) {
+    const row = document.createElement('tr');
+    addCell(row, backup.collection);
+    addCell(row, displayDate(backup.createdAt));
+    historyRows.appendChild(row);
+  }
+  updateBackupControls();
+}
+
+async function loadBackups({ quiet = false } = {}) {
+  backupLoading = true;
+  updateBackupControls();
+  if (!quiet) showStatus('backup-status', 'Loading operational collections and backup history…');
+  try {
+    const data = await window.admin.listBackups();
+    renderBackupCollections(data);
+    if (!quiet) {
+      showStatus('backup-status', `${data.sources.length} eligible collection(s); ${data.backups.length} timestamped backup(s).`);
+    }
+  } catch (error) {
+    if (!quiet) showStatus('backup-status', error.message || 'Could not load collection backups.');
+    throw error;
+  } finally {
+    backupLoading = false;
+    updateBackupControls();
+  }
+}
+
+byId('backup-source-rows').addEventListener('change', () => {
+  const selectedCount = updateBackupControls();
+  if (!backupLoading && !backupRunning) {
+    showStatus('backup-status', `${selectedCount} collection(s) selected.`);
+  }
+});
+
+byId('refresh-backups').addEventListener('click', () => loadBackups().catch(() => {}));
+
+byId('select-all-backups').addEventListener('click', () => {
+  const checkboxes = [...byId('backup-source-rows').querySelectorAll('input[data-backup-database]')];
+  const shouldSelect = !checkboxes.length || !checkboxes.every((input) => input.checked);
+  for (const checkbox of checkboxes) checkbox.checked = shouldSelect;
+  const selectedCount = updateBackupControls();
+  showStatus('backup-status', `${selectedCount} collection(s) selected.`);
+});
+
+byId('create-backups').addEventListener('click', async () => {
+  const collections = [...byId('backup-source-rows').querySelectorAll('input[data-backup-database]:checked')]
+    .map((input) => ({
+      database: input.dataset.backupDatabase,
+      collection: input.dataset.backupCollection
+    }));
+  if (!collections.length ||
+      !window.confirm(`Create timestamped backups of ${collections.length} selected collection(s)? This will use additional Atlas storage.`)) {
+    return;
+  }
+  backupRunning = true;
+  updateBackupControls();
+  showStatus('backup-status', `Creating ${collections.length} backup(s). This may take several minutes; please keep the manager open.`);
+  try {
+    const result = await window.admin.createBackups(collections);
+    const succeeded = result.results.filter((item) => item.success);
+    const failed = result.results.filter((item) => !item.success);
+    const summary = `${succeeded.length} backup(s) created${failed.length ? `; ${failed.length} failed` : ''}.` +
+      (result.auditLogged ? ' Recorded in the admin audit log.' : ' The admin audit log could not be updated.');
+    showStatus('backup-status', failed.length
+      ? `${summary} ${failed.map((item) => `${item.database}.${item.collection}: ${item.error}`).join(' ')}`
+      : summary);
+    try {
+      await loadBackups({ quiet: true });
+    } catch (error) {
+      showStatus('backup-status', `${summary} Could not refresh backup history: ${error.message}`);
+    }
+  } catch (error) {
+    showStatus('backup-status', error.message || 'Could not create collection backups.');
+  } finally {
+    backupRunning = false;
+    updateBackupControls();
+  }
+});
 
 async function loadReleaseInfo() {
   try {
@@ -412,6 +526,7 @@ document.querySelectorAll('.tab').forEach((button) => {
   button.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab === button));
     document.querySelectorAll('.tab-page').forEach((page) => { page.hidden = page.id !== button.dataset.tab; });
+    if (button.dataset.tab === 'backups') loadBackups().catch(() => {});
   });
 });
 

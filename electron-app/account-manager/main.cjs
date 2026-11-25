@@ -63,10 +63,10 @@ async function loadSettings() {
   };
 }
 
-async function requestAdmin(settings, route, { method = 'GET', body } = {}) {
+async function requestAdmin(settings, route, { method = 'GET', body, timeoutMs = 20000 } = {}) {
   if (!settings) throw new Error('Configure the Render service and admin key first.');
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(new URL(route, `${settings.serviceUrl}/`), {
       method,
@@ -210,6 +210,34 @@ app.whenReady().then(() => {
     const data = await requestAdmin(await loadSettings(), '/api/admin/users');
     if (!Array.isArray(data.accounts)) throw new Error('Render returned an invalid account list.');
     return data.accounts;
+  });
+
+  ipcMain.handle('admin:list-backups', async (event) => {
+    requireTrusted(event);
+    const data = await requestAdmin(await loadSettings(), '/api/admin/backups');
+    if (!Array.isArray(data.sources) || !Array.isArray(data.backups)) {
+      throw new Error('Render returned invalid collection backup data.');
+    }
+    return data;
+  });
+
+  ipcMain.handle('admin:create-backups', async (event, collections) => {
+    requireTrusted(event);
+    if (!Array.isArray(collections) || collections.length < 1 || collections.length > 25 ||
+        collections.some((item) => !item || typeof item.database !== 'string' ||
+          typeof item.collection !== 'string' || !item.database || !item.collection)) {
+      throw new TypeError('Select between 1 and 25 valid collections to back up.');
+    }
+    const data = await requestAdmin(await loadSettings(), '/api/admin/backups', {
+      method: 'POST',
+      body: { collections },
+      timeoutMs: 300000
+    });
+    if (!Array.isArray(data.results) ||
+        data.results.some((result) => typeof result.success !== 'boolean')) {
+      throw new Error('Render returned invalid collection backup results.');
+    }
+    return data;
   });
 
   ipcMain.handle('admin:get-bot-settings', async (event) => {

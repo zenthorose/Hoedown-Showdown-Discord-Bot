@@ -76,6 +76,8 @@ Save the bot Render service URL and `ADMIN_API_KEY` from that service's environm
 
 The **Releases** panel builds the desktop app's portable executable and installer, builds the account manager, fetches the latest beta/stable versions from R2, suggests version increments, and publishes the app installer to private Cloudflare R2 storage after confirmation. Select the local source checkout, then choose the beta or stable channel. Building writes the saved Render URL and selected update channel into the desktop's packaged auth config. The R2 write token is used only by the local account manager process and should be restricted to the update bucket. Render needs a separate read-only R2 token to serve signed downloads. Configure the relevant R2 and update-channel values in Render; never put them in the desktop app.
 
+The Account Manager's **Backups** tab lists non-system collections from `MONGODB_HOEDOWNINFO`, `MONGODB_ROUNDS`, and `MONGODB_TICKETS`. An administrator can manually back up up to 25 selected collections at a time; each snapshot copies documents and custom indexes into a timestamped collection in the fixed `Backups` database. `MONGODB_ADMIN` is excluded. Each snapshot adds a collection and uses additional storage in the same Atlas cluster. There is no automatic expiration, so monitor M0 storage and collection limits and remove old snapshots manually in Atlas. These are convenient pre-change snapshots, not disaster-recovery backups.
+
 For a one-click Windows build of all three artifacts, run `build-all.bat`. App builds stop if a deployed Render HTTPS URL is not configured. Builds and publishing are intentionally manual actions; nothing deploys or cuts users over automatically.
 
 ## Account and session rules

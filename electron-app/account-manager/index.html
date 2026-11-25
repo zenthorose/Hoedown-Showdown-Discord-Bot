@@ -14,6 +14,7 @@
       </div>
       <nav>
         <button class="tab active" data-tab="accounts">Accounts</button>
+        <button class="tab" data-tab="backups">Backups</button>
         <button class="tab" data-tab="bot-settings">Bot Settings</button>
         <button class="tab" data-tab="releases">Releases</button>
       </nav>
@@ -77,6 +78,41 @@
           <div class="section-heading"><h2 id="devices-title">Devices</h2><button id="close-devices" class="secondary" type="button">Close</button></div>
           <div class="table-wrap">
             <table><thead><tr><th>Device</th><th>Platform</th><th>Last seen</th><th>IP address</th><th>Activity</th></tr></thead><tbody id="device-rows"></tbody></table>
+          </div>
+        </section>
+      </section>
+
+      <section id="backups" class="tab-page" hidden>
+        <section class="card">
+          <div class="section-heading">
+            <h2>Operational collections</h2>
+            <button id="refresh-backups" class="secondary" type="button">Refresh collections</button>
+          </div>
+          <p class="muted">
+            Select collections in HoedownInfo, Rounds, or Tickets for a manual snapshot. Each snapshot copies
+            documents and custom indexes into a timestamped collection in the Backups database. Admin/auth data is excluded.
+            Each snapshot adds a collection and uses additional Atlas storage. Backups remain in the same cluster,
+            so they are not disaster-recovery copies; remove old snapshots manually in Atlas when needed.
+          </p>
+          <div class="actions backup-actions">
+            <button id="select-all-backups" class="secondary" type="button">Select all</button>
+            <button id="create-backups" type="button" disabled>Create selected backups</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Select</th><th>Database</th><th>Collection</th></tr></thead>
+              <tbody id="backup-source-rows"></tbody>
+            </table>
+          </div>
+          <p id="backup-status" class="status" role="status" aria-live="polite"></p>
+        </section>
+        <section class="card">
+          <h2>Backup history</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Backup collection</th><th>Created (Eastern)</th></tr></thead>
+              <tbody id="backup-history-rows"></tbody>
+            </table>
           </div>
         </section>
       </section>

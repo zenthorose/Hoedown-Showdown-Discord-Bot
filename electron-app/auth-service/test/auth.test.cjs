@@ -7,8 +7,9 @@ const { createApp, makeToken, normalizeUsername, readToken, validPassword } = re
 const { DEFAULT_BOT_SETTINGS } = require('../../../database/botSettings');
 
 class MemoryCollection {
-  constructor(items = []) {
+  constructor(items = [], indexes = [{ name: '_id_', key: { _id: 1 } }]) {
     this.items = items;
+    this.indexSpecifications = indexes;
   }
 
   matches(item, filter) {
@@ -27,6 +28,26 @@ class MemoryCollection {
   async insertOne(item) {
     this.items.push({ _id: new ObjectId(), ...item });
     return { insertedId: this.items[this.items.length - 1]._id };
+  }
+
+  async insertMany(items) {
+    this.items.push(...items);
+    return { insertedCount: items.length };
+  }
+
+  async indexes() {
+    return this.indexSpecifications;
+  }
+
+  async createIndex(key, options = {}) {
+    const name = options.name || Object.keys(key).map((field) => `${field}_${key[field]}`).join('_');
+    this.indexSpecifications.push({ key, ...options, name });
+    return name;
+  }
+
+  async drop() {
+    if (this.onDrop) this.onDrop();
+    return true;
   }
 
   async updateOne(filter, update, options = {}) {
@@ -85,7 +106,11 @@ class MemoryCollection {
     const cursor = {
       sort: () => cursor,
       limit: (count) => { items = items.slice(0, count); return cursor; },
-      toArray: async () => items
+      batchSize: () => cursor,
+      toArray: async () => items,
+      [Symbol.asyncIterator]: async function* () {
+        for (const item of items) yield item;
+      }
     };
     return cursor;
   }
@@ -112,7 +137,17 @@ class MemoryTicketDatabase {
   }
 
   collection(name) {
-    return this.collections.get(name) || new MemoryCollection();
+    if (!this.collections.has(name)) {
+      const collection = new MemoryCollection();
+      collection.onDrop = () => this.collections.delete(name);
+      this.collections.set(name, collection);
+    }
+    return this.collections.get(name);
+  }
+
+  async createCollection(name) {
+    if (this.collections.has(name)) throw new Error('Collection already exists.');
+    return this.collection(name);
   }
 }
 
@@ -180,6 +215,9 @@ async function withServer(run, options = {}) {
     avoids,
     ticketDatabase,
     botSettings,
+    backupDatabase: options.backupDatabase,
+    backupSources: options.backupSources,
+    adminDatabaseName: 'Admin',
     roundDraftCollection: options.roundDraftCollection,
     roundAvoidsCollection: options.roundAvoidsCollection,
     previousPairingsCollection: options.previousPairingsCollection,
@@ -242,6 +280,76 @@ test('admin bot settings require authorization and return the built-in defaults'
     assert.deepEqual(result.settings, DEFAULT_BOT_SETTINGS);
     assert.equal(result.updatedAt, null);
     assert.equal(result.updatedBy, null);
+  });
+});
+
+test('admin collection backups exclude the admin database and copy documents and indexes', async () => {
+  const sourceDatabase = new MemoryTicketDatabase({
+    Avoids: [{ _id: 'pair-1', left: '123', right: '456' }],
+    'system.profile': [{ _id: 'internal' }]
+  });
+  sourceDatabase.collection('Avoids').indexSpecifications.push({
+    name: 'pair_lookup',
+    key: { left: 1, right: 1 },
+    unique: true,
+    v: 2,
+    ns: 'HoedownInfo.Avoids'
+  });
+  const adminDatabase = new MemoryTicketDatabase({ users: [{ _id: 'admin-user' }] });
+  const backupDatabase = new MemoryTicketDatabase();
+
+  await withServer(async ({ baseUrl, audit }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/backups`);
+    assert.equal(unauthorized.status, 401);
+
+    const headers = { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' };
+    const listingResponse = await fetch(`${baseUrl}/api/admin/backups`, { headers });
+    assert.equal(listingResponse.status, 200);
+    const listing = await listingResponse.json();
+    assert.deepEqual(listing.sources, [{ database: 'HoedownInfo', collection: 'Avoids' }]);
+    assert.deepEqual(listing.backups, []);
+
+    const rejected = await fetch(`${baseUrl}/api/admin/backups`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collections: [{ database: 'Admin', collection: 'users' }] })
+    });
+    assert.equal(rejected.status, 400);
+
+    const response = await fetch(`${baseUrl}/api/admin/backups`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collections: [{ database: 'HoedownInfo', collection: 'Avoids' }] })
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.results.length, 1);
+    assert.equal(result.results[0].success, true);
+    assert.equal(result.results[0].documentCount, 1);
+    assert.equal(result.results[0].indexCount, 1);
+    assert.match(result.results[0].backupCollection, /^AvoidsBackup_\d{8}T\d{9}Z_[a-f0-9]{8}$/);
+
+    const savedBackup = backupDatabase.collection(result.results[0].backupCollection);
+    assert.deepEqual(savedBackup.items, [{ _id: 'pair-1', left: '123', right: '456' }]);
+    assert.deepEqual(savedBackup.indexSpecifications[1], {
+      key: { left: 1, right: 1 },
+      unique: true,
+      name: 'pair_lookup'
+    });
+    assert.equal(audit.items.some((entry) => entry.action === 'backup-collections'), true);
+
+    const refreshed = await fetch(`${baseUrl}/api/admin/backups`, { headers });
+    const history = await refreshed.json();
+    assert.equal(history.backups.length, 1);
+    assert.equal(history.backups[0].collection, result.results[0].backupCollection);
+    assert.equal(typeof history.backups[0].createdAt, 'string');
+  }, {
+    backupDatabase,
+    backupSources: [
+      { databaseName: 'HoedownInfo', database: sourceDatabase },
+      { databaseName: 'Admin', database: adminDatabase },
+      { databaseName: 'Backups', database: backupDatabase }
+    ]
   });
 });
 

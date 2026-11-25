@@ -435,6 +435,9 @@ function createApp({
   avoids,
   ticketDatabase,
   botSettings,
+  backupDatabase,
+  backupSources = [],
+  adminDatabaseName,
   jwtSecret,
   adminApiKey,
   dummyPasswordHash,
@@ -500,7 +503,170 @@ function createApp({
     }
     return true;
   };
+  const availableBackupSources = new Map(
+    backupSources
+      .filter(({ databaseName, database }) =>
+        typeof databaseName === 'string' && databaseName &&
+        databaseName !== adminDatabaseName && databaseName !== 'Backups' && database)
+      .map(({ databaseName, database }) => [databaseName, database])
+  );
+  const createCollectionBackup = async (databaseName, collectionName) => {
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[-:.]/g, '');
+    const safeSourceName = collectionName.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) || 'Collection';
+    const backupName = `${safeSourceName}Backup_${timestamp}_${crypto.randomBytes(4).toString('hex')}`;
+    const sourceDatabase = availableBackupSources.get(databaseName);
+    const source = sourceDatabase.collection(collectionName);
+    const [sourceDetails] = await sourceDatabase
+      .listCollections({ name: collectionName }, { nameOnly: false })
+      .toArray();
+    if (!sourceDetails) throw new Error('The selected source collection no longer exists.');
+    const collectionOptions = sourceDetails.options && sourceDetails.options.collation
+      ? { collation: sourceDetails.options.collation }
+      : {};
+    const destination = await backupDatabase.createCollection(backupName, collectionOptions);
+    let documentCount = 0;
+    try {
+      const cursor = source.find({}).batchSize(500);
+      let batch = [];
+      for await (const document of cursor) {
+        batch.push(document);
+        if (batch.length === 500) {
+          await destination.insertMany(batch);
+          documentCount += batch.length;
+          batch = [];
+        }
+      }
+      if (batch.length) {
+        await destination.insertMany(batch);
+        documentCount += batch.length;
+      }
+      const indexes = await source.indexes();
+      const customIndexes = indexes.filter((index) => index.name !== '_id_');
+      for (const index of customIndexes) {
+        const { key, name, ns, v, background, ...options } = index;
+        await destination.createIndex(key, {
+          ...options,
+          ...(name ? { name } : {})
+        });
+      }
+      return {
+        database: databaseName,
+        collection: collectionName,
+        backupCollection: backupName,
+        createdAt: now.toISOString(),
+        documentCount,
+        indexCount: customIndexes.length
+      };
+    } catch (error) {
+      try {
+        await destination.drop();
+      } catch (cleanupError) {
+        console.error(`Could not remove incomplete backup ${backupName}:`, cleanupError);
+      }
+      throw error;
+    }
+  };
   const adminMutationLimit = limited(10);
+  app.get('/api/admin/backups', limited(30), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    if (!backupDatabase) return res.status(503).json({ error: 'Collection backups are not configured.' });
+    try {
+      const sources = [];
+      for (const [databaseName, database] of availableBackupSources) {
+        const collections = await database.listCollections({}, { nameOnly: true }).toArray();
+        for (const { name } of collections) {
+          if (typeof name === 'string' && !name.startsWith('system.')) {
+            sources.push({ database: databaseName, collection: name });
+          }
+        }
+      }
+      const backups = await backupDatabase.listCollections({}, { nameOnly: true }).toArray();
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        sources: sources.sort((left, right) =>
+          left.database.localeCompare(right.database) || left.collection.localeCompare(right.collection)),
+        backups: backups
+          .filter(({ name }) => typeof name === 'string' && name.includes('Backup_'))
+          .map(({ name }) => {
+            const match = /Backup_(\d{8}T\d{9}Z)_[a-f0-9]{8}$/.exec(name);
+            let createdAt = null;
+            if (match) {
+              const value = match[1];
+              createdAt = new Date(Date.UTC(
+                Number(value.slice(0, 4)),
+                Number(value.slice(4, 6)) - 1,
+                Number(value.slice(6, 8)),
+                Number(value.slice(9, 11)),
+                Number(value.slice(11, 13)),
+                Number(value.slice(13, 15)),
+                Number(value.slice(15, 18))
+              )).toISOString();
+            }
+            return { collection: name, createdAt };
+          })
+          .sort((left, right) => (right.createdAt || '').localeCompare(left.createdAt || ''))
+      });
+    } catch (error) {
+      return sendError(res, error, 'Admin backup collection listing failed:');
+    }
+  });
+  app.post('/api/admin/backups', adminMutationLimit, async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    if (!backupDatabase) return res.status(503).json({ error: 'Collection backups are not configured.' });
+    const requested = req.body && req.body.collections;
+    if (!Array.isArray(requested) || requested.length < 1 || requested.length > 25) {
+      return res.status(400).json({ error: 'Select between 1 and 25 collections to back up.' });
+    }
+    try {
+      const selected = [];
+      const selectedKeys = new Set();
+      for (const item of requested) {
+        if (!item || typeof item.database !== 'string' || typeof item.collection !== 'string' ||
+            !item.database || !item.collection) {
+          return res.status(400).json({ error: 'A database and collection are required for each selection.' });
+        }
+        const database = availableBackupSources.get(item.database);
+        if (!database) return res.status(400).json({ error: 'One or more selected databases are not eligible for backup.' });
+        const key = `${item.database}\0${item.collection}`;
+        if (selectedKeys.has(key)) return res.status(400).json({ error: 'Duplicate collection selections are not allowed.' });
+        selectedKeys.add(key);
+        const matches = await database.listCollections({ name: item.collection }, { nameOnly: true }).toArray();
+        if (!matches.some(({ name }) => name === item.collection && !name.startsWith('system.'))) {
+          return res.status(400).json({ error: 'One or more selected collections no longer exist.' });
+        }
+        selected.push({ databaseName: item.database, collectionName: item.collection });
+      }
+      const results = [];
+      for (const { databaseName, collectionName } of selected) {
+        try {
+          results.push({
+            success: true,
+            ...(await createCollectionBackup(databaseName, collectionName))
+          });
+        } catch (error) {
+          console.error(`Admin backup failed for ${databaseName}.${collectionName}:`, error);
+          results.push({
+            success: false,
+            database: databaseName,
+            collection: collectionName,
+            error: 'Could not complete this collection backup. Check service logs and MongoDB capacity.'
+          });
+        }
+      }
+      const auditLogged = await recordAdminAction('backup-collections', 'Backups', {
+        results: results.map(({ success, database, collection, backupCollection, documentCount, indexCount }) => ({
+          success, database, collection, ...(backupCollection ? { backupCollection } : {}),
+          ...(documentCount === undefined ? {} : { documentCount }),
+          ...(indexCount === undefined ? {} : { indexCount })
+        }))
+      });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({ results, auditLogged });
+    } catch (error) {
+      return sendError(res, error, 'Admin collection backup failed:');
+    }
+  });
   app.get('/api/admin/bot-settings', limited(60), async (req, res) => {
     if (!authorizeAdmin(req, res)) return;
     if (!botSettings) return res.status(503).json({ error: 'Bot settings are not configured.' });
@@ -2999,6 +3165,14 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       ? MONGODB_TICKETS.trim()
       : '';
     const ticketDatabase = ticketDatabaseName ? client.db(ticketDatabaseName) : null;
+    const adminDatabaseName = MONGODB_ADMIN.trim();
+    const backupSources = [
+      { databaseName: hoedownDatabaseName, database: hoedownDatabase },
+      { databaseName: roundsDatabaseName, database: roundsDatabase },
+      { databaseName: ticketDatabaseName, database: ticketDatabase }
+    ].filter(({ databaseName, database }) =>
+      database && databaseName && databaseName !== adminDatabaseName && databaseName !== 'Backups');
+    const backupDatabase = adminDatabaseName === 'Backups' ? null : client.db('Backups');
     const members = hoedownDatabase ? hoedownDatabase.collection('Members') : null;
     const avoids = hoedownDatabase ? hoedownDatabase.collection('Avoids') : null;
     const sendTicketReply = discordClient && ticketDatabase
@@ -3586,6 +3760,9 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       avoids,
       ticketDatabase,
       botSettings: botSettingsCollection,
+      backupDatabase,
+      backupSources,
+      adminDatabaseName,
       updateAvoidsInGoogleSheets,
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)
