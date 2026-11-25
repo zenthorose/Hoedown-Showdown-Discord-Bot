@@ -6,7 +6,17 @@ const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
-const { addAvoidRelationships } = require('../../database/pairingImport');
+const { parseMemberListCsv } = require('../../database/memberListImport');
+const {
+  addAvoidRelationships,
+  parseAvoidsCsv,
+  parsePreviousPairingsCsv
+} = require('../../database/pairingImport');
+const {
+  PAST_HOEDOWN_EVENTS,
+  parsePastHoedownEventCsv,
+  parsePastHoedownTeamsCsv
+} = require('../../database/pastHoedownTeams');
 const config = require('../../config.json');
 const {
   addCurrentDraftFillerTeam,
@@ -39,6 +49,14 @@ const {
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESET_TTL_SECONDS = 15 * 60;
 const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+const MAX_REPLACEMENT_CSV_BYTES = 10 * 1024 * 1024;
+const BACKUP_HISTORY_COLLECTION = 'BackupHistory';
+const REPLACEMENT_CSV_COLLECTIONS = new Set([
+  'Members',
+  'Avoids',
+  'PreviousPairings',
+  'PastHoedownTeams'
+]);
 const ROUND_DRAFT_VIEWER_TTL_MS = 45_000;
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -438,6 +456,7 @@ function createApp({
   backupDatabase,
   backupSources = [],
   adminDatabaseName,
+  hoedownInfoDatabaseName,
   jwtSecret,
   adminApiKey,
   dummyPasswordHash,
@@ -510,6 +529,88 @@ function createApp({
         databaseName !== adminDatabaseName && databaseName !== 'Backups' && database)
       .map(({ databaseName, database }) => [databaseName, database])
   );
+  const readCollectionDetails = async (database, collectionName) => {
+    const [details] = await database
+      .listCollections({ name: collectionName }, { nameOnly: false })
+      .toArray();
+    if (!details) throw new Error(`Collection "${collectionName}" no longer exists.`);
+    return details;
+  };
+  const supportedCollectionOptions = (...options) => {
+    const copied = {};
+    for (const source of options) {
+      if (!source || typeof source !== 'object') continue;
+      for (const key of ['collation', 'validator', 'validationLevel', 'validationAction']) {
+        if (source[key] !== undefined) copied[key] = source[key];
+      }
+    }
+    return copied;
+  };
+  const copyCollectionDocuments = async (source, destination) => {
+    const cursor = source.find({}).batchSize(500);
+    let documentCount = 0;
+    let batch = [];
+    for await (const document of cursor) {
+      batch.push(document);
+      if (batch.length === 500) {
+        await destination.insertMany(batch);
+        documentCount += batch.length;
+        batch = [];
+      }
+    }
+    if (batch.length) {
+      await destination.insertMany(batch);
+      documentCount += batch.length;
+    }
+    return documentCount;
+  };
+  const insertDocuments = async (destination, documents) => {
+    let insertedCount = 0;
+    for (let offset = 0; offset < documents.length; offset += 500) {
+      const batch = documents.slice(offset, offset + 500);
+      await destination.insertMany(batch);
+      insertedCount += batch.length;
+    }
+    return insertedCount;
+  };
+  const copyCustomIndexes = async (source, destination) => {
+    const indexes = await source.indexes();
+    const customIndexes = indexes.filter((index) => index.name !== '_id_');
+    for (const index of customIndexes) {
+      const { key, name, ns, v, background, ...options } = index;
+      await destination.createIndex(key, {
+        ...options,
+        ...(name ? { name } : {})
+      });
+    }
+    return customIndexes.length;
+  };
+  const replaceCollectionDocuments = async ({
+    database,
+    collectionName,
+    documents,
+    documentSource,
+    indexSource,
+    collectionOptions
+  }) => {
+    const stagingName = `_replace_${crypto.randomBytes(8).toString('hex')}`;
+    const staging = await database.createCollection(stagingName, collectionOptions);
+    try {
+      const documentCount = documents
+        ? await insertDocuments(staging, documents)
+        : await copyCollectionDocuments(documentSource, staging);
+      const indexCount = await copyCustomIndexes(indexSource, staging);
+      await staging.rename(collectionName, { dropTarget: true });
+      return { documentCount, indexCount };
+    } catch (error) {
+      try {
+        await staging.drop();
+      } catch (cleanupError) {
+        console.error(`Could not remove incomplete replacement collection ${stagingName}:`, cleanupError);
+      }
+      throw error;
+    }
+  };
   const createCollectionBackup = async (databaseName, collectionName) => {
     const now = new Date();
     const timestamp = now.toISOString().replace(/[-:.]/g, '');
@@ -517,57 +618,258 @@ function createApp({
     const backupName = `${safeSourceName}Backup_${timestamp}_${crypto.randomBytes(4).toString('hex')}`;
     const sourceDatabase = availableBackupSources.get(databaseName);
     const source = sourceDatabase.collection(collectionName);
-    const [sourceDetails] = await sourceDatabase
-      .listCollections({ name: collectionName }, { nameOnly: false })
-      .toArray();
-    if (!sourceDetails) throw new Error('The selected source collection no longer exists.');
-    const collectionOptions = sourceDetails.options && sourceDetails.options.collation
-      ? { collation: sourceDetails.options.collation }
-      : {};
+    const sourceDetails = await readCollectionDetails(sourceDatabase, collectionName);
+    const collectionOptions = supportedCollectionOptions(sourceDetails.options);
     const destination = await backupDatabase.createCollection(backupName, collectionOptions);
-    let documentCount = 0;
     try {
-      const cursor = source.find({}).batchSize(500);
-      let batch = [];
-      for await (const document of cursor) {
-        batch.push(document);
-        if (batch.length === 500) {
-          await destination.insertMany(batch);
-          documentCount += batch.length;
-          batch = [];
-        }
-      }
-      if (batch.length) {
-        await destination.insertMany(batch);
-        documentCount += batch.length;
-      }
-      const indexes = await source.indexes();
-      const customIndexes = indexes.filter((index) => index.name !== '_id_');
-      for (const index of customIndexes) {
-        const { key, name, ns, v, background, ...options } = index;
-        await destination.createIndex(key, {
-          ...options,
-          ...(name ? { name } : {})
-        });
-      }
-      return {
+      const documentCount = await copyCollectionDocuments(source, destination);
+      const indexCount = await copyCustomIndexes(source, destination);
+      const result = {
         database: databaseName,
         collection: collectionName,
         backupCollection: backupName,
         createdAt: now.toISOString(),
         documentCount,
-        indexCount: customIndexes.length
+        indexCount
       };
+      await backupDatabase.collection(BACKUP_HISTORY_COLLECTION).insertOne({
+        _id: backupName,
+        sourceDatabase: databaseName,
+        sourceCollection: collectionName,
+        backupCollection: backupName,
+        createdAt: now,
+        documentCount,
+        indexCount
+      });
+      return result;
     } catch (error) {
       try {
         await destination.drop();
       } catch (cleanupError) {
         console.error(`Could not remove incomplete backup ${backupName}:`, cleanupError);
       }
+      try {
+        await backupDatabase.collection(BACKUP_HISTORY_COLLECTION).deleteOne({ _id: backupName });
+      } catch (cleanupError) {
+        console.error(`Could not remove incomplete backup history for ${backupName}:`, cleanupError);
+      }
       throw error;
     }
   };
+  const listBackupSnapshotsForTarget = async (databaseName, collectionName) => {
+    const backupCollections = await backupDatabase.listCollections({}, { nameOnly: true }).toArray();
+    const existingNames = new Set(backupCollections
+      .filter(({ name }) => typeof name === 'string' && name.includes('Backup_'))
+      .map(({ name }) => name));
+    const snapshots = new Map();
+    const history = await backupDatabase.collection(BACKUP_HISTORY_COLLECTION)
+      .find({ sourceDatabase: databaseName, sourceCollection: collectionName })
+      .sort({ createdAt: -1 })
+      .limit(1000)
+      .toArray();
+    for (const entry of history) {
+      if (!existingNames.has(entry.backupCollection)) continue;
+      snapshots.set(entry.backupCollection, {
+        collection: entry.backupCollection,
+        createdAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
+        documentCount: entry.documentCount,
+        indexCount: entry.indexCount
+      });
+    }
+
+    const auditEntries = await audit.find({ action: 'backup-collections' })
+      .sort({ at: -1 })
+      .limit(1000)
+      .toArray();
+    for (const entry of auditEntries) {
+      for (const backup of entry.details?.results || []) {
+        if (backup.success !== true || backup.database !== databaseName ||
+            backup.collection !== collectionName || !existingNames.has(backup.backupCollection) ||
+            snapshots.has(backup.backupCollection)) continue;
+        snapshots.set(backup.backupCollection, {
+          collection: backup.backupCollection,
+          createdAt: entry.at instanceof Date ? entry.at.toISOString() : null,
+          documentCount: backup.documentCount,
+          indexCount: backup.indexCount
+        });
+      }
+    }
+
+    const sourceDatabaseNames = [];
+    for (const [sourceDatabaseName, sourceDatabase] of availableBackupSources) {
+      const collections = await sourceDatabase
+        .listCollections({ name: collectionName }, { nameOnly: true })
+        .toArray();
+      if (collections.some(({ name }) => name === collectionName)) {
+        sourceDatabaseNames.push(sourceDatabaseName);
+      }
+    }
+    if (sourceDatabaseNames.length === 1 && sourceDatabaseNames[0] === databaseName) {
+      const safeSourceName = collectionName.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) || 'Collection';
+      for (const name of existingNames) {
+        if (!name.startsWith(`${safeSourceName}Backup_`) || snapshots.has(name)) continue;
+        const match = /Backup_(\d{8}T\d{9}Z)_[a-f0-9]{8}$/.exec(name);
+        if (!match) continue;
+        const value = match[1];
+        const createdAt = new Date(Date.UTC(
+          Number(value.slice(0, 4)),
+          Number(value.slice(4, 6)) - 1,
+          Number(value.slice(6, 8)),
+          Number(value.slice(9, 11)),
+          Number(value.slice(11, 13)),
+          Number(value.slice(13, 15)),
+          Number(value.slice(15, 18))
+        )).toISOString();
+        snapshots.set(name, { collection: name, createdAt, documentCount: null, indexCount: null });
+      }
+    }
+    return [...snapshots.values()]
+      .sort((left, right) => (right.createdAt || '').localeCompare(left.createdAt || ''));
+  };
   const adminMutationLimit = limited(10);
+  app.get('/api/admin/collections/replace-options', limited(30), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    const databaseName = req.query.database;
+    const collectionName = req.query.collection;
+    const database = typeof databaseName === 'string'
+      ? availableBackupSources.get(databaseName)
+      : null;
+    if (!database || typeof collectionName !== 'string' || !collectionName) {
+      return res.status(400).json({ error: 'Choose an eligible database and collection.' });
+    }
+    try {
+      await readCollectionDetails(database, collectionName);
+      const backups = await listBackupSnapshotsForTarget(databaseName, collectionName);
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        backups,
+        csvSupported: databaseName === hoedownInfoDatabaseName &&
+          REPLACEMENT_CSV_COLLECTIONS.has(collectionName),
+        events: collectionName === 'PastHoedownTeams' && databaseName === hoedownInfoDatabaseName
+          ? PAST_HOEDOWN_EVENTS
+          : []
+      });
+    } catch (error) {
+      return sendError(res, error, 'Admin collection replacement options lookup failed:');
+    }
+  });
+  app.post('/api/admin/collections/replace-backup', adminMutationLimit, async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    const { database: databaseName, collection: collectionName, backupCollection } = req.body || {};
+    const database = typeof databaseName === 'string'
+      ? availableBackupSources.get(databaseName)
+      : null;
+    if (!database || typeof collectionName !== 'string' || !collectionName ||
+        typeof backupCollection !== 'string' || !backupCollection) {
+      return res.status(400).json({ error: 'A target collection and backup snapshot are required.' });
+    }
+    try {
+      const eligibleBackups = await listBackupSnapshotsForTarget(databaseName, collectionName);
+      if (!eligibleBackups.some((backup) => backup.collection === backupCollection)) {
+        return res.status(400).json({ error: 'The selected backup is not a snapshot of this original collection.' });
+      }
+      const targetDetails = await readCollectionDetails(database, collectionName);
+      const sourceDetails = await readCollectionDetails(backupDatabase, backupCollection);
+      const result = await replaceCollectionDocuments({
+        database,
+        collectionName,
+        documentSource: backupDatabase.collection(backupCollection),
+        indexSource: backupDatabase.collection(backupCollection),
+        collectionOptions: supportedCollectionOptions(targetDetails.options, sourceDetails.options)
+      });
+      const auditLogged = await recordAdminAction('replace-collection-from-backup', collectionName, {
+        database: databaseName,
+        backupCollection,
+        documentCount: result.documentCount,
+        indexCount: result.indexCount
+      });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        database: databaseName,
+        collection: collectionName,
+        backupCollection,
+        ...result,
+        auditLogged
+      });
+    } catch (error) {
+      return sendError(res, error, 'Admin collection restore failed:');
+    }
+  });
+  app.post('/api/admin/collections/replace-csv', adminMutationLimit, (req, res, next) => {
+    if (!authorizeAdmin(req, res)) return;
+    next();
+  }, express.raw({ type: 'text/csv', limit: MAX_REPLACEMENT_CSV_BYTES }), async (req, res) => {
+    const databaseName = req.query.database;
+    const collectionName = req.query.collection;
+    const format = req.query.format;
+    const eventId = req.query.eventId;
+    const database = typeof databaseName === 'string'
+      ? availableBackupSources.get(databaseName)
+      : null;
+    if (!database || databaseName !== hoedownInfoDatabaseName ||
+        typeof collectionName !== 'string' || !REPLACEMENT_CSV_COLLECTIONS.has(collectionName)) {
+      return res.status(400).json({ error: 'CSV replacement is not supported for this collection.' });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'Choose a non-empty CSV file.' });
+    }
+
+    let documents;
+    try {
+      if (collectionName === 'Members') {
+        documents = parseMemberListCsv(req.body);
+      } else if (collectionName === 'Avoids') {
+        documents = parseAvoidsCsv(req.body);
+      } else if (collectionName === 'PreviousPairings') {
+        documents = parsePreviousPairingsCsv(req.body);
+      } else if (format === 'normalized') {
+        documents = parsePastHoedownTeamsCsv(req.body);
+      } else if (format === 'event-sheet') {
+        const event = PAST_HOEDOWN_EVENTS.find((candidate) => candidate.id === eventId);
+        if (!event) return res.status(400).json({ error: 'Choose a supported Hoedown event for the event-sheet CSV.' });
+        const members = await database.collection('Members').find({}, {
+          projection: { _id: 1, discordId: 1, username: 1, nickname: 1 }
+        }).toArray();
+        documents = parsePastHoedownEventCsv(req.body, event.id, event.name, members);
+      } else {
+        return res.status(400).json({ error: 'Choose a supported PastHoedownTeams CSV format.' });
+      }
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'The CSV is invalid for this collection.' });
+    }
+
+    try {
+      const targetDetails = await readCollectionDetails(database, collectionName);
+      const result = await replaceCollectionDocuments({
+        database,
+        collectionName,
+        documents,
+        indexSource: database.collection(collectionName),
+        collectionOptions: supportedCollectionOptions(targetDetails.options)
+      });
+      const auditLogged = await recordAdminAction('replace-collection-from-csv', collectionName, {
+        database: databaseName,
+        csvFormat: collectionName === 'PastHoedownTeams' ? format : 'collection-specific',
+        ...(collectionName === 'PastHoedownTeams' && format === 'event-sheet' ? { eventId } : {}),
+        documentCount: result.documentCount,
+        indexCount: result.indexCount
+      });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        database: databaseName,
+        collection: collectionName,
+        ...result,
+        auditLogged
+      });
+    } catch (error) {
+      return sendError(res, error, 'Admin CSV collection replacement failed:');
+    }
+  }, (error, req, res, next) => {
+    if (error.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'CSV files must be 10 MB or smaller.' });
+    }
+    return sendError(res, error, 'Admin CSV upload failed:');
+  });
   app.get('/api/admin/backups', limited(30), async (req, res) => {
     if (!authorizeAdmin(req, res)) return;
     if (!backupDatabase) return res.status(503).json({ error: 'Collection backups are not configured.' });
@@ -3822,6 +4124,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       backupDatabase,
       backupSources,
       adminDatabaseName,
+      hoedownInfoDatabaseName: hoedownDatabaseName,
       updateAvoidsInGoogleSheets,
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)

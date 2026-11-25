@@ -102,6 +102,7 @@
             <button id="select-all-backups" class="secondary" type="button">Select all</button>
             <button id="create-backups" type="button" disabled>Create selected backups</button>
             <button id="wipe-selected" class="danger" type="button" disabled>Wipe selected</button>
+            <button id="replace-selected" class="secondary" type="button" disabled>Replace selected</button>
           </div>
           <div id="backup-source-rows" class="backup-source-groups"></div>
           <p id="backup-status" class="status" role="status" aria-live="polite"></p>
@@ -292,6 +293,43 @@
         <div class="actions">
           <button type="submit" value="cancel" class="secondary">Cancel</button>
           <button id="collection-confirm-accept" type="submit" value="confirm">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="replacement-source-dialog" class="collection-confirm-dialog">
+      <form method="dialog">
+        <h2>Choose replacement source</h2>
+        <p id="replacement-target" class="muted"></p>
+        <label id="replacement-source-kind-field">Replace from
+          <select id="replacement-source-kind">
+            <option value="backup">Matching backup snapshot</option>
+            <option value="csv">CSV file</option>
+          </select>
+        </label>
+        <div id="replacement-backup-fields">
+          <label>Backup snapshot
+            <select id="replacement-backup-select"></select>
+          </label>
+        </div>
+        <div id="replacement-csv-fields" hidden>
+          <button id="replacement-choose-csv" class="secondary" type="button">Choose CSV file</button>
+          <p id="replacement-csv-name" class="muted">No CSV selected.</p>
+        </div>
+        <div id="replacement-past-fields" hidden>
+          <label>PastHoedownTeams CSV format
+            <select id="replacement-csv-format">
+              <option value="normalized">Normalized six-column CSV</option>
+              <option value="event-sheet">Event sheet with Round # columns</option>
+            </select>
+          </label>
+          <label id="replacement-event-field" hidden>Hoedown event
+            <select id="replacement-event-select"></select>
+          </label>
+        </div>
+        <p id="replacement-source-error" class="status" role="status" aria-live="polite"></p>
+        <div class="actions">
+          <button id="replacement-source-continue" type="button">Continue</button>
+          <button class="secondary" value="cancel">Cancel</button>
         </div>
       </form>
     </dialog>

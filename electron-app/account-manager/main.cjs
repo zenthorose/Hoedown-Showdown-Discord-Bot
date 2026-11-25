@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, safeStorage, clipboard, dialog } = require('electron');
+const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {
@@ -12,6 +13,8 @@ const {
 
 let mainWindow;
 let releaseTaskRunning = false;
+let replacementCsvSelection = null;
+const MAX_REPLACEMENT_CSV_BYTES = 10 * 1024 * 1024;
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const appRoot = path.resolve(__dirname, '..');
 
@@ -63,19 +66,24 @@ async function loadSettings() {
   };
 }
 
-async function requestAdmin(settings, route, { method = 'GET', body, timeoutMs = 20000 } = {}) {
+async function requestAdmin(settings, route, { method = 'GET', body, rawBody, timeoutMs = 20000 } = {}) {
   if (!settings) throw new Error('Configure the Render service and admin key first.');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const hasBody = body !== undefined || rawBody !== undefined;
   try {
     const response = await fetch(new URL(route, `${settings.serviceUrl}/`), {
       method,
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${settings.adminKey}`,
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+        ...(hasBody ? {
+          'Content-Type': rawBody === undefined ? 'application/json' : 'text/csv'
+        } : {})
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: rawBody !== undefined
+        ? rawBody
+        : body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal
     });
     let data;
@@ -218,6 +226,112 @@ app.whenReady().then(() => {
     if (!Array.isArray(data.databases) || !Array.isArray(data.sources) || !Array.isArray(data.backups)) {
       throw new Error('Render returned invalid collection backup data.');
     }
+    return data;
+  });
+
+  ipcMain.handle('admin:get-replacement-options', async (event, target) => {
+    requireTrusted(event);
+    if (!target || typeof target.database !== 'string' ||
+        typeof target.collection !== 'string' || !target.database || !target.collection) {
+      throw new TypeError('Choose a valid target collection.');
+    }
+    const query = new URLSearchParams({
+      database: target.database,
+      collection: target.collection
+    });
+    const data = await requestAdmin(
+      await loadSettings(),
+      `/api/admin/collections/replace-options?${query}`
+    );
+    if (!Array.isArray(data.backups) || typeof data.csvSupported !== 'boolean' ||
+        !Array.isArray(data.events)) {
+      throw new Error('Render returned invalid replacement options.');
+    }
+    return data;
+  });
+
+  ipcMain.handle('admin:choose-replacement-csv', async (event) => {
+    requireTrusted(event);
+    const choice = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'CSV files', extensions: ['csv'] }]
+    });
+    if (choice.canceled || !choice.filePaths.length) return { canceled: true };
+    const filePath = choice.filePaths[0];
+    if (path.extname(filePath).toLowerCase() !== '.csv') throw new TypeError('Choose a .csv file.');
+    const fileStats = await fs.stat(filePath);
+    if (!fileStats.isFile() || fileStats.size === 0) throw new TypeError('Choose a non-empty CSV file.');
+    if (fileStats.size > MAX_REPLACEMENT_CSV_BYTES) {
+      throw new TypeError('CSV files must be 10 MB or smaller.');
+    }
+    replacementCsvSelection = {
+      token: crypto.randomUUID(),
+      filePath,
+      fileName: path.basename(filePath)
+    };
+    return {
+      canceled: false,
+      token: replacementCsvSelection.token,
+      fileName: replacementCsvSelection.fileName,
+      size: fileStats.size
+    };
+  });
+
+  ipcMain.handle('admin:replace-from-backup', async (event, input) => {
+    requireTrusted(event);
+    if (!input || typeof input.database !== 'string' || typeof input.collection !== 'string' ||
+        typeof input.backupCollection !== 'string' ||
+        !input.database || !input.collection || !input.backupCollection) {
+      throw new TypeError('Choose a target collection and an eligible backup snapshot.');
+    }
+    const data = await requestAdmin(await loadSettings(), '/api/admin/collections/replace-backup', {
+      method: 'POST',
+      body: {
+        database: input.database,
+        collection: input.collection,
+        backupCollection: input.backupCollection
+      },
+      timeoutMs: 300000
+    });
+    if (!Number.isInteger(data.documentCount) || !Number.isInteger(data.indexCount)) {
+      throw new Error('Render returned invalid collection replacement results.');
+    }
+    return data;
+  });
+
+  ipcMain.handle('admin:replace-from-csv', async (event, input) => {
+    requireTrusted(event);
+    if (!input || typeof input.database !== 'string' || typeof input.collection !== 'string' ||
+        typeof input.csvToken !== 'string' || !input.database || !input.collection ||
+        !replacementCsvSelection || input.csvToken !== replacementCsvSelection.token) {
+      throw new TypeError('Choose the CSV file and target collection again.');
+    }
+    if (!['normalized', 'event-sheet'].includes(input.format)) {
+      throw new TypeError('Choose a supported CSV format.');
+    }
+    if (input.eventId !== undefined && typeof input.eventId !== 'string') {
+      throw new TypeError('The selected Hoedown event is invalid.');
+    }
+    const fileStats = await fs.stat(replacementCsvSelection.filePath);
+    if (!fileStats.isFile() || fileStats.size === 0 || fileStats.size > MAX_REPLACEMENT_CSV_BYTES) {
+      throw new TypeError('The selected CSV file is empty or exceeds the 10 MB limit.');
+    }
+    const fileContents = await fs.readFile(replacementCsvSelection.filePath);
+    const query = new URLSearchParams({
+      database: input.database,
+      collection: input.collection,
+      format: input.format
+    });
+    if (input.eventId) query.set('eventId', input.eventId);
+    const data = await requestAdmin(
+      await loadSettings(),
+      `/api/admin/collections/replace-csv?${query}`,
+      { method: 'POST', rawBody: fileContents, timeoutMs: 300000 }
+    );
+    if (!Number.isInteger(data.documentCount) || !Number.isInteger(data.indexCount)) {
+      throw new Error('Render returned invalid CSV replacement results.');
+    }
+    replacementCsvSelection = null;
     return data;
   });
 

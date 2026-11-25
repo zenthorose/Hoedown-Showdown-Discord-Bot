@@ -47,9 +47,14 @@ class MemoryCollection {
   }
 
   async createIndex(key, options = {}) {
+    if (this.failIndexCreation) throw new Error('Simulated index creation failure.');
     const name = options.name || Object.keys(key).map((field) => `${field}_${key[field]}`).join('_');
     this.indexSpecifications.push({ key, ...options, name });
     return name;
+  }
+
+  async rename(name, options = {}) {
+    return this.onRename(name, options);
   }
 
   async drop() {
@@ -139,7 +144,7 @@ class MemoryTicketDatabase {
         : requestedName && requestedName.$regex
           ? new RegExp(requestedName.$regex).test(name)
           : true)
-      .map((name) => ({ name }));
+      .map((name) => ({ name, options: this.collections.get(name).options || {} }));
     return { toArray: async () => matches };
   }
 
@@ -147,14 +152,26 @@ class MemoryTicketDatabase {
     if (!this.collections.has(name)) {
       const collection = new MemoryCollection();
       collection.onDrop = () => this.collections.delete(name);
+      collection.onRename = async (newName, options = {}) => {
+        if (this.collections.has(newName) && !options.dropTarget) {
+          throw new Error('Target collection already exists.');
+        }
+        if (options.dropTarget) this.collections.delete(newName);
+        this.collections.delete(name);
+        collection.name = newName;
+        this.collections.set(newName, collection);
+        return collection;
+      };
       this.collections.set(name, collection);
     }
     return this.collections.get(name);
   }
 
-  async createCollection(name) {
+  async createCollection(name, options = {}) {
     if (this.collections.has(name)) throw new Error('Collection already exists.');
-    return this.collection(name);
+    const collection = this.collection(name);
+    collection.options = options;
+    return collection;
   }
 }
 
@@ -225,6 +242,7 @@ async function withServer(run, options = {}) {
     backupDatabase: options.backupDatabase,
     backupSources: options.backupSources,
     adminDatabaseName: 'Admin',
+    hoedownInfoDatabaseName: options.hoedownInfoDatabaseName || 'HoedownInfo',
     roundDraftCollection: options.roundDraftCollection,
     roundAvoidsCollection: options.roundAvoidsCollection,
     previousPairingsCollection: options.previousPairingsCollection,
@@ -346,6 +364,17 @@ test('admin collection backups exclude the admin database and copy documents and
     });
     assert.equal(audit.items.some((entry) => entry.action === 'backup-collections'), true);
 
+    const replacementOptionsResponse = await fetch(
+      `${baseUrl}/api/admin/collections/replace-options?database=HoedownInfo&collection=Avoids`,
+      { headers }
+    );
+    assert.equal(replacementOptionsResponse.status, 200);
+    const replacementOptions = await replacementOptionsResponse.json();
+    assert.deepEqual(
+      replacementOptions.backups.map((backup) => backup.collection),
+      [result.results[0].backupCollection]
+    );
+
     const refreshed = await fetch(`${baseUrl}/api/admin/backups`, { headers });
     const history = await refreshed.json();
     assert.equal(history.backups.length, 1);
@@ -358,6 +387,161 @@ test('admin collection backups exclude the admin database and copy documents and
       { databaseName: 'Admin', database: adminDatabase },
       { databaseName: 'Backups', database: backupDatabase }
     ]
+  });
+});
+
+test('admin collection replacement restores only a matching backup snapshot and its indexes', async () => {
+  const snapshotName = 'AvoidsBackup_20261125T022657095Z_833bfec6';
+  const sourceDatabase = new MemoryTicketDatabase({
+    Avoids: [{ _id: 'current', left: '123', right: '456' }]
+  });
+  sourceDatabase.collection('Avoids').indexSpecifications.push({
+    name: 'pair_lookup',
+    key: { left: 1, right: 1 },
+    unique: true
+  });
+  const backupDatabase = new MemoryTicketDatabase({
+    [snapshotName]: [{ _id: 'saved', left: '789', right: '012' }],
+    BackupHistory: [{
+      _id: snapshotName,
+      sourceDatabase: 'HoedownInfo',
+      sourceCollection: 'Avoids',
+      backupCollection: snapshotName,
+      createdAt: new Date('2026-11-25T02:26:57.095Z'),
+      documentCount: 1,
+      indexCount: 1
+    }]
+  });
+  backupDatabase.collection(snapshotName).indexSpecifications.push({
+    name: 'pair_lookup',
+    key: { left: 1, right: 1 },
+    unique: true
+  });
+
+  await withServer(async ({ baseUrl }) => {
+    const headers = { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' };
+    const optionsResponse = await fetch(
+      `${baseUrl}/api/admin/collections/replace-options?database=HoedownInfo&collection=Avoids`,
+      { headers }
+    );
+    assert.equal(optionsResponse.status, 200);
+    const options = await optionsResponse.json();
+    assert.equal(options.csvSupported, true);
+    assert.deepEqual(options.backups.map((backup) => backup.collection), [snapshotName]);
+
+    const wrongTarget = await fetch(`${baseUrl}/api/admin/collections/replace-backup`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        database: 'HoedownInfo',
+        collection: 'Members',
+        backupCollection: snapshotName
+      })
+    });
+    assert.equal(wrongTarget.status, 400);
+
+    const response = await fetch(`${baseUrl}/api/admin/collections/replace-backup`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        database: 'HoedownInfo',
+        collection: 'Avoids',
+        backupCollection: snapshotName
+      })
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.documentCount, 1);
+    assert.equal(result.indexCount, 1);
+    assert.deepEqual(sourceDatabase.collection('Avoids').items, [
+      { _id: 'saved', left: '789', right: '012' }
+    ]);
+    assert.equal(sourceDatabase.collection('Avoids').indexSpecifications
+      .some((index) => index.name === 'pair_lookup'), true);
+  }, {
+    backupDatabase,
+    backupSources: [{ databaseName: 'HoedownInfo', database: sourceDatabase }]
+  });
+});
+
+test('admin CSV replacement validates before replacing and preserves existing indexes', async () => {
+  const originalMembers = [{ _id: '11111111111111111', username: 'old-member' }];
+  const sourceDatabase = new MemoryTicketDatabase({ Members: originalMembers });
+  sourceDatabase.collection('Members').indexSpecifications.push({
+    name: 'username_lookup',
+    key: { username: 1 }
+  });
+
+  await withServer(async ({ baseUrl }) => {
+    const headers = {
+      Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+      'Content-Type': 'text/csv'
+    };
+    const invalid = await fetch(
+      `${baseUrl}/api/admin/collections/replace-csv?database=HoedownInfo&collection=Members`,
+      { method: 'POST', headers, body: 'Username,Discord ID\nnew-member,not-a-discord-id\n' }
+    );
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(sourceDatabase.collection('Members').items, originalMembers);
+
+    const response = await fetch(
+      `${baseUrl}/api/admin/collections/replace-csv?database=HoedownInfo&collection=Members`,
+      {
+        method: 'POST',
+        headers,
+        body: 'Username,Discord ID,Region\nnew-member,22222222222222222,West\n'
+      }
+    );
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.documentCount, 1);
+    assert.equal(result.indexCount, 1);
+    assert.deepEqual(sourceDatabase.collection('Members').items, [{
+      _id: '22222222222222222',
+      discordId: '22222222222222222',
+      username: 'new-member',
+      region: 'West'
+    }]);
+    assert.equal(sourceDatabase.collection('Members').indexSpecifications
+      .some((index) => index.name === 'username_lookup'), true);
+  }, {
+    backupDatabase: new MemoryTicketDatabase(),
+    backupSources: [{ databaseName: 'HoedownInfo', database: sourceDatabase }]
+  });
+});
+
+test('failed CSV replacement staging leaves the original collection untouched', async () => {
+  const originalMembers = [{ _id: '11111111111111111', username: 'old-member' }];
+  const sourceDatabase = new MemoryTicketDatabase({ Members: originalMembers });
+  sourceDatabase.collection('Members').indexSpecifications.push({
+    name: 'username_lookup',
+    key: { username: 1 }
+  });
+  const createCollection = sourceDatabase.createCollection.bind(sourceDatabase);
+  sourceDatabase.createCollection = async (name, options) => {
+    const collection = await createCollection(name, options);
+    if (name.startsWith('_replace_')) collection.failIndexCreation = true;
+    return collection;
+  };
+
+  await withServer(async ({ baseUrl }) => {
+    const response = await fetch(
+      `${baseUrl}/api/admin/collections/replace-csv?database=HoedownInfo&collection=Members`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+          'Content-Type': 'text/csv'
+        },
+        body: 'Username,Discord ID\nnew-member,22222222222222222\n'
+      }
+    );
+    assert.equal(response.status, 503);
+    assert.deepEqual(sourceDatabase.collection('Members').items, originalMembers);
+    assert.deepEqual([...sourceDatabase.collections.keys()], ['Members']);
+  }, {
+    backupDatabase: new MemoryTicketDatabase(),
+    backupSources: [{ databaseName: 'HoedownInfo', database: sourceDatabase }]
   });
 });
 

@@ -5,6 +5,7 @@ let discordLinkUsername = '';
 let botSettingsLoaded = false;
 let backupLoading = false;
 let backupRunning = false;
+let selectedReplacementCsv = null;
 
 function showStatus(id, message) {
   byId(id).textContent = message || '';
@@ -139,6 +140,7 @@ function updateBackupControls() {
   byId('select-all-backups').disabled = busy || checkboxes.length === 0;
   byId('create-backups').disabled = busy || selectedCount === 0;
   byId('wipe-selected').disabled = busy || selectedCount === 0;
+  byId('replace-selected').disabled = busy || selectedCount !== 1;
   return selectedCount;
 }
 
@@ -286,6 +288,134 @@ function confirmCollectionAction({ title, message, confirmLabel, collections, da
   });
 }
 
+function updateReplacementSourceFields(target, options) {
+  const kind = byId('replacement-source-kind').value;
+  const isCsv = kind === 'csv';
+  byId('replacement-backup-fields').hidden = isCsv;
+  byId('replacement-csv-fields').hidden = !isCsv;
+  const showPastOptions = isCsv && target.collection === 'PastHoedownTeams';
+  byId('replacement-past-fields').hidden = !showPastOptions;
+  byId('replacement-event-field').hidden = !showPastOptions ||
+    byId('replacement-csv-format').value !== 'event-sheet';
+  if (showPastOptions && byId('replacement-csv-format').value === 'event-sheet' &&
+      !options.events.length) {
+    showStatus('replacement-source-error', 'No supported Hoedown events are configured.');
+  } else {
+    showStatus('replacement-source-error', '');
+  }
+}
+
+function chooseReplacementSource(target, options) {
+  const dialog = byId('replacement-source-dialog');
+  const backupSelect = byId('replacement-backup-select');
+  const eventSelect = byId('replacement-event-select');
+  const kindSelect = byId('replacement-source-kind');
+  const backupAvailable = options.backups.length > 0;
+  const csvAvailable = options.csvSupported;
+  const backupKind = kindSelect.querySelector('option[value="backup"]');
+  const csvKind = kindSelect.querySelector('option[value="csv"]');
+  backupKind.hidden = !backupAvailable;
+  csvKind.hidden = !csvAvailable;
+  byId('replacement-source-kind-field').hidden = !(backupAvailable && csvAvailable);
+
+  backupSelect.replaceChildren();
+  for (const backup of options.backups) {
+    const option = document.createElement('option');
+    option.value = backup.collection;
+    option.textContent = `${backup.collection} — ${displayDate(backup.createdAt)}`;
+    backupSelect.appendChild(option);
+  }
+  eventSelect.replaceChildren();
+  for (const event of options.events) {
+    const option = document.createElement('option');
+    option.value = event.id;
+    option.textContent = event.name;
+    eventSelect.appendChild(option);
+  }
+  selectedReplacementCsv = null;
+  byId('replacement-csv-name').textContent = 'No CSV selected.';
+  byId('replacement-csv-format').value = 'normalized';
+  dialog.returnValue = '';
+  kindSelect.value = backupAvailable ? 'backup' : 'csv';
+  byId('replacement-target').textContent = `Target: ${target.database}.${target.collection}`;
+  updateReplacementSourceFields(target, options);
+
+  return new Promise((resolve, reject) => {
+    let selectedSource = null;
+    const continueButton = byId('replacement-source-continue');
+    const chooseCsvButton = byId('replacement-choose-csv');
+    const onKindChange = () => updateReplacementSourceFields(target, options);
+    const onFormatChange = () => updateReplacementSourceFields(target, options);
+    const onChooseCsv = async () => {
+      try {
+        const selection = await window.admin.chooseReplacementCsv();
+        if (selection.canceled) return;
+        selectedReplacementCsv = selection;
+        byId('replacement-csv-name').textContent =
+          `${selection.fileName} (${(selection.size / (1024 * 1024)).toFixed(2)} MB)`;
+        showStatus('replacement-source-error', '');
+      } catch (error) {
+        showStatus('replacement-source-error', error.message || 'Could not choose the CSV file.');
+      }
+    };
+    const onContinue = () => {
+      if (kindSelect.value === 'backup') {
+        if (!backupSelect.value) {
+          showStatus('replacement-source-error', 'Choose an eligible backup snapshot.');
+          return;
+        }
+        selectedSource = {
+          kind: 'backup',
+          backupCollection: backupSelect.value
+        };
+      } else {
+        if (!selectedReplacementCsv) {
+          showStatus('replacement-source-error', 'Choose a CSV file first.');
+          return;
+        }
+        const format = target.collection === 'PastHoedownTeams'
+          ? byId('replacement-csv-format').value
+          : 'normalized';
+        const eventId = format === 'event-sheet' ? eventSelect.value : undefined;
+        if (format === 'event-sheet' && !eventId) {
+          showStatus('replacement-source-error', 'Choose the Hoedown event for this event-sheet CSV.');
+          return;
+        }
+        selectedSource = {
+          kind: 'csv',
+          csvToken: selectedReplacementCsv.token,
+          csvFileName: selectedReplacementCsv.fileName,
+          format,
+          eventId
+        };
+      }
+      dialog.close('continue');
+    };
+    const cleanup = () => {
+      kindSelect.removeEventListener('change', onKindChange);
+      byId('replacement-csv-format').removeEventListener('change', onFormatChange);
+      chooseCsvButton.removeEventListener('click', onChooseCsv);
+      continueButton.removeEventListener('click', onContinue);
+      dialog.removeEventListener('close', onClose);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve(dialog.returnValue === 'continue' ? selectedSource : null);
+    };
+    kindSelect.addEventListener('change', onKindChange);
+    byId('replacement-csv-format').addEventListener('change', onFormatChange);
+    chooseCsvButton.addEventListener('click', onChooseCsv);
+    continueButton.addEventListener('click', onContinue);
+    dialog.addEventListener('close', onClose);
+    try {
+      dialog.showModal();
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
 byId('create-backups').addEventListener('click', async () => {
   const collections = getSelectedBackupCollections();
   if (!collections.length) return;
@@ -353,6 +483,62 @@ byId('wipe-selected').addEventListener('click', async () => {
     }
   } catch (error) {
     showStatus('backup-status', error.message || 'Could not wipe selected collections.');
+  } finally {
+    backupRunning = false;
+    updateBackupControls();
+  }
+});
+
+byId('replace-selected').addEventListener('click', async () => {
+  const selected = getSelectedBackupCollections();
+  if (selected.length !== 1) return;
+  const target = selected[0];
+  backupRunning = true;
+  updateBackupControls();
+  showStatus('backup-status', `Loading replacement sources for ${target.database}.${target.collection}…`);
+  try {
+    const options = await window.admin.getReplacementOptions(target);
+    if (options.backups.length === 0 && !options.csvSupported) {
+      throw new Error('No matching backup snapshots or supported CSV source are available for this collection.');
+    }
+    const source = await chooseReplacementSource(target, options);
+    if (!source) return;
+    const sourceDescription = source.kind === 'backup'
+      ? `backup snapshot ${source.backupCollection}`
+      : `CSV file ${source.csvFileName}`;
+    const confirmed = await confirmCollectionAction({
+      title: 'Replace collection data?',
+      message: `Replace the target collection's current documents using ${sourceDescription}. The operation validates and stages the replacement before switching it into place.`,
+      confirmLabel: 'Replace collection',
+      collections: [target],
+      danger: true
+    });
+    if (!confirmed) return;
+    showStatus('backup-status', `Replacing ${target.database}.${target.collection} from ${sourceDescription}…`);
+    const result = source.kind === 'backup'
+      ? await window.admin.replaceFromBackup({
+        database: target.database,
+        collection: target.collection,
+        backupCollection: source.backupCollection
+      })
+      : await window.admin.replaceFromCsv({
+        database: target.database,
+        collection: target.collection,
+        csvToken: source.csvToken,
+        format: source.format,
+        eventId: source.eventId
+      });
+    const summary = `Replaced ${target.database}.${target.collection} with ${result.documentCount} document(s) and ${result.indexCount} index(es).` +
+      (result.auditLogged ? ' Recorded in the admin audit log.' : ' The admin audit log could not be updated.');
+    showStatus('backup-status', summary);
+    selectedReplacementCsv = null;
+    try {
+      await loadBackups({ quiet: true });
+    } catch (error) {
+      showStatus('backup-status', `${summary} Could not refresh the collection list: ${error.message}`);
+    }
+  } catch (error) {
+    showStatus('backup-status', error.message || 'Could not replace the selected collection.');
   } finally {
     backupRunning = false;
     updateBackupControls();
