@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('hoedown', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveThemeColors: (colors) => ipcRenderer.invoke('settings:save-theme-colors', colors),
   resetThemeColors: () => ipcRenderer.invoke('settings:reset-theme-colors'),
+  openExternalUrl: (url) => ipcRenderer.invoke('app:open-external-url', url),
   getMembers: () => ipcRenderer.invoke('members:list'),
   getAvoids: () => ipcRenderer.invoke('avoids:list'),
   grabRoundReactions: () => ipcRenderer.invoke('rounds:grab-reactions'),

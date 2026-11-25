@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
 const { NsisUpdater } = require('electron-updater');
 const { createProfileStore } = require('./profile-store.cjs');
 
@@ -736,6 +736,26 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('settings:reset-theme-colors', (event) =>
     requestSettingsApi(event, '/api/settings/theme-colors', { method: 'DELETE' }));
+
+  ipcMain.handle('app:open-external-url', async (event, value) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted external link request.');
+    }
+    if (typeof value !== 'string' || value.length > 2048) {
+      throw new Error('Enter a valid external link.');
+    }
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error('The external link is invalid.');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+      throw new Error('Only HTTP and HTTPS links can be opened.');
+    }
+    await shell.openExternal(url.href);
+    return { ok: true };
+  });
 
   ipcMain.handle('members:list', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) {

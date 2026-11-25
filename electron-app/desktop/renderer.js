@@ -1666,6 +1666,12 @@ function createMemberDetail(fieldName, label, value) {
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.referrerPolicy = 'no-referrer';
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        void window.hoedown.openExternalUrl(url.href).catch((error) => {
+          showStatus(error.message || 'Could not open the stream link.');
+        });
+      });
       description.append(link);
     } else {
       description.textContent = value;
