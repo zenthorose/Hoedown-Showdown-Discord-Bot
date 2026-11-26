@@ -1068,7 +1068,11 @@ function createApp({
     }
     try {
       const credentials = await passkeyCredentials.find({ owner: 'owner' }).toArray();
-      if (!credentials.length) return res.status(409).json({ error: 'Owner passkey bootstrap is not complete.' });
+      if (!credentials.length) {
+        return res.status(409).json({
+          error: 'Owner passkey setup is not complete. In Account Manager, save the Render ADMIN_API_KEY and enroll the first passkey.'
+        });
+      }
       const options = await generateAuthenticationOptions({
         rpID: webAuthnConfig.rpId,
         allowCredentials: credentials.map((credential) => ({

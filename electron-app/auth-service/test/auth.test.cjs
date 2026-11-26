@@ -376,6 +376,24 @@ test('the legacy admin key is bootstrap-only and cannot authorize regular admin 
   });
 });
 
+test('passkey sign-in directs first-time owners to bootstrap instead', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const response = await fetch(`${baseUrl}/api/admin/passkeys/login/options`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        redirectUri: 'http://127.0.0.1:43125/admin-passkey-callback',
+        state: '0123456789abcdef0123456789abcdef',
+        deviceId: '01234567-89ab-42cd-8abc-0123456789ab',
+        deviceName: 'Owner workstation',
+        platform: 'win32'
+      })
+    });
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /save the Render ADMIN_API_KEY and enroll the first passkey/i);
+  });
+});
+
 test('owner bootstrap closes after enrollment and rejects non-loopback callbacks', async () => {
   const credentials = [{
     owner: 'owner',

@@ -58,7 +58,12 @@ async function loadSettings() {
     showStatus('connection-status', `Signed in on this computer until ${displayDate(currentSettings.adminSessionExpiresAt)}.`);
     await loadAdminSessions();
   } else if (currentSettings.configured) {
-    showStatus('connection-status', 'Not signed in on this computer. Use your passkey to continue.');
+    showStatus(
+      'connection-status',
+      currentSettings.hasBootstrapKey
+        ? 'First-time owner setup: choose Enroll first passkey. Sign-in is available after enrollment.'
+        : 'Not signed in on this computer. Use your passkey to continue. For first-time setup, enter the Render ADMIN_API_KEY and enroll the first passkey.'
+    );
     byId('admin-sessions').hidden = true;
   } else {
     showStatus('connection-status', '');
@@ -629,6 +634,18 @@ function applyBotSettings(result) {
 async function loadBotSettings() {
   const saveButton = byId('bot-settings-form').querySelector('button[type="submit"]');
   const refreshButton = byId('refresh-bot-settings');
+  if (!currentSettings.hasAdminSession) {
+    botSettingsLoaded = false;
+    saveButton.disabled = true;
+    refreshButton.disabled = true;
+    showStatus(
+      'bot-settings-status',
+      currentSettings.configured
+        ? 'Sign in with your passkey to load bot settings.'
+        : 'Save the Render service URL and sign in to load bot settings.'
+    );
+    return;
+  }
   saveButton.disabled = true;
   refreshButton.disabled = true;
   botSettingsLoaded = false;
@@ -642,7 +659,7 @@ async function loadBotSettings() {
     showStatus('bot-settings-status', error.message || 'Could not load bot settings.');
   } finally {
     saveButton.disabled = !botSettingsLoaded;
-    refreshButton.disabled = false;
+    refreshButton.disabled = !currentSettings.hasAdminSession;
   }
 }
 
@@ -692,6 +709,7 @@ byId('settings-form').addEventListener('submit', async (event) => {
     byId('admin-key').value = '';
     currentSettings = saved;
     await loadSettings();
+    await loadBotSettings();
     showStatus('connection-status', 'Connection settings saved securely on this computer.');
   } catch (error) {
     showStatus('connection-status', error.message || 'Could not save connection settings.');
@@ -708,6 +726,7 @@ byId('enroll-passkey').addEventListener('click', async () => {
         ? 'First passkey enrolled. The one-time enrollment key was removed; add a separate backup passkey now.'
         : 'Passkey enrollment completed.'
     );
+    await loadBotSettings();
     await loadUsers();
   } catch (error) {
     showStatus('connection-status', error.message || 'Passkey enrollment failed.');
@@ -728,6 +747,7 @@ byId('sign-in-passkey').addEventListener('click', async () => {
     const result = await window.admin.signInPasskey();
     await loadSettings();
     showStatus('connection-status', `Passkey sign-in succeeded until ${displayDate(result.expiresAt)}.`);
+    await loadBotSettings();
     await loadUsers();
   } catch (error) {
     showStatus('connection-status', error.message || 'Passkey sign-in failed.');
@@ -738,9 +758,11 @@ byId('sign-out-admin').addEventListener('click', async () => {
   try {
     await window.admin.signOutAdmin();
     await loadSettings();
+    await loadBotSettings();
     showStatus('connection-status', 'This computer has been signed out.');
   } catch (error) {
     await loadSettings();
+    await loadBotSettings();
     showStatus('connection-status', error.message || 'Could not sign out this computer.');
   }
 });
@@ -1071,6 +1093,9 @@ window.admin.onOutput((text) => {
   byId('build-output').scrollTop = byId('build-output').scrollHeight;
 });
 
-Promise.all([loadSettings(), loadReleaseInfo(), loadBotSettings()]).catch((error) => {
+(async () => {
+  await loadSettings();
+  await Promise.all([loadReleaseInfo(), loadBotSettings()]);
+})().catch((error) => {
   showStatus('global-status', error.message || 'Could not load account manager.');
 });
