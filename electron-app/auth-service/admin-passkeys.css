@@ -1,0 +1,17 @@
+body {
+  font: 16px system-ui, sans-serif;
+  margin: 3rem auto;
+  max-width: 34rem;
+  padding: 0 1rem;
+}
+
+main {
+  border: 1px solid #bbb;
+  border-radius: .75rem;
+  padding: 1.5rem;
+}
+
+#status {
+  min-height: 1.5rem;
+  overflow-wrap: anywhere;
+}

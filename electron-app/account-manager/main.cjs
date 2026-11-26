@@ -1,5 +1,7 @@
-const { app, BrowserWindow, ipcMain, safeStorage, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, clipboard, dialog, shell } = require('electron');
 const crypto = require('node:crypto');
+const http = require('node:http');
+const os = require('node:os');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {
@@ -56,6 +58,13 @@ async function loadSettings() {
   return {
     serviceUrl: validateServiceUrl(saved.serviceUrl),
     adminKey: decrypt(saved.encryptedAdminKey),
+    adminSessionToken: decrypt(saved.encryptedAdminSessionToken),
+    adminSessionExpiresAt: typeof saved.adminSessionExpiresAt === 'string'
+      ? saved.adminSessionExpiresAt
+      : '',
+    deviceId: typeof saved.adminDeviceId === 'string' && saved.adminDeviceId
+      ? saved.adminDeviceId
+      : crypto.randomUUID(),
     sourceDirectory: typeof saved.sourceDirectory === 'string' ? saved.sourceDirectory : '',
     r2: {
       accountId: saved.accountId || '',
@@ -67,7 +76,12 @@ async function loadSettings() {
 }
 
 async function requestAdmin(settings, route, { method = 'GET', body, rawBody, timeoutMs = 20000 } = {}) {
-  if (!settings) throw new Error('Configure the Render service and admin key first.');
+  if (!settings) throw new Error('Configure the Render service URL first.');
+  if (!settings.adminSessionToken) throw new Error('Sign in with your passkey before using Admin.');
+  if (settings.adminSessionExpiresAt &&
+      new Date(settings.adminSessionExpiresAt).getTime() <= Date.now()) {
+    throw new Error('Your Admin session expired. Sign in with your passkey again.');
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const hasBody = body !== undefined || rawBody !== undefined;
@@ -76,7 +90,7 @@ async function requestAdmin(settings, route, { method = 'GET', body, rawBody, ti
       method,
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${settings.adminKey}`,
+        Authorization: `Bearer ${settings.adminSessionToken}`,
         ...(hasBody ? {
           'Content-Type': rawBody === undefined ? 'application/json' : 'text/csv'
         } : {})
@@ -103,14 +117,134 @@ function encrypt(value) {
   return value ? safeStorage.encryptString(value).toString('base64') : '';
 }
 
+async function saveAdminSession(token, expiresAt, { clearBootstrapKey = false, deviceId } = {}) {
+  const saved = JSON.parse(await fs.readFile(settingsPath(), 'utf8'));
+  saved.encryptedAdminSessionToken = encrypt(token);
+  saved.adminSessionExpiresAt = expiresAt;
+  if (typeof deviceId === 'string') saved.adminDeviceId = deviceId;
+  if (clearBootstrapKey) saved.encryptedAdminKey = '';
+  await fs.writeFile(settingsPath(), JSON.stringify(saved), 'utf8');
+}
+
+function openPasskeyCallback(state) {
+  let resolveCallback;
+  let rejectCallback;
+  const result = new Promise((resolve, reject) => {
+    resolveCallback = resolve;
+    rejectCallback = reject;
+  });
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, 'http://127.0.0.1');
+    const code = url.searchParams.get('code');
+    if (request.method !== 'GET' || url.pathname !== '/admin-passkey-callback' ||
+        url.searchParams.get('state') !== state || typeof code !== 'string' ||
+        !/^[A-Za-z0-9_-]{32,256}$/.test(code)) {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Invalid Admin sign-in callback.');
+      return;
+    }
+    response.writeHead(200, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'text/html; charset=utf-8'
+    });
+    response.end('<!doctype html><meta charset="utf-8"><title>Admin</title><p>Passkey verified. You can return to Hoedown Showdown Account Manager.</p>');
+    resolveCallback(code);
+  });
+  const timeout = setTimeout(() => rejectCallback(new Error('Passkey sign-in timed out. Try again.')), 5 * 60 * 1000);
+  server.once('close', () => clearTimeout(timeout));
+  const ready = new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      resolve(`http://127.0.0.1:${port}/admin-passkey-callback`);
+    });
+  });
+  return {
+    ready,
+    result,
+    close: () => !server.listening
+      ? Promise.resolve()
+      : new Promise((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      })
+  };
+}
+
+async function runPasskeyFlow(settings, mode) {
+  if (!settings) throw new Error('Save the Render service URL first.');
+  if (mode === 'enroll' && (!settings.adminKey || settings.adminKey.length < 32)) {
+    throw new Error('Enter the one-time Admin enrollment key from Render before enrolling your first passkey.');
+  }
+  const state = crypto.randomBytes(32).toString('base64url');
+  const callback = openPasskeyCallback(state);
+  let callbackUrl;
+  try {
+    callbackUrl = await callback.ready;
+    const device = {
+      redirectUri: callbackUrl,
+      state,
+      deviceId: settings.deviceId,
+      deviceName: os.hostname(),
+      platform: process.platform
+    };
+    let ticket = '';
+    if (mode === 'enroll') {
+      const response = await fetch(new URL('/api/admin/passkeys/bootstrap', `${settings.serviceUrl}/`), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.adminKey}`
+        },
+        body: JSON.stringify(device)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Passkey enrollment failed with HTTP ${response.status}.`);
+      if (typeof data.ticket !== 'string' || !data.ticket) throw new Error('Render returned an invalid enrollment ticket.');
+      ticket = data.ticket;
+    }
+    const fragment = new URLSearchParams({
+      action: mode,
+      redirectUri: callbackUrl,
+      state,
+      deviceId: settings.deviceId,
+      deviceName: os.hostname(),
+      platform: process.platform,
+      ...(ticket ? { ticket } : {})
+    });
+    await shell.openExternal(`${settings.serviceUrl}/admin/passkeys#${fragment.toString()}`);
+    const code = await callback.result;
+    const response = await fetch(new URL('/api/admin/passkeys/exchange', `${settings.serviceUrl}/`), {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, state })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Passkey session exchange failed with HTTP ${response.status}.`);
+    if (typeof data.token !== 'string' || typeof data.expiresAt !== 'string') {
+      throw new Error('Render returned an invalid Admin session.');
+    }
+    await saveAdminSession(data.token, data.expiresAt, {
+      clearBootstrapKey: mode === 'enroll',
+      deviceId: settings.deviceId
+    });
+    return { signedIn: true, expiresAt: data.expiresAt, enrolled: mode === 'enroll' };
+  } finally {
+    await callback.close();
+  }
+}
+
 async function saveSettings(input) {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable.');
   const old = await loadSettings();
   const serviceUrl = validateServiceUrl(input && input.serviceUrl);
+  const serviceChanged = old && old.serviceUrl !== serviceUrl;
   const adminKey = typeof (input && input.adminKey) === 'string' && input.adminKey.trim()
     ? input.adminKey.trim()
-    : old && old.adminKey;
-  if (!adminKey || adminKey.length < 32) throw new TypeError('Enter the Render admin key (at least 32 characters).');
+    : serviceChanged ? '' : old && old.adminKey;
+  if (adminKey && adminKey.length < 32) {
+    throw new TypeError('The initial enrollment key must be at least 32 characters.');
+  }
   const r2Input = input && input.r2 || {};
   const r2 = {
     accountId: r2Input.accountId || old && old.r2.accountId || '',
@@ -127,13 +261,22 @@ async function saveSettings(input) {
   await fs.writeFile(settingsPath(), JSON.stringify({
     serviceUrl,
     encryptedAdminKey: encrypt(adminKey),
+    encryptedAdminSessionToken: serviceChanged ? '' : encrypt(old && old.adminSessionToken),
+    adminSessionExpiresAt: serviceChanged ? '' : old && old.adminSessionExpiresAt || '',
+    adminDeviceId: old && old.deviceId || crypto.randomUUID(),
     sourceDirectory: old && old.sourceDirectory || '',
     accountId: r2.accountId,
     bucketName: r2.bucketName,
     encryptedR2AccessKeyId: encrypt(r2.accessKeyId),
     encryptedR2SecretAccessKey: encrypt(r2.secretAccessKey)
   }), 'utf8');
-  return { configured: true, serviceUrl, hasR2: Boolean(r2.accessKeyId && r2.secretAccessKey) };
+  return {
+    configured: true,
+    serviceUrl,
+    hasR2: Boolean(r2.accessKeyId && r2.secretAccessKey),
+    hasAdminSession: !serviceChanged && Boolean(old && old.adminSessionToken),
+    hasBootstrapKey: Boolean(adminKey)
+  };
 }
 
 function exportCsv(events) {
@@ -187,16 +330,28 @@ app.whenReady().then(() => {
   ipcMain.handle('admin:get-settings', async (event) => {
     requireTrusted(event);
     const settings = await loadSettings();
+    const hasAdminSession = Boolean(settings && settings.adminSessionToken &&
+      (!settings.adminSessionExpiresAt || new Date(settings.adminSessionExpiresAt).getTime() > Date.now()));
     return settings
       ? {
         configured: true,
         serviceUrl: settings.serviceUrl,
         hasR2: Boolean(settings.r2.accessKeyId),
+        hasAdminSession,
+        adminSessionExpiresAt: settings.adminSessionExpiresAt,
+        hasBootstrapKey: Boolean(settings.adminKey),
         r2AccountId: settings.r2.accountId,
         r2BucketName: settings.r2.bucketName,
         sourceDirectory: settings.sourceDirectory
       }
-      : { configured: false, serviceUrl: '', hasR2: false, sourceDirectory: '' };
+      : {
+        configured: false,
+        serviceUrl: '',
+        hasR2: false,
+        hasAdminSession: false,
+        hasBootstrapKey: false,
+        sourceDirectory: ''
+      };
   });
 
   ipcMain.handle('admin:save-settings', async (event, input) => {
@@ -207,10 +362,90 @@ app.whenReady().then(() => {
   ipcMain.handle('admin:test-connection', async (event) => {
     requireTrusted(event);
     const settings = await loadSettings();
-    if (!settings) throw new Error('Save the Render URL and admin key first.');
+    if (!settings) throw new Error('Save the Render service URL first.');
     const data = await requestAdmin(settings, '/api/admin/users');
     if (!Array.isArray(data.accounts)) throw new Error('Render returned an invalid account list.');
     return { connected: true, accountCount: data.accounts.length };
+  });
+
+  ipcMain.handle('admin:enroll-passkey', async (event) => {
+    requireTrusted(event);
+    return runPasskeyFlow(await loadSettings(), 'enroll');
+  });
+
+  ipcMain.handle('admin:sign-in-passkey', async (event) => {
+    requireTrusted(event);
+    return runPasskeyFlow(await loadSettings(), 'login');
+  });
+
+  ipcMain.handle('admin:add-passkey', async (event) => {
+    requireTrusted(event);
+    const settings = await loadSettings();
+    if (!settings || !settings.adminSessionToken) {
+      throw new Error('Sign in with your passkey before adding another credential.');
+    }
+    if (settings.adminSessionExpiresAt &&
+        new Date(settings.adminSessionExpiresAt).getTime() <= Date.now()) {
+      throw new Error('Your Admin session expired. Sign in with your passkey again.');
+    }
+    const response = await fetch(new URL('/api/admin/passkeys/credentials/ticket', `${settings.serviceUrl}/`), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${settings.adminSessionToken}`
+      }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Could not create a passkey ticket (HTTP ${response.status}).`);
+    if (typeof data.ticket !== 'string' || !data.ticket) throw new Error('Render returned an invalid passkey ticket.');
+    const fragment = new URLSearchParams({ action: 'register', ticket: data.ticket });
+    await shell.openExternal(`${settings.serviceUrl}/admin/passkeys#${fragment.toString()}`);
+    return { opened: true };
+  });
+
+  ipcMain.handle('admin:sign-out', async (event) => {
+    requireTrusted(event);
+    const settings = await loadSettings();
+    if (!settings) throw new Error('Configure the Render service URL first.');
+    let revocationError = null;
+    try {
+      const data = await requestAdmin(settings, '/api/admin/sessions');
+      const currentSession = Array.isArray(data.sessions)
+        ? data.sessions.find((session) => session.isCurrent)
+        : null;
+      if (!currentSession || typeof currentSession.id !== 'string') {
+        throw new Error("Render could not identify this computer's Admin session.");
+      }
+      await requestAdmin(
+        settings,
+        `/api/admin/sessions/${encodeURIComponent(currentSession.id)}`,
+        { method: 'DELETE' }
+      );
+    } catch (error) {
+      revocationError = error;
+    }
+    await saveAdminSession('', '');
+    if (revocationError) {
+      throw new Error(`Signed out locally, but Render could not revoke the server session: ${revocationError.message}`);
+    }
+    return { signedOut: true };
+  });
+
+  ipcMain.handle('admin:list-sessions', async (event) => {
+    requireTrusted(event);
+    const data = await requestAdmin(await loadSettings(), '/api/admin/sessions');
+    if (!Array.isArray(data.sessions)) throw new Error('Render returned an invalid Admin session list.');
+    return data;
+  });
+
+  ipcMain.handle('admin:revoke-session', async (event, sessionId) => {
+    requireTrusted(event);
+    if (typeof sessionId !== 'string' || !/^[0-9a-f]{24}$/i.test(sessionId)) {
+      throw new TypeError('Choose a valid Admin session.');
+    }
+    return requestAdmin(await loadSettings(), `/api/admin/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE'
+    });
   });
 
   ipcMain.handle('admin:list-users', async (event) => {
@@ -519,7 +754,7 @@ app.whenReady().then(() => {
   ipcMain.handle('release:save-settings', async (event, input) => {
     requireTrusted(event);
     const current = await loadSettings();
-    if (!current) throw new Error('Configure the Render service and admin key first.');
+    if (!current) throw new Error('Configure the Render service URL first.');
     return saveSettings({ serviceUrl: current.serviceUrl, adminKey: current.adminKey, r2: input });
   });
 
@@ -532,7 +767,7 @@ app.whenReady().then(() => {
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
     const sourceDirectory = await inspectWorkspace(result.filePaths[0]);
     const current = await loadSettings();
-    if (!current) throw new Error('Save the Render service and admin key before selecting a source folder.');
+    if (!current) throw new Error('Save the Render service URL before selecting a source folder.');
     const saved = JSON.parse(await fs.readFile(settingsPath(), 'utf8'));
     saved.sourceDirectory = sourceDirectory.rootDirectory;
     await fs.writeFile(settingsPath(), JSON.stringify(saved), 'utf8');
@@ -542,14 +777,14 @@ app.whenReady().then(() => {
   ipcMain.handle('release:set-channel', async (event, channel) => {
     requireTrusted(event);
     const settings = await loadSettings();
-    if (!settings) throw new Error('Configure the Render service and admin key first.');
+    if (!settings) throw new Error('Configure the Render service URL first.');
     return setChannel(getSourceRoot(settings), channel, settings.serviceUrl);
   });
 
   ipcMain.handle('release:fetch-versions', async (event) => {
     requireTrusted(event);
     const settings = await loadSettings();
-    if (!settings) throw new Error('Configure the Render service and admin key first.');
+    if (!settings) throw new Error('Configure the Render service URL first.');
     return readPublishedVersions(
       getSourceRoot(settings),
       settings.r2,
@@ -586,7 +821,7 @@ app.whenReady().then(() => {
     releaseTaskRunning = true;
     try {
       if (['desktop-portable', 'desktop-installer'].includes(task)) {
-        if (!settings) throw new Error('Configure the Render service and admin key before building.');
+        if (!settings) throw new Error('Configure the Render service URL before building.');
         await setChannel(getSourceRoot(settings), channel, settings.serviceUrl);
       }
       const result = await runTask(

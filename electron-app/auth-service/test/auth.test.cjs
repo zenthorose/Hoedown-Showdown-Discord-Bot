@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -16,6 +17,8 @@ class MemoryCollection {
     return Object.entries(filter).every(([key, value]) => {
       if (value && typeof value === 'object' && '$ne' in value) return item[key] !== value.$ne;
       if (value && typeof value === 'object' && '$in' in value) return value.$in.includes(item[key]);
+      if (value && typeof value === 'object' && '$gt' in value) return item[key] > value.$gt;
+      if (value && typeof value === 'object' && '$exists' in value) return (item[key] !== undefined) === value.$exists;
       if (value instanceof ObjectId) return String(item[key]) === String(value);
       return item[key] === value;
     });
@@ -28,6 +31,12 @@ class MemoryCollection {
   async insertOne(item) {
     this.items.push({ _id: new ObjectId(), ...item });
     return { insertedId: this.items[this.items.length - 1]._id };
+  }
+
+  async findOneAndDelete(filter) {
+    const index = this.items.findIndex((item) => this.matches(item, filter));
+    if (index < 0) return null;
+    return this.items.splice(index, 1)[0];
   }
 
   async insertMany(items) {
@@ -199,6 +208,21 @@ async function withServer(run, options = {}) {
   const users = new MemoryCollection([user]);
   const devices = new MemoryCollection();
   const audit = new MemoryCollection();
+  const adminPasskeyCredentials = new MemoryCollection(options.passkeyCredentials || []);
+  const adminPasskeyChallenges = new MemoryCollection();
+  const adminPasskeyTickets = new MemoryCollection();
+  const adminHandoffCodes = new MemoryCollection();
+  const adminToken = 'test-admin-session-token-with-sufficient-randomness';
+  const adminSessions = new MemoryCollection([{
+    _id: new ObjectId(),
+    tokenHash: crypto.createHash('sha256').update(adminToken).digest('hex'),
+    deviceId: '01234567-89ab-42cd-8abc-0123456789ab',
+    deviceName: 'Test Admin Device',
+    platform: 'win32',
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+  }]);
+  const adminPasskeyState = new MemoryCollection([{ _id: 'owner', bootstrapped: false }]);
   const botSettings = new MemoryCollection(options.botSettingsDocuments || []);
   const members = new MemoryCollection(options.memberRecords || [{
     _id: '123456789012345678',
@@ -241,6 +265,13 @@ async function withServer(run, options = {}) {
     approveCurrentRound: options.approveCurrentRound,
     jwtSecret,
     adminApiKey: 'test-admin-key-that-is-at-least-thirty-two-characters',
+    adminPublicOrigin: 'https://admin.example.test',
+    adminPasskeyCredentials,
+    adminPasskeyChallenges,
+    adminPasskeyTickets,
+    adminHandoffCodes,
+    adminSessions,
+    adminPasskeyState,
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
     updateDiscordNickname,
     getDiscordProfile: options.getDiscordProfile,
@@ -263,6 +294,7 @@ async function withServer(run, options = {}) {
       user,
       users,
       devices,
+      adminSessions,
       audit,
       botSettings,
       members,
@@ -287,13 +319,213 @@ test('admin bot settings require authorization and return the built-in defaults'
     assert.equal(unauthorized.status, 401);
 
     const response = await fetch(`${baseUrl}/api/admin/bot-settings`, {
-      headers: { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' }
+      headers: { Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness' }
     });
     assert.equal(response.status, 200);
     const result = await response.json();
     assert.deepEqual(result.settings, DEFAULT_BOT_SETTINGS);
     assert.equal(result.updatedAt, null);
     assert.equal(result.updatedBy, null);
+  });
+});
+
+test('the legacy admin key is bootstrap-only and cannot authorize regular admin APIs', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const body = {
+      redirectUri: 'http://127.0.0.1:43125/admin/callback',
+      state: '0123456789abcdef0123456789abcdef',
+      deviceId: '01234567-89ab-42cd-8abc-0123456789ab',
+      deviceName: 'Owner workstation',
+      platform: 'win32'
+    };
+    const bootstrap = await fetch(`${baseUrl}/api/admin/passkeys/bootstrap`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    assert.equal(bootstrap.status, 200);
+    const { ticket } = await bootstrap.json();
+    assert.equal(typeof ticket, 'string');
+    const page = await fetch(`${baseUrl}/admin/passkeys`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /\/admin\/passkeys\.js/);
+    const pageScript = await fetch(`${baseUrl}/admin/passkeys.js`);
+    const pageScriptText = await pageScript.text();
+    assert.match(pageScriptText, /action === 'enroll'/);
+    assert.match(pageScriptText, /action === 'login'/);
+    assert.match(pageScriptText, /action === 'register'/);
+    const registration = await fetch(`${baseUrl}/api/admin/passkeys/bootstrap/options`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ticket })
+    });
+    assert.equal(registration.status, 200);
+    const registrationResult = await registration.json();
+    assert.equal(typeof registrationResult.challengeId, 'string');
+    assert.equal(registrationResult.redirectUri, body.redirectUri);
+
+    const legacyAdminRequest = await fetch(`${baseUrl}/api/admin/bot-settings`, {
+      headers: {
+        authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters'
+      }
+    });
+    assert.equal(legacyAdminRequest.status, 401);
+  });
+});
+
+test('owner bootstrap closes after enrollment and rejects non-loopback callbacks', async () => {
+  const credentials = [{
+    owner: 'owner',
+    credentialId: Buffer.from('registered-credential').toString('base64url'),
+    publicKey: Buffer.from('not-used-by-options').toString('base64url'),
+    counter: 0,
+    transports: []
+  }];
+  await withServer(async ({ baseUrl }) => {
+    const headers = {
+      authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+      'content-type': 'application/json'
+    };
+    const enrolled = await fetch(`${baseUrl}/api/admin/passkeys/bootstrap`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        redirectUri: 'http://127.0.0.1:43125/callback',
+        state: '0123456789abcdef0123456789abcdef',
+        deviceId: '01234567-89ab-42cd-8abc-0123456789ab',
+        deviceName: 'Owner workstation',
+        platform: 'win32'
+      })
+    });
+    assert.equal(enrolled.status, 409);
+
+    const badCallback = await fetch(`${baseUrl}/api/admin/passkeys/bootstrap`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        redirectUri: 'http://127.0.0.2:43125/callback',
+        state: '0123456789abcdef0123456789abcdef',
+        deviceId: '01234567-89ab-42cd-8abc-0123456789ab',
+        deviceName: 'Owner workstation',
+        platform: 'win32'
+      })
+    });
+    assert.equal(badCallback.status, 400);
+  }, { passkeyCredentials: credentials });
+});
+
+test('authenticated owners can issue backup-credential tickets and passkey sign-in options', async () => {
+  const credentials = [{
+    owner: 'owner',
+    credentialId: Buffer.from('registered-credential').toString('base64url'),
+    publicKey: Buffer.from('not-used-by-options').toString('base64url'),
+    counter: 0,
+    transports: ['internal']
+  }];
+  await withServer(async ({ baseUrl }) => {
+    const adminHeaders = {
+      authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
+      'content-type': 'application/json'
+    };
+    const unauthorized = await fetch(`${baseUrl}/api/admin/passkeys/credentials/ticket`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}'
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const ticketResponse = await fetch(`${baseUrl}/api/admin/passkeys/credentials/ticket`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: '{}'
+    });
+    assert.equal(ticketResponse.status, 200);
+    const { ticket } = await ticketResponse.json();
+    const registration = await fetch(`${baseUrl}/api/admin/passkeys/credentials/options`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ticket })
+    });
+    assert.equal(registration.status, 200);
+    const registrationOptions = await registration.json();
+    assert.equal(typeof registrationOptions.challengeId, 'string');
+    assert.equal(registrationOptions.options.rp.id, 'admin.example.test');
+
+    const login = await fetch(`${baseUrl}/api/admin/passkeys/login/options`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        redirectUri: 'http://127.0.0.1:43125/callback',
+        state: '0123456789abcdef0123456789abcdef',
+        deviceId: '01234567-89ab-42cd-8abc-0123456789ab',
+        deviceName: 'Owner workstation',
+        platform: 'win32'
+      })
+    });
+    assert.equal(login.status, 200);
+    const loginOptions = await login.json();
+    assert.equal(typeof loginOptions.challengeId, 'string');
+    assert.equal(loginOptions.options.allowCredentials[0].id, credentials[0].credentialId);
+  }, { passkeyCredentials: credentials });
+});
+
+test('admin session revocation and expiry stop authorizing requests', async () => {
+  await withServer(async ({ baseUrl, adminSessions }) => {
+    const headers = {
+      authorization: 'Bearer test-admin-session-token-with-sufficient-randomness'
+    };
+    const list = await fetch(`${baseUrl}/api/admin/sessions`, { headers });
+    assert.equal(list.status, 200);
+    const { sessions } = await list.json();
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].isCurrent, true);
+
+    const revoked = await fetch(`${baseUrl}/api/admin/sessions/${sessions[0].id}`, {
+      method: 'DELETE',
+      headers
+    });
+    assert.equal(revoked.status, 200);
+    const afterRevoke = await fetch(`${baseUrl}/api/admin/bot-settings`, { headers });
+    assert.equal(afterRevoke.status, 401);
+  });
+
+  await withServer(async ({ baseUrl, adminSessions }) => {
+    adminSessions.items[0].expiresAt = new Date(Date.now() - 1000);
+    const expired = await fetch(`${baseUrl}/api/admin/bot-settings`, {
+      headers: {
+        authorization: 'Bearer test-admin-session-token-with-sufficient-randomness'
+      }
+    });
+    assert.equal(expired.status, 401);
+  });
+});
+
+test('staff sessions and the admin API key cannot substitute for each other', async () => {
+  await withServer(async ({ baseUrl, password }) => {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const staffRequest = await fetch(`${baseUrl}/api/admin/users`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(staffRequest.status, 401);
+
+    const adminRequest = await fetch(`${baseUrl}/api/members`, {
+      headers: {
+        authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters'
+      }
+    });
+    assert.equal(adminRequest.status, 401);
   });
 });
 
@@ -316,7 +548,7 @@ test('admin collection backups exclude the admin database and copy documents and
     const unauthorized = await fetch(`${baseUrl}/api/admin/backups`);
     assert.equal(unauthorized.status, 401);
 
-    const headers = { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' };
+    const headers = { Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness' };
     const listingResponse = await fetch(`${baseUrl}/api/admin/backups`, { headers });
     assert.equal(listingResponse.status, 200);
     const listing = await listingResponse.json();
@@ -408,7 +640,7 @@ test('admin collection replacement restores only a matching backup snapshot and 
   });
 
   await withServer(async ({ baseUrl }) => {
-    const headers = { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' };
+    const headers = { Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness' };
     const optionsResponse = await fetch(
       `${baseUrl}/api/admin/collections/replace-options?database=HoedownInfo&collection=Avoids`,
       { headers }
@@ -463,7 +695,7 @@ test('admin CSV replacement validates before replacing and preserves existing in
 
   await withServer(async ({ baseUrl }) => {
     const headers = {
-      Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+      Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
       'Content-Type': 'text/csv'
     };
     const invalid = await fetch(
@@ -519,7 +751,7 @@ test('failed CSV replacement staging leaves the original collection untouched', 
       {
         method: 'POST',
         headers: {
-          Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+          Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
           'Content-Type': 'text/csv'
         },
         body: 'Username,Discord ID\nnew-member,22222222222222222\n'
@@ -557,7 +789,7 @@ test('admin collection wipe requires authorization and deletes documents without
     assert.equal(avoids.items.length, 1);
 
     const headers = {
-      Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+      Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
       'Content-Type': 'application/json'
     };
     const rejected = await fetch(`${baseUrl}/api/admin/collections/wipe`, {
@@ -617,7 +849,7 @@ test('admin bot settings save complete boolean values and record an audit event'
     const response = await fetch(`${baseUrl}/api/admin/bot-settings`, {
       method: 'PUT',
       headers: {
-        Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+        Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ settings })
@@ -637,12 +869,12 @@ test('admin bot settings save complete boolean values and record an audit event'
       change.setting === 'channels.LOG_CHANNEL_ID' && change.from === '' && change.to === '12345678901234567'));
 
     const loaded = await fetch(`${baseUrl}/api/admin/bot-settings`, {
-      headers: { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' }
+      headers: { Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness' }
     });
     assert.deepEqual((await loaded.json()).settings, settings);
 
     const auditResponse = await fetch(`${baseUrl}/api/admin/audit`, {
-      headers: { Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' }
+      headers: { Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness' }
     });
     const auditResult = await auditResponse.json();
     assert.deepEqual(auditResult.events[0].details, auditEntry.details);
@@ -654,7 +886,7 @@ test('admin bot settings reject incomplete and non-boolean updates without savin
     const response = await fetch(`${baseUrl}/api/admin/bot-settings`, {
       method: 'PUT',
       headers: {
-        Authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters',
+        Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -804,7 +1036,7 @@ test('theme colors are authenticated account settings and can be reset', async (
   });
 });
 
-test('member directory requires a session and returns only approved profile fields', async () => {
+test('member directory requires a session, permits cross-member edits, and limits editable fields', async () => {
   await withServer(async ({ baseUrl, password, members, discordNicknameUpdates }) => {
     const unauthorized = await fetch(`${baseUrl}/api/members`);
     assert.equal(unauthorized.status, 401);
@@ -871,6 +1103,26 @@ test('member directory requires a session and returns only approved profile fiel
       nickname: 'Edited Player'
     }]);
     assert.equal(members.items[0].gender, 'not exposed');
+
+    members.items.push({
+      _id: '234567890123456789',
+      discordId: '234567890123456789',
+      username: 'another.player',
+      nickname: 'Another Player',
+      region: 'East',
+      steamId: 'another-steam-id',
+      streamLink: 'https://example.test/another'
+    });
+    const crossMemberEdit = await fetch(`${baseUrl}/api/members/234567890123456789`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ region: 'West' })
+    });
+    assert.equal(crossMemberEdit.status, 200);
+    assert.equal(members.items[1].region, 'West');
 
     const usernameEdit = await fetch(`${baseUrl}/api/members/123456789012345678`, {
       method: 'PATCH',
@@ -2426,7 +2678,7 @@ test('self-service password change rotates the session and invalidates the old t
 
 test('admin account creation returns a temporary password and disable revokes sessions', async () => {
   await withServer(async ({ baseUrl, user }) => {
-    const authorization = 'Bearer test-admin-key-that-is-at-least-thirty-two-characters';
+    const authorization = 'Bearer test-admin-session-token-with-sufficient-randomness';
     const createdResponse = await fetch(`${baseUrl}/api/admin/users`, {
       method: 'POST',
       headers: { authorization, 'content-type': 'application/json' },
@@ -2449,7 +2701,7 @@ test('admin account creation returns a temporary password and disable revokes se
 });
 
 test('admin can link and unlink a verified Discord profile', async () => {
-  const authorization = 'Bearer test-admin-key-that-is-at-least-thirty-two-characters';
+  const authorization = 'Bearer test-admin-session-token-with-sufficient-randomness';
   await withServer(async ({ baseUrl, user }) => {
     const linked = await fetch(`${baseUrl}/api/admin/users/link-discord`, {
       method: 'POST',
@@ -2483,7 +2735,7 @@ test('admin can link and unlink a verified Discord profile', async () => {
 
 test('admin audit date filters use inclusive Eastern calendar days and reject invalid dates', async () => {
   await withServer(async ({ baseUrl, audit }) => {
-    const headers = { authorization: 'Bearer test-admin-key-that-is-at-least-thirty-two-characters' };
+    const headers = { authorization: 'Bearer test-admin-session-token-with-sufficient-randomness' };
     const valid = await fetch(`${baseUrl}/api/admin/audit?from=2026-02-27&to=2026-02-28`, { headers });
     assert.equal(valid.status, 200);
     assert.equal(audit.lastFindFilter.at.$gte.toISOString(), '2026-02-27T05:00:00.000Z');

@@ -1,6 +1,12 @@
 const byId = (id) => document.getElementById(id);
 let latestAudit = [];
-let currentSettings = { configured: false, serviceUrl: '', hasR2: false };
+let currentSettings = {
+  configured: false,
+  serviceUrl: '',
+  hasR2: false,
+  hasAdminSession: false,
+  hasBootstrapKey: false
+};
 let discordLinkUsername = '';
 let botSettingsLoaded = false;
 let backupLoading = false;
@@ -43,6 +49,50 @@ async function loadSettings() {
   byId('source-directory').textContent = currentSettings.sourceDirectory || 'No source folder selected.';
   byId('r2-account').value = currentSettings.r2AccountId || '';
   byId('r2-bucket').value = currentSettings.r2BucketName || '';
+  byId('enroll-passkey').hidden = !currentSettings.hasBootstrapKey;
+  byId('add-passkey').hidden = !currentSettings.hasAdminSession;
+  byId('sign-in-passkey').hidden = currentSettings.hasAdminSession;
+  byId('sign-out-admin').hidden = !currentSettings.hasAdminSession;
+  byId('test-connection').disabled = !currentSettings.hasAdminSession;
+  if (currentSettings.hasAdminSession) {
+    showStatus('connection-status', `Signed in on this computer until ${displayDate(currentSettings.adminSessionExpiresAt)}.`);
+    await loadAdminSessions();
+  } else if (currentSettings.configured) {
+    showStatus('connection-status', 'Not signed in on this computer. Use your passkey to continue.');
+    byId('admin-sessions').hidden = true;
+  } else {
+    showStatus('connection-status', '');
+    byId('admin-sessions').hidden = true;
+  }
+}
+
+async function loadAdminSessions() {
+  byId('admin-sessions').hidden = false;
+  showStatus('admin-session-status', 'Loading sessions…');
+  try {
+    const data = await window.admin.listAdminSessions();
+    if (!Array.isArray(data.sessions)) throw new Error('Render returned an invalid Admin session list.');
+    const body = byId('admin-session-rows');
+    body.replaceChildren();
+    for (const session of data.sessions) {
+      const row = document.createElement('tr');
+      addCell(row, `${session.deviceName || 'Admin device'}${session.isCurrent ? ' (this computer)' : ''}\n${session.platform || ''}`);
+      addCell(row, displayDate(session.createdAt));
+      addCell(row, displayDate(session.expiresAt));
+      const actionCell = addCell(row, '');
+      if (!session.isCurrent) {
+        const revokeButton = document.createElement('button');
+        revokeButton.className = 'danger';
+        revokeButton.textContent = 'Revoke';
+        revokeButton.dataset.sessionId = session.id;
+        actionCell.appendChild(revokeButton);
+      }
+      body.appendChild(row);
+    }
+    showStatus('admin-session-status', '');
+  } catch (error) {
+    showStatus('admin-session-status', error.message || 'Could not load Admin sessions.');
+  }
 }
 
 async function loadUsers() {
@@ -641,9 +691,73 @@ byId('settings-form').addEventListener('submit', async (event) => {
     });
     byId('admin-key').value = '';
     currentSettings = saved;
+    await loadSettings();
     showStatus('connection-status', 'Connection settings saved securely on this computer.');
   } catch (error) {
     showStatus('connection-status', error.message || 'Could not save connection settings.');
+  }
+});
+
+byId('enroll-passkey').addEventListener('click', async () => {
+  try {
+    const result = await window.admin.enrollPasskey();
+    await loadSettings();
+    showStatus(
+      'connection-status',
+      result.enrolled
+        ? 'First passkey enrolled. The one-time enrollment key was removed; add a separate backup passkey now.'
+        : 'Passkey enrollment completed.'
+    );
+    await loadUsers();
+  } catch (error) {
+    showStatus('connection-status', error.message || 'Passkey enrollment failed.');
+  }
+});
+
+byId('add-passkey').addEventListener('click', async () => {
+  try {
+    await window.admin.addPasskey();
+    showStatus('connection-status', 'Passkey setup opened in your browser. Finish registration there, then store the backup key separately.');
+  } catch (error) {
+    showStatus('connection-status', error.message || 'Could not add a backup passkey.');
+  }
+});
+
+byId('sign-in-passkey').addEventListener('click', async () => {
+  try {
+    const result = await window.admin.signInPasskey();
+    await loadSettings();
+    showStatus('connection-status', `Passkey sign-in succeeded until ${displayDate(result.expiresAt)}.`);
+    await loadUsers();
+  } catch (error) {
+    showStatus('connection-status', error.message || 'Passkey sign-in failed.');
+  }
+});
+
+byId('sign-out-admin').addEventListener('click', async () => {
+  try {
+    await window.admin.signOutAdmin();
+    await loadSettings();
+    showStatus('connection-status', 'This computer has been signed out.');
+  } catch (error) {
+    await loadSettings();
+    showStatus('connection-status', error.message || 'Could not sign out this computer.');
+  }
+});
+
+byId('refresh-admin-sessions').addEventListener('click', loadAdminSessions);
+byId('admin-session-rows').addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-session-id]');
+  if (!button) return;
+  if (!window.confirm('Revoke this Admin session? That computer will need to sign in again.')) return;
+  button.disabled = true;
+  try {
+    await window.admin.revokeAdminSession(button.dataset.sessionId);
+    await loadAdminSessions();
+    showStatus('connection-status', 'The selected Admin session was revoked.');
+  } catch (error) {
+    showStatus('admin-session-status', error.message || 'Could not revoke the Admin session.');
+    button.disabled = false;
   }
 });
 

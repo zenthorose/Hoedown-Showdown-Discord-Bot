@@ -1,9 +1,16 @@
 const crypto = require('node:crypto');
+const path = require('node:path');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
+const {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse
+} = require('@simplewebauthn/server');
 const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
 const { parseMemberListCsv } = require('../../database/memberListImport');
@@ -48,6 +55,9 @@ const {
 } = require('../../database/botSettings');
 
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
+const ADMIN_CEREMONY_TTL_SECONDS = 5 * 60;
+const ADMIN_HANDOFF_TTL_SECONDS = 60;
 const RESET_TTL_SECONDS = 15 * 60;
 const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const MAX_REPLACEMENT_CSV_BYTES = 10 * 1024 * 1024;
@@ -425,6 +435,50 @@ function ticketPersonId(ticket) {
   return username ? `username:${username}` : '';
 }
 
+function hashOpaqueToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function validAdminPublicOrigin(value) {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    const url = new URL(value);
+    if (url.origin !== value.replace(/\/$/, '') || url.username || url.password ||
+        url.pathname !== '/' || url.search || url.hash ||
+        (url.protocol !== 'https:' &&
+          !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) {
+      return null;
+    }
+    return { origin: url.origin, rpId: url.hostname.replace(/^\[|\]$/g, '') };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAdminCeremonyContext(body) {
+  const redirectUri = typeof body?.redirectUri === 'string' ? body.redirectUri : '';
+  let redirect;
+  try {
+    redirect = new URL(redirectUri);
+  } catch {
+    throw new TypeError('A valid 127.0.0.1 callback URL is required.');
+  }
+  if (redirect.protocol !== 'http:' || redirect.hostname !== '127.0.0.1' ||
+      !redirect.port || redirect.username || redirect.password || redirect.hash) {
+    throw new TypeError('The callback URL must use HTTP on 127.0.0.1.');
+  }
+  const state = typeof body?.state === 'string' ? body.state : '';
+  if (!/^[A-Za-z0-9._~-]{16,256}$/.test(state)) {
+    throw new TypeError('A state value between 16 and 256 URL-safe characters is required.');
+  }
+  const deviceId = typeof body?.deviceId === 'string' ? body.deviceId.toLowerCase() : '';
+  if (!DEVICE_ID_PATTERN.test(deviceId)) throw new TypeError('A valid device ID is required.');
+  const deviceName = typeof body?.deviceName === 'string' ? body.deviceName.trim().slice(0, 100) : '';
+  const platform = typeof body?.platform === 'string' ? body.platform.trim().slice(0, 32) : '';
+  if (!deviceName || !platform) throw new TypeError('Device name and platform are required.');
+  return { redirectUri: redirect.href, state, deviceId, deviceName, platform };
+}
+
 function createApp({
   users,
   devices,
@@ -439,6 +493,13 @@ function createApp({
   hoedownInfoDatabaseName,
   jwtSecret,
   adminApiKey,
+  adminPublicOrigin,
+  adminPasskeyCredentials,
+  adminPasskeyChallenges,
+  adminPasskeyTickets,
+  adminHandoffCodes,
+  adminSessions,
+  adminPasskeyState,
   dummyPasswordHash,
   updateFeed,
   updateDiscordNickname,
@@ -461,7 +522,17 @@ function createApp({
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
   app.use(helmet());
-  app.use(express.json({ limit: '8kb' }));
+  app.use(express.json({ limit: '128kb' }));
+
+  const webAuthnConfig = validAdminPublicOrigin(adminPublicOrigin);
+  const passkeyCredentials = adminPasskeyCredentials;
+  const passkeyChallenges = adminPasskeyChallenges;
+  const passkeyTickets = adminPasskeyTickets;
+  const handoffCodes = adminHandoffCodes;
+  const adminSessionCollection = adminSessions;
+  const passkeyState = adminPasskeyState;
+  const passkeysConfigured = Boolean(webAuthnConfig && passkeyCredentials &&
+    passkeyChallenges && passkeyTickets && handoffCodes && adminSessionCollection && passkeyState);
 
   const limited = (limit) => rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -489,18 +560,40 @@ function createApp({
     }
   };
   const authorizeAdmin = (req, res) => {
-    if (typeof adminApiKey !== 'string' || adminApiKey.length < 32) {
-      res.status(503).json({ error: 'Admin account management is not configured.' });
+    if (!passkeysConfigured) {
+      res.status(503).json({ error: 'Admin passkey authentication is not configured.' });
       return false;
     }
-    const supplied = Buffer.from(bearerToken(req) || '', 'utf8');
-    const expected = Buffer.from(adminApiKey, 'utf8');
-    if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) {
+    const token = bearerToken(req);
+    if (!token || !req.adminSession) {
       res.status(401).json({ error: 'Admin authorization failed.' });
       return false;
     }
     return true;
   };
+  const publicPasskeyRoutes = new Set([
+    'POST /api/admin/passkeys/bootstrap',
+    'POST /api/admin/passkeys/bootstrap/options',
+    'POST /api/admin/passkeys/bootstrap/verify',
+    'POST /api/admin/passkeys/login/options',
+    'POST /api/admin/passkeys/login/verify',
+    'POST /api/admin/passkeys/exchange'
+  ]);
+  app.use(async (req, res, next) => {
+    if (!req.path.startsWith('/api/admin/') ||
+        publicPasskeyRoutes.has(`${req.method} ${req.path}`)) return next();
+    const token = bearerToken(req);
+    if (!token || !passkeysConfigured) return next();
+    try {
+      const session = await adminSessionCollection.findOne({ tokenHash: hashOpaqueToken(token) });
+      if (session && !session.revokedAt && new Date(session.expiresAt).getTime() > Date.now()) {
+        req.adminSession = session;
+      }
+      return next();
+    } catch (error) {
+      return sendError(res, error, 'Admin session lookup failed:');
+    }
+  });
   const availableBackupSources = new Map(
     backupSources
       .filter(({ databaseName, database }) =>
@@ -706,6 +799,411 @@ function createApp({
       .sort((left, right) => (right.createdAt || '').localeCompare(left.createdAt || ''));
   };
   const adminMutationLimit = limited(10);
+  const noStore = (res) => res.set('Cache-Control', 'no-store');
+  const ownerCredential = () => passkeyCredentials.findOne({ owner: 'owner' });
+  const legacyBootstrapAuthorized = (req, res) => {
+    if (!passkeysConfigured || typeof adminApiKey !== 'string' || adminApiKey.length < 32) {
+      res.status(503).json({ error: 'Admin passkey bootstrap is not configured.' });
+      return false;
+    }
+    const supplied = Buffer.from(bearerToken(req) || '', 'utf8');
+    const expected = Buffer.from(adminApiKey, 'utf8');
+    if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) {
+      res.status(401).json({ error: 'Admin bootstrap authorization failed.' });
+      return false;
+    }
+    return true;
+  };
+  const createAdminTicket = async (flow, context = null) => {
+    const ticket = crypto.randomBytes(32).toString('base64url');
+    const now = new Date();
+    await passkeyTickets.insertOne({
+      ticketHash: hashOpaqueToken(ticket),
+      flow,
+      ...(context ? { context } : {}),
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + ADMIN_CEREMONY_TTL_SECONDS * 1000)
+    });
+    return ticket;
+  };
+  const readAdminTicket = async (ticket, flow) => {
+    if (typeof ticket !== 'string' || ticket.length < 40 || ticket.length > 64) return null;
+    const entry = await passkeyTickets.findOne({ ticketHash: hashOpaqueToken(ticket), flow });
+    return entry && new Date(entry.expiresAt).getTime() > Date.now() ? entry : null;
+  };
+  const createAdminHandoff = async (context, credentialId) => {
+    const code = crypto.randomBytes(32).toString('base64url');
+    const now = new Date();
+    await handoffCodes.insertOne({
+      codeHash: hashOpaqueToken(code),
+      state: context.state,
+      redirectUri: context.redirectUri,
+      deviceId: context.deviceId,
+      deviceName: context.deviceName,
+      platform: context.platform,
+      credentialId,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + ADMIN_HANDOFF_TTL_SECONDS * 1000)
+    });
+    return code;
+  };
+  const getRegistrationOptions = async (ticketEntry) => {
+    const currentCredentials = await passkeyCredentials.find({ owner: 'owner' }).toArray();
+    const options = await generateRegistrationOptions({
+      rpName: 'Hoedown Showdown Admin',
+      rpID: webAuthnConfig.rpId,
+      userID: Buffer.from('hoedown-showdown-owner-admin'),
+      userName: 'owner',
+      userDisplayName: 'Hoedown Showdown Owner',
+      attestationType: 'none',
+      excludeCredentials: currentCredentials.map((credential) => ({
+        id: credential.credentialId,
+        transports: credential.transports || []
+      })),
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'required'
+      }
+    });
+    const challengeId = crypto.randomBytes(24).toString('base64url');
+    const now = new Date();
+    await passkeyChallenges.insertOne({
+      challengeId,
+      flow: 'registration',
+      ticketHash: ticketEntry.ticketHash,
+      challenge: options.challenge,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + ADMIN_CEREMONY_TTL_SECONDS * 1000)
+    });
+    return {
+      options,
+      challengeId,
+      ...(ticketEntry.context
+        ? { redirectUri: ticketEntry.context.redirectUri, state: ticketEntry.context.state }
+        : {})
+    };
+  };
+  const completeRegistration = async (ticket, challengeId, response, flow) => {
+    const ticketEntry = await readAdminTicket(ticket, flow);
+    if (!ticketEntry) return { error: 'This registration ticket is invalid or expired.' };
+    if (flow === 'bootstrap' && await ownerCredential()) {
+      return { error: 'Owner passkey bootstrap is already complete.', status: 409 };
+    }
+    const challenge = await passkeyChallenges.findOneAndDelete({
+      challengeId,
+      flow: 'registration',
+      ticketHash: ticketEntry.ticketHash,
+      expiresAt: { $gt: new Date() }
+    });
+    if (!challenge) return { error: 'The registration challenge is invalid or expired.' };
+    let verification;
+    try {
+      verification = await verifyRegistrationResponse({
+        response,
+        expectedChallenge: challenge.challenge,
+        expectedOrigin: webAuthnConfig.origin,
+        expectedRPID: webAuthnConfig.rpId,
+        requireUserVerification: true
+      });
+    } catch (error) {
+      console.warn('Admin passkey registration verification failed:', error.message);
+      return { error: 'Passkey registration could not be verified.', status: 400 };
+    }
+    if (!verification.verified || !verification.registrationInfo) {
+      return { error: 'Passkey registration could not be verified.', status: 400 };
+    }
+    const credential = verification.registrationInfo.credential;
+    const credentialId = credential?.id || verification.registrationInfo.credentialID;
+    const publicKey = credential?.publicKey || verification.registrationInfo.credentialPublicKey;
+    if (!credentialId || !publicKey) {
+      return { error: 'The authenticator returned an invalid credential.', status: 400 };
+    }
+    if (flow === 'bootstrap') {
+      const lock = await passkeyState.updateOne(
+        { _id: 'owner', bootstrapped: false },
+        { $set: { bootstrapped: true, credentialId, updatedAt: new Date() } }
+      );
+      if (!lock.matchedCount) {
+        return { error: 'Owner passkey bootstrap is already complete.', status: 409 };
+      }
+    }
+    const consumedTicket = await passkeyTickets.findOneAndDelete({
+      ticketHash: ticketEntry.ticketHash,
+      flow,
+      expiresAt: { $gt: new Date() }
+    });
+    if (!consumedTicket) {
+      if (flow === 'bootstrap') {
+        await passkeyState.updateOne(
+          { _id: 'owner', credentialId },
+          { $set: { bootstrapped: false }, $unset: { credentialId: '' } }
+        );
+      }
+      return { error: 'This registration ticket has already been used.', status: 409 };
+    }
+    try {
+      await passkeyCredentials.insertOne({
+        owner: 'owner',
+        credentialId,
+        publicKey: Buffer.from(publicKey).toString('base64url'),
+        counter: credential?.counter ?? verification.registrationInfo.counter ?? 0,
+        transports: credential?.transports || response?.response?.transports || [],
+        createdAt: new Date()
+      });
+    } catch (error) {
+      if (flow === 'bootstrap') {
+        await passkeyState.updateOne(
+          { _id: 'owner', credentialId },
+          { $set: { bootstrapped: false }, $unset: { credentialId: '' } }
+        );
+      }
+      if (error.code === 11000) return { error: 'This passkey is already registered.', status: 409 };
+      throw error;
+    }
+    if (flow === 'owner-register') return { registered: true, credentialId };
+    const code = await createAdminHandoff(ticketEntry.context, credentialId);
+    return {
+      registered: true,
+      code,
+      redirectUri: ticketEntry.context.redirectUri,
+      state: ticketEntry.context.state
+    };
+  };
+
+  app.get('/admin/passkeys', (req, res) => {
+    noStore(res);
+    res.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    return res.sendFile(path.join(__dirname, 'admin-passkeys.html'));
+  });
+  app.get('/admin/passkeys.js', (req, res) => {
+    noStore(res);
+    res.type('application/javascript');
+    return res.sendFile(path.join(__dirname, 'admin-passkeys.js'));
+  });
+  app.get('/admin/passkeys.css', (req, res) => {
+    noStore(res);
+    res.type('text/css');
+    return res.sendFile(path.join(__dirname, 'admin-passkeys.css'));
+  });
+  app.post('/api/admin/passkeys/bootstrap', limited(5), async (req, res) => {
+    if (!legacyBootstrapAuthorized(req, res)) return;
+    let context;
+    try {
+      context = normalizeAdminCeremonyContext(req.body);
+      if (await ownerCredential()) {
+        return res.status(409).json({ error: 'Owner passkey bootstrap is already complete.' });
+      }
+      const ticket = await createAdminTicket('bootstrap', context);
+      noStore(res);
+      return res.status(200).json({ ticket });
+    } catch (error) {
+      if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+      return sendError(res, error, 'Admin passkey bootstrap failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/credentials/ticket', limited(5), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    try {
+      const ticket = await createAdminTicket('owner-register');
+      noStore(res);
+      return res.status(200).json({ ticket });
+    } catch (error) {
+      return sendError(res, error, 'Admin recovery passkey ticket creation failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/bootstrap/options', limited(10), async (req, res) => {
+    if (!passkeysConfigured) return res.status(503).json({ error: 'Admin passkey authentication is not configured.' });
+    try {
+      const ticketEntry = await readAdminTicket(req.body?.ticket, 'bootstrap');
+      if (!ticketEntry) return res.status(401).json({ error: 'This registration ticket is invalid or expired.' });
+      if (await ownerCredential()) return res.status(409).json({ error: 'Owner passkey bootstrap is already complete.' });
+      noStore(res);
+      return res.status(200).json(await getRegistrationOptions(ticketEntry));
+    } catch (error) {
+      return sendError(res, error, 'Admin passkey registration options failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/credentials/options', limited(10), async (req, res) => {
+    if (!passkeysConfigured) return res.status(503).json({ error: 'Admin passkey authentication is not configured.' });
+    try {
+      const ticketEntry = await readAdminTicket(req.body?.ticket, 'owner-register');
+      if (!ticketEntry) return res.status(401).json({ error: 'This registration ticket is invalid or expired.' });
+      noStore(res);
+      return res.status(200).json(await getRegistrationOptions(ticketEntry));
+    } catch (error) {
+      return sendError(res, error, 'Admin recovery passkey registration options failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/bootstrap/verify', limited(10), async (req, res) => {
+    try {
+      const result = await completeRegistration(
+        req.body?.ticket, req.body?.challengeId, req.body?.response, 'bootstrap'
+      );
+      if (result.error) return res.status(result.status || 400).json({ error: result.error });
+      noStore(res);
+      return res.status(200).json({ code: result.code });
+    } catch (error) {
+      return sendError(res, error, 'Admin passkey registration failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/credentials/verify', limited(10), async (req, res) => {
+    try {
+      const result = await completeRegistration(
+        req.body?.ticket, req.body?.challengeId, req.body?.response, 'owner-register'
+      );
+      if (result.error) return res.status(result.status || 400).json({ error: result.error });
+      noStore(res);
+      return res.status(200).json({ registered: true, credentialId: result.credentialId });
+    } catch (error) {
+      return sendError(res, error, 'Admin recovery passkey registration failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/login/options', limited(10), async (req, res) => {
+    if (!passkeysConfigured) return res.status(503).json({ error: 'Admin passkey authentication is not configured.' });
+    let context;
+    try {
+      context = normalizeAdminCeremonyContext(req.body);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    try {
+      const credentials = await passkeyCredentials.find({ owner: 'owner' }).toArray();
+      if (!credentials.length) return res.status(409).json({ error: 'Owner passkey bootstrap is not complete.' });
+      const options = await generateAuthenticationOptions({
+        rpID: webAuthnConfig.rpId,
+        allowCredentials: credentials.map((credential) => ({
+          id: credential.credentialId,
+          transports: credential.transports || []
+        })),
+        userVerification: 'required'
+      });
+      const challengeId = crypto.randomBytes(24).toString('base64url');
+      const now = new Date();
+      await passkeyChallenges.insertOne({
+        challengeId,
+        flow: 'authentication',
+        challenge: options.challenge,
+        context,
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + ADMIN_CEREMONY_TTL_SECONDS * 1000)
+      });
+      noStore(res);
+      return res.status(200).json({ options, challengeId });
+    } catch (error) {
+      return sendError(res, error, 'Admin passkey sign-in options failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/login/verify', limited(10), async (req, res) => {
+    try {
+      const challenge = await passkeyChallenges.findOneAndDelete({
+        challengeId: req.body?.challengeId,
+        flow: 'authentication',
+        expiresAt: { $gt: new Date() }
+      });
+      if (!challenge) return res.status(400).json({ error: 'The sign-in challenge is invalid or expired.' });
+      const credentialId = req.body?.response?.id || req.body?.response?.rawId;
+      const credential = await passkeyCredentials.findOne({ owner: 'owner', credentialId });
+      if (!credential) return res.status(401).json({ error: 'Passkey sign-in failed.' });
+      let verification;
+      try {
+        verification = await verifyAuthenticationResponse({
+          response: req.body.response,
+          expectedChallenge: challenge.challenge,
+          expectedOrigin: webAuthnConfig.origin,
+          expectedRPID: webAuthnConfig.rpId,
+          credential: {
+            id: credential.credentialId,
+            publicKey: Buffer.from(credential.publicKey, 'base64url'),
+            counter: credential.counter,
+            transports: credential.transports || []
+          },
+          requireUserVerification: true
+        });
+      } catch (error) {
+        console.warn('Admin passkey authentication verification failed:', error.message);
+        return res.status(401).json({ error: 'Passkey sign-in failed.' });
+      }
+      if (!verification.verified) return res.status(401).json({ error: 'Passkey sign-in failed.' });
+      await passkeyCredentials.updateOne(
+        { owner: 'owner', credentialId },
+        { $set: { counter: verification.authenticationInfo.newCounter, lastUsedAt: new Date() } }
+      );
+      const code = await createAdminHandoff(challenge.context, credentialId);
+      noStore(res);
+      return res.status(200).json({ code });
+    } catch (error) {
+      return sendError(res, error, 'Admin passkey sign-in failed:');
+    }
+  });
+  app.post('/api/admin/passkeys/exchange', limited(10), async (req, res) => {
+    if (!passkeysConfigured) return res.status(503).json({ error: 'Admin passkey authentication is not configured.' });
+    if (typeof req.body?.code !== 'string' || typeof req.body?.state !== 'string') {
+      return res.status(400).json({ error: 'A handoff code and state are required.' });
+    }
+    try {
+      const handoff = await handoffCodes.findOneAndDelete({
+        codeHash: hashOpaqueToken(req.body.code),
+        state: req.body.state,
+        expiresAt: { $gt: new Date() }
+      });
+      if (!handoff) return res.status(401).json({ error: 'The handoff code is invalid, expired, or already used.' });
+      const token = crypto.randomBytes(48).toString('base64url');
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + ADMIN_SESSION_TTL_SECONDS * 1000);
+      await adminSessionCollection.insertOne({
+        tokenHash: hashOpaqueToken(token),
+        credentialId: handoff.credentialId,
+        deviceId: handoff.deviceId,
+        deviceName: handoff.deviceName,
+        platform: handoff.platform,
+        createdAt: now,
+        expiresAt
+      });
+      noStore(res);
+      return res.status(200).json({ token, expiresAt: expiresAt.toISOString() });
+    } catch (error) {
+      return sendError(res, error, 'Admin passkey session exchange failed:');
+    }
+  });
+  app.get('/api/admin/sessions', limited(30), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    try {
+      const now = Date.now();
+      const sessions = (await adminSessionCollection.find({}).toArray())
+        .filter((session) => !session.revokedAt && new Date(session.expiresAt).getTime() > now)
+        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+        .map((session) => ({
+          id: String(session._id),
+          deviceId: session.deviceId,
+          deviceName: session.deviceName,
+          platform: session.platform,
+          createdAt: new Date(session.createdAt).toISOString(),
+          expiresAt: new Date(session.expiresAt).toISOString(),
+          isCurrent: session.tokenHash === req.adminSession.tokenHash
+        }));
+      noStore(res);
+      return res.status(200).json({ sessions });
+    } catch (error) {
+      return sendError(res, error, 'Admin session listing failed:');
+    }
+  });
+  app.delete('/api/admin/sessions/:id', adminMutationLimit, async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: 'A valid session ID is required.' });
+    try {
+      const session = await adminSessionCollection.findOne({ _id: new ObjectId(req.params.id) });
+      if (!session || session.revokedAt || new Date(session.expiresAt).getTime() <= Date.now()) {
+        return res.status(404).json({ error: 'Admin session was not found.' });
+      }
+      const revokedAt = new Date();
+      await adminSessionCollection.updateOne({ _id: session._id }, { $set: { revokedAt } });
+      noStore(res);
+      return res.status(200).json({ revoked: true, id: String(session._id) });
+    } catch (error) {
+      return sendError(res, error, 'Admin session revocation failed:');
+    }
+  });
+
   app.get('/api/admin/collections/replace-options', limited(30), async (req, res) => {
     if (!authorizeAdmin(req, res)) return;
     const databaseName = req.query.database;
@@ -3499,13 +3997,17 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     MONGODB_ROUNDS,
     MONGODB_TICKETS,
     JWT_SECRET,
-    ADMIN_API_KEY
+    ADMIN_API_KEY,
+    ADMIN_PUBLIC_ORIGIN
   } = process.env;
   if (!MONGO_URI || !MONGODB_ADMIN || !JWT_SECRET || JWT_SECRET.length < 32) {
     throw new Error('Set MONGO_URI, MONGODB_ADMIN, and a JWT_SECRET of at least 32 characters.');
   }
-  if (!ADMIN_API_KEY || ADMIN_API_KEY.length < 32) {
-    throw new Error('Set an ADMIN_API_KEY of at least 32 characters.');
+  if (ADMIN_API_KEY && ADMIN_API_KEY.length < 32) {
+    throw new Error('ADMIN_API_KEY must be at least 32 characters when set.');
+  }
+  if (!validAdminPublicOrigin(ADMIN_PUBLIC_ORIGIN)) {
+    throw new Error('Set ADMIN_PUBLIC_ORIGIN to the exact HTTPS service origin (HTTP localhost is allowed for development).');
   }
   const client = new MongoClient(MONGO_URI);
   let unregisterTeamCheckPreviewSync = () => {};
@@ -3515,6 +4017,12 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     const users = database.collection('users');
     const devices = database.collection('userDevices');
     const audit = database.collection('adminAudit');
+    const adminPasskeyCredentials = database.collection('adminPasskeyCredentials');
+    const adminPasskeyChallenges = database.collection('adminPasskeyChallenges');
+    const adminPasskeyTickets = database.collection('adminPasskeyTickets');
+    const adminHandoffCodes = database.collection('adminHandoffCodes');
+    const adminSessions = database.collection('adminSessions');
+    const adminPasskeyState = database.collection('adminPasskeyState');
     const botSettingsCollection = database.collection(BOT_SETTINGS_COLLECTION);
     const hoedownDatabaseName = typeof MONGODB_HOEDOWNINFO === 'string'
       ? MONGODB_HOEDOWNINFO.trim()
@@ -4156,6 +4664,28 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
     await devices.createIndex({ userId: 1, lastSeenAt: -1 });
     await audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_SECONDS });
+    await adminPasskeyCredentials.createIndex({ credentialId: 1 }, { unique: true });
+    await adminPasskeyChallenges.createIndex({ challengeId: 1 }, { unique: true });
+    await adminPasskeyChallenges.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await adminPasskeyTickets.createIndex({ ticketHash: 1 }, { unique: true });
+    await adminPasskeyTickets.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await adminHandoffCodes.createIndex({ codeHash: 1 }, { unique: true });
+    await adminHandoffCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await adminSessions.createIndex({ tokenHash: 1 }, { unique: true });
+    await adminSessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await adminSessions.createIndex({ deviceId: 1, createdAt: -1 });
+    if (!await adminPasskeyState.findOne({ _id: 'owner' })) {
+      await adminPasskeyState.insertOne({ _id: 'owner', bootstrapped: false });
+    }
+    if (!await adminPasskeyCredentials.findOne({ owner: 'owner' })) {
+      await adminPasskeyState.updateOne(
+        { _id: 'owner', bootstrapped: true },
+        { $set: { bootstrapped: false }, $unset: { credentialId: '' } }
+      );
+      if (!ADMIN_API_KEY) {
+        throw new Error('Set ADMIN_API_KEY until the first owner passkey is enrolled.');
+      }
+    }
     const dummyPasswordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
     const approveCurrentRound = discordClient && discordGuildId &&
       roundCollections?.teamCheck && roundsDatabase && hoedownDatabase
@@ -4192,6 +4722,13 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       backupSources,
       adminDatabaseName,
       hoedownInfoDatabaseName: hoedownDatabaseName,
+      adminPublicOrigin: ADMIN_PUBLIC_ORIGIN,
+      adminPasskeyCredentials,
+      adminPasskeyChallenges,
+      adminPasskeyTickets,
+      adminHandoffCodes,
+      adminSessions,
+      adminPasskeyState,
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)
         : null,

@@ -24,13 +24,28 @@
         <h2>Render connection</h2>
         <form id="settings-form" class="settings-grid">
           <label>Service HTTPS URL<input id="service-url" type="url" placeholder="https://your-service.onrender.com" required></label>
-          <label>Admin API key<input id="admin-key" type="password" placeholder="Leave blank to keep saved key" autocomplete="new-password"></label>
+          <label>Initial enrollment key<input id="admin-key" type="password" placeholder="Only needed to register the first passkey" autocomplete="new-password"></label>
           <div class="actions">
             <button type="submit">Save connection</button>
-            <button id="test-connection" class="secondary" type="button">Test saved connection</button>
+            <button id="enroll-passkey" class="secondary" type="button">Enroll first passkey</button>
+            <button id="add-passkey" class="secondary" type="button">Add backup passkey</button>
+            <button id="sign-in-passkey" class="secondary" type="button">Sign in with passkey</button>
+            <button id="sign-out-admin" class="secondary" type="button">Sign out this computer</button>
+            <button id="test-connection" class="secondary" type="button">Test connection</button>
           </div>
         </form>
         <p id="connection-status" class="status" role="status"></p>
+        <p class="muted">Admin sessions are stored encrypted on this computer. Use your synced passkey or a separate security key to sign in on another computer. The initial enrollment key is removed after the first passkey is registered.</p>
+        <section id="admin-sessions" hidden>
+          <div class="section-heading">
+            <h3>Admin sessions</h3>
+            <button id="refresh-admin-sessions" class="secondary" type="button">Refresh sessions</button>
+          </div>
+          <div class="table-wrap">
+            <table><thead><tr><th>Device</th><th>Signed in</th><th>Expires</th><th>Action</th></tr></thead><tbody id="admin-session-rows"></tbody></table>
+          </div>
+          <p id="admin-session-status" class="status" role="status"></p>
+        </section>
       </section>
 
       <section id="accounts" class="tab-page">
