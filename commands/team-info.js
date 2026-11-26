@@ -1,12 +1,30 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const config = require('../config.json');
+const { connectHoedownInfo } = require('../database/hoedownInfo');
+const { ROUND_COUNT, roundCollectionName } = require('../database/roundCollections');
 
 function escapeDiscordMarkdown(value) {
   return String(value).replace(/([\\_*~`|>])/g, '\\$1');
 }
 
+async function findLatestApprovedRound(roundsDatabase) {
+  for (let round = ROUND_COUNT; round >= 1; round -= 1) {
+    const snapshot = await roundsDatabase.collection(roundCollectionName(round)).findOne({
+      _id: 'current',
+      status: 'approved'
+    });
+    if (snapshot) {
+      return {
+        ...snapshot,
+        round: Number.isInteger(snapshot.round) ? snapshot.round : round
+      };
+    }
+  }
+  return null;
+}
+
 module.exports = {
+  findLatestApprovedRound,
   data: new SlashCommandBuilder()
     .setName('team-info')
     .setDescription('Repost the approved team info for this team (latest approved round).')
@@ -26,24 +44,17 @@ module.exports = {
 
       await interaction.deferReply();
 
-      const triggerUrl = process.env.Google_Apps_Script_URL;
-      if (!triggerUrl) {
-        return interaction.editReply('❌ Google Apps Script URL is not configured.');
+      const { databases } = await connectHoedownInfo();
+      const approvedRound = await findLatestApprovedRound(databases.rounds);
+      if (!approvedRound) {
+        return interaction.editReply('❌ No approved round was found in MongoDB.');
       }
 
-      const resp = await axios.post(triggerUrl, { command: 'team-info' });
-      const data = resp.data;
-      if (data.error) {
-        return interaction.editReply(`❌ Error: ${data.error}`);
-      }
-      if (!data.success) {
-        const reason = data.reason || data.message || 'Unknown';
-        return interaction.editReply(`❌ Could not find approved round: ${reason}`);
-      }
-
-      const round = data.round;
-      const teams = data.teams || {};
-      const players = teams[teamName];
+      const round = approvedRound.round;
+      const team = Array.isArray(approvedRound.teams)
+        ? approvedRound.teams.find((entry) => entry.name === teamName)
+        : null;
+      const players = Array.isArray(team?.players) ? team.players : [];
 
       if (!players || players.length === 0) {
         return interaction.editReply(`No players found for Team ${teamName} in the latest approved round (#${round}).`);
@@ -51,7 +62,7 @@ module.exports = {
 
       let teamOutput = `📋 **Team ${teamName} — Round #${round}**\n\n`;
       for (const p of players) {
-        const displayName = escapeDiscordMarkdown(p.name);
+        const displayName = escapeDiscordMarkdown(p.name || p.username || p.discordId || 'Unknown');
         const steam = p.steamId || 'N/A';
         const stream = p.streamLink || 'N/A';
         teamOutput += `- ${displayName} | Steam: ${steam} | Stream: ${stream}\n`;

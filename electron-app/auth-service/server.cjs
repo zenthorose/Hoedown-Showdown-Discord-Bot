@@ -38,6 +38,7 @@ const {
   approveLatestRound,
   subscribeRoundApprovalUpdates
 } = require('../../utils/roundApproval');
+const { registerTeamCheckPreviewSync } = require('../../utils/teamCheckPreview');
 const {
   BOT_SETTINGS_COLLECTION,
   BOT_SETTINGS_ID,
@@ -424,27 +425,6 @@ function ticketPersonId(ticket) {
   return username ? `username:${username}` : '';
 }
 
-async function updateAvoidsInGoogleSheets(users) {
-  const triggerUrl = process.env.Google_Apps_Script_URL;
-  if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-  const response = await fetch(triggerUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ command: 'avoid', users })
-  });
-  let result;
-  try {
-    result = await response.json();
-  } catch {
-    throw new Error('Google Apps Script returned an invalid response.');
-  }
-  if (!response.ok || !result || result.success !== true) {
-    throw new Error(result?.error || `Google Apps Script returned HTTP ${response.status}.`);
-  }
-  return result;
-}
-
 function createApp({
   users,
   devices,
@@ -468,7 +448,6 @@ function createApp({
   syncTicketStaffChat: syncTicketStaffChatCallback,
   editTicketReply: editTicketReplyCallback,
   closeTicket: closeTicketCallback,
-  updateAvoidsInGoogleSheets: updateAvoidsInGoogleSheetsCallback,
   saveAvoidRelationships,
   roundDraftCollection,
   roundAvoidsCollection,
@@ -1156,6 +1135,9 @@ function createApp({
   let avoidsChangeStream;
   let avoidsChangeStreamRetry;
   let avoidsChangeStreamRetryDelay = 5000;
+  let teamCheckChangeStream;
+  let teamCheckChangeStreamRetry;
+  let teamCheckChangeStreamRetryDelay = 5000;
   let ticketChangeStream;
   let ticketChangeStreamRetry;
   let ticketChangeStreamRetryDelay = 1000;
@@ -1299,6 +1281,45 @@ function createApp({
   };
   startAvoidsChangeStream();
 
+  const scheduleTeamCheckChangeStreamRestart = (error) => {
+    if (memberChangeStreamStopped || teamCheckChangeStreamRetry) return;
+    console.error('Team Check change stream failed; reconnecting:', error);
+    teamCheckChangeStreamRetry = setTimeout(() => {
+      teamCheckChangeStreamRetry = null;
+      startTeamCheckChangeStream();
+    }, teamCheckChangeStreamRetryDelay);
+    teamCheckChangeStreamRetryDelay = Math.min(teamCheckChangeStreamRetryDelay * 2, 60000);
+    teamCheckChangeStreamRetry.unref?.();
+  };
+  const startTeamCheckChangeStream = () => {
+    if (!roundDraftCollection || typeof roundDraftCollection.watch !== 'function' ||
+        memberChangeStreamStopped) return;
+    try {
+      const stream = roundDraftCollection.watch([], { fullDocument: 'updateLookup' });
+      teamCheckChangeStream = stream;
+      stream.on('change', (change) => {
+        teamCheckChangeStreamRetryDelay = 5000;
+        const documentId = change.documentKey?._id ?? change.fullDocument?._id;
+        if (documentId === 'current') {
+          broadcastMemberEvent('round-draft-updated', {
+            generationId: change.fullDocument?.generationId
+          });
+        }
+      });
+      stream.on('error', (error) => {
+        if (teamCheckChangeStream !== stream || memberChangeStreamStopped) return;
+        teamCheckChangeStream = null;
+        stream.close().catch((closeError) => {
+          console.error('Could not close the failed Team Check change stream:', closeError);
+        });
+        scheduleTeamCheckChangeStreamRestart(error);
+      });
+    } catch (error) {
+      scheduleTeamCheckChangeStreamRestart(error);
+    }
+  };
+  startTeamCheckChangeStream();
+
   const scheduleTicketChangeStreamRestart = (error) => {
     if (memberChangeStreamStopped || ticketChangeStreamRetry) return;
     console.error(`Ticket change stream failed; retrying in ${ticketChangeStreamRetryDelay}ms:`, error);
@@ -1353,6 +1374,8 @@ function createApp({
     memberChangeStreamRetry = null;
     if (avoidsChangeStreamRetry) clearTimeout(avoidsChangeStreamRetry);
     avoidsChangeStreamRetry = null;
+    if (teamCheckChangeStreamRetry) clearTimeout(teamCheckChangeStreamRetry);
+    teamCheckChangeStreamRetry = null;
     if (ticketChangeStreamRetry) clearTimeout(ticketChangeStreamRetry);
     ticketChangeStreamRetry = null;
     for (const stream of memberStreams) {
@@ -1371,6 +1394,11 @@ function createApp({
       avoidsChangeStream = null;
       await stream.close();
     }
+    if (teamCheckChangeStream) {
+      const stream = teamCheckChangeStream;
+      teamCheckChangeStream = null;
+      await stream.close();
+    }
     if (ticketChangeStream) {
       const stream = ticketChangeStream;
       ticketChangeStream = null;
@@ -1384,6 +1412,7 @@ function createApp({
       if (!session) return;
       if ((!members || typeof members.watch !== 'function') &&
           (!avoids || typeof avoids.watch !== 'function') &&
+          (!roundDraftCollection || typeof roundDraftCollection.watch !== 'function') &&
           (!ticketDatabase || typeof ticketDatabase.watch !== 'function')) {
         return res.status(503).json({ error: 'Live updates are not available.' });
       }
@@ -2471,7 +2500,6 @@ function createApp({
       const session = await readSession(req, res);
       if (!session) return;
       if (!avoids || !members ||
-          typeof updateAvoidsInGoogleSheetsCallback !== 'function' ||
           typeof saveAvoidRelationships !== 'function') {
         return res.status(503).json({ error: 'Avoid updates are not configured.' });
       }
@@ -2509,44 +2537,25 @@ function createApp({
         users.push({ id, username: profile.username.trim() });
       }
 
-      let sheetsResult;
-      try {
-        sheetsResult = await updateAvoidsInGoogleSheetsCallback(users);
-      } catch (error) {
-        console.error('Avoid Google Sheets update failed:', error);
-        return res.status(502).json({ error: `Google Sheets update failed: ${error.message}` });
-      }
-      if (!sheetsResult || sheetsResult.success !== true ||
-          !Number.isSafeInteger(sheetsResult.addedPairs) || sheetsResult.addedPairs < 0 ||
-          !Number.isSafeInteger(sheetsResult.skippedPairs) || sheetsResult.skippedPairs < 0) {
-        return res.status(502).json({
-          error: sheetsResult?.error || 'Google Apps Script returned an invalid Avoids update result.'
-        });
-      }
-
       let mongoResult;
       try {
         mongoResult = await saveAvoidRelationships(users);
       } catch (error) {
-        console.error('Avoid MongoDB update failed after Google Sheets succeeded:', error);
+        console.error('Avoid MongoDB update failed:', error);
         return res.status(502).json({
-          error: `Google Sheets updated, but MongoDB Avoids sync failed: ${error.message}`
+          error: `MongoDB Avoids update failed: ${error.message}`
         });
       }
       if (!mongoResult || mongoResult.collectionName !== 'Avoids' ||
           !Number.isSafeInteger(mongoResult.relationshipCount)) {
-        console.error('Avoid MongoDB update returned an invalid result after Google Sheets succeeded.');
+        console.error('Avoid MongoDB update returned an invalid result.');
         return res.status(502).json({
-          error: 'Google Sheets updated, but MongoDB Avoids sync returned an invalid result.'
+          error: 'MongoDB Avoids update returned an invalid result.'
         });
       }
 
       return res.status(200).json({
         success: true,
-        googleSheets: {
-          addedPairs: sheetsResult.addedPairs,
-          skippedPairs: sheetsResult.skippedPairs
-        },
         mongodb: { relationshipCount: mongoResult.relationshipCount }
       });
     } catch (error) {
@@ -3499,6 +3508,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     throw new Error('Set an ADMIN_API_KEY of at least 32 characters.');
   }
   const client = new MongoClient(MONGO_URI);
+  let unregisterTeamCheckPreviewSync = () => {};
   try {
     await client.connect();
     const database = client.db(MONGODB_ADMIN);
@@ -4084,6 +4094,63 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       }
       return { previewMessageIds: messageIds.slice(0, contents.length) };
     };
+    const refreshTeamCheckPreview = async (draft) => {
+      const generationId = draft.generationId;
+      try {
+        const currentDraft = await roundCollections.teamCheck.findOne({
+          _id: 'current',
+          generationId,
+          status: 'pending'
+        });
+        if (!currentDraft) {
+          throw new Error('The pending Team Check draft changed before its preview could be refreshed.');
+        }
+        if (currentDraft.previewStatus === 'disabled') return currentDraft;
+        const synced = await syncRoundDraftPreview(currentDraft);
+        const savedPreview = await roundCollections.teamCheck.updateOne({
+          _id: 'current',
+          generationId,
+          status: 'pending'
+        }, {
+          $set: {
+            previewMessageIds: synced.previewMessageIds,
+            previewStatus: 'posted'
+          },
+          $unset: { previewError: '' }
+        });
+        if (!savedPreview.matchedCount) {
+          throw new Error('The saved draft changed while the Discord preview was being updated.');
+        }
+        const updatedDraft = {
+          ...currentDraft,
+          previewMessageIds: synced.previewMessageIds,
+          previewStatus: 'posted'
+        };
+        app.locals.broadcastRoundDraftUpdate(generationId);
+        return updatedDraft;
+      } catch (error) {
+        const previewError = String(error.message || 'Unknown Discord preview error').slice(0, 1000);
+        let failureMessage = `Discord Team Check preview refresh failed: ${previewError}`;
+        try {
+          const markedFailed = await roundCollections.teamCheck.updateOne({
+            _id: 'current',
+            generationId,
+            status: 'pending'
+          }, {
+            $set: { previewStatus: 'failed', previewError, updatedAt: new Date() }
+          });
+          if (!markedFailed.matchedCount) {
+            failureMessage += ' The draft also changed before its preview failure could be recorded.';
+          }
+        } catch (markError) {
+          failureMessage += ` The preview failure could not be recorded: ${markError.message}`;
+        }
+        app.locals.broadcastRoundDraftUpdate(generationId);
+        const syncError = new Error(failureMessage);
+        syncError.statusCode = 502;
+        throw syncError;
+      }
+    };
     await users.createIndex({ username: 1 }, { unique: true });
     await users.createIndex({ discordId: 1 }, { unique: true, sparse: true });
     await devices.createIndex({ userId: 1, deviceId: 1 }, { unique: true });
@@ -4125,7 +4192,6 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       backupSources,
       adminDatabaseName,
       hoedownInfoDatabaseName: hoedownDatabaseName,
-      updateAvoidsInGoogleSheets,
       saveAvoidRelationships: hoedownDatabase
         ? (users) => addAvoidRelationships(hoedownDatabase, users)
         : null,
@@ -4169,6 +4235,9 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
         }
         : null
     });
+    unregisterTeamCheckPreviewSync = discordClient
+      ? registerTeamCheckPreviewSync(discordClient, refreshTeamCheckPreview)
+      : () => {};
     const unsubscribeRoundApprovalUpdates = subscribeRoundApprovalUpdates(
       app.locals.broadcastRoundDraftUpdate
     );
@@ -4176,12 +4245,14 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       app,
       closeMembersLiveUpdates: app.locals.closeMembersLiveUpdates,
       close: async () => {
+        unregisterTeamCheckPreviewSync();
         unsubscribeRoundApprovalUpdates();
         await app.locals.closeMembersLiveUpdates();
         await client.close();
       }
     };
   } catch (error) {
+    unregisterTeamCheckPreviewSync();
     await client.close();
     throw error;
   }

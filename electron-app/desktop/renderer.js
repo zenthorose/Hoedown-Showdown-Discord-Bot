@@ -453,6 +453,20 @@ function applyAuthState(state) {
     signedInPanel.hidden = false;
     document.getElementById('auth-header').hidden = true;
     document.getElementById('account-name').textContent = state.username || 'Account';
+    const accountAvatar = document.getElementById('account-avatar');
+    if (typeof state.avatarUrl === 'string' && state.avatarUrl.length <= 512 &&
+        /^https:\/\/cdn\.discordapp\.com\//.test(state.avatarUrl)) {
+      accountAvatar.src = state.avatarUrl;
+      accountAvatar.hidden = false;
+      accountAvatar.onerror = () => {
+        accountAvatar.hidden = true;
+        accountAvatar.removeAttribute('src');
+      };
+    } else {
+      accountAvatar.hidden = true;
+      accountAvatar.removeAttribute('src');
+      accountAvatar.onerror = null;
+    }
     document.getElementById('welcome-name').textContent = state.username || 'partner';
     document.getElementById('app-footer').hidden = true;
     connection.hidden = true;
@@ -2805,10 +2819,7 @@ document.getElementById('avoid-pairing-form').addEventListener('submit', async (
     });
     if (!result.ok) throw new Error(result.error || 'Could not save the Avoid Pairing.');
     resetAvoidPairingForm();
-    const { addedPairs, skippedPairs } = result.googleSheets;
-    setAvoidsFeedback(
-      `Saved to MongoDB. Google Sheets added ${addedPairs} and skipped ${skippedPairs} existing pairing(s).`
-    );
+    setAvoidsFeedback(`Saved ${result.mongodb.relationshipCount} Avoid relationship(s) to MongoDB.`);
     avoidsLoaded = false;
     await loadAvoids();
   } catch (error) {
@@ -3368,8 +3379,7 @@ document.getElementById('confirm-profile-delete').addEventListener('click', asyn
   }
 });
 
-document.getElementById('back-to-profiles').addEventListener('click', async () => {
-  const button = document.getElementById('back-to-profiles');
+async function returnToProfiles(button) {
   button.disabled = true;
   resetToken = null;
   passwordForm.reset();
@@ -3380,6 +3390,10 @@ document.getElementById('back-to-profiles').addEventListener('click', async () =
   } finally {
     button.disabled = false;
   }
+}
+
+document.getElementById('back-to-profiles').addEventListener('click', (event) => {
+  void returnToProfiles(event.currentTarget);
 });
 
 passwordForm.addEventListener('submit', async (event) => {
@@ -3411,6 +3425,7 @@ passwordForm.addEventListener('submit', async (event) => {
 });
 
 document.getElementById('sign-out').addEventListener('click', async () => {
+  document.getElementById('account-settings-dialog').close();
   try {
     const result = await window.hoedown.logout();
     applyAuthState(result);
@@ -3421,8 +3436,21 @@ document.getElementById('sign-out').addEventListener('click', async () => {
 });
 
 document.getElementById('open-password-form').addEventListener('click', () => {
+  document.getElementById('account-settings-dialog').close();
   selfPasswordForm.hidden = !selfPasswordForm.hidden;
   showStatus('');
+});
+
+const accountSettingsDialog = document.getElementById('account-settings-dialog');
+document.getElementById('open-account-settings').addEventListener('click', () => {
+  accountSettingsDialog.showModal();
+});
+document.getElementById('close-account-settings').addEventListener('click', () => {
+  accountSettingsDialog.close();
+});
+document.getElementById('switch-account').addEventListener('click', (event) => {
+  accountSettingsDialog.close();
+  void returnToProfiles(event.currentTarget);
 });
 
 selfPasswordForm.addEventListener('submit', async (event) => {

@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const config = require('../config.json');
 const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
 const { upsertMemberProfile } = require('../database/memberListImport');
@@ -66,7 +65,6 @@ module.exports = {
   async execute(interaction) {
     const subcommand = interaction.options.getSubcommand();
     const member = interaction.member;
-    const triggerUrl = process.env.Google_Apps_Script_URL;
 
     async function logUsage(extra = "") {
       try {
@@ -111,25 +109,9 @@ module.exports = {
       infoType = 'region';
       mongoField = 'region';
       newValue = interaction.options.getString('region');
-
-      // Remove old region roles
-      const allRegionRoles = ['East', 'West', 'Both'];
-      for (const roleName of allRegionRoles) {
-        const role = interaction.guild.roles.cache.find(r => r.name === roleName);
-        if (role && member.roles.cache.has(role.id)) {
-          await member.roles.remove(role);
-        }
-      }
-
-      // Assign new region role
-      const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
-      if (newRole) {
-        await member.roles.add(newRole);
-      }
     }
 
     if (subcommand === 'steamfriendcode') {
-      // Normalize to the field name expected by the Apps Script
       infoType = 'steamid';
       mongoField = 'steamId';
       newValue = interaction.options.getString('friendcode');
@@ -156,22 +138,7 @@ module.exports = {
     }
 
     const results = [];
-    try {
-      const updateData = {
-        command: 'update',
-        updateData: [[member.user.id, infoType, newValue, member.displayName]]
-      };
-
-      const response = await axios.post(triggerUrl, updateData);
-      if (response.data?.status !== 'success') {
-        throw new Error(response.data?.message || response.data?.error || 'Unknown error from Google Apps Script.');
-      }
-      results.push('✅ Google Sheets: updated.');
-    } catch (error) {
-      console.error('❌ Google Sheets update failed:', error);
-      results.push(`❌ Google Sheets: ${error.message}`);
-    }
-
+    let profileSaved = false;
     try {
       const database = await connectHoedownInfoDatabase();
       await upsertMemberProfile(database, {
@@ -180,13 +147,32 @@ module.exports = {
         nickname: member.displayName,
         [mongoField]: newValue
       });
+      profileSaved = true;
       results.push(`✅ MongoDB (HoedownInfo.Members): updated ${mongoField}.`);
     } catch (error) {
       console.error('❌ MongoDB member update failed:', error);
       results.push(`❌ MongoDB (HoedownInfo.Members): ${error.message}`);
     }
 
-    const failures = results.filter(result => result.startsWith('❌'));
+    if (profileSaved && subcommand === 'region') {
+      try {
+        const allRegionRoles = ['East', 'West', 'Both'];
+        for (const roleName of allRegionRoles) {
+          const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+          if (role && member.roles.cache.has(role.id)) {
+            await member.roles.remove(role);
+          }
+        }
+
+        const newRole = interaction.guild.roles.cache.find(r => r.name === newValue);
+        if (newRole) await member.roles.add(newRole);
+      } catch (error) {
+        console.error(`❌ Failed to update Discord region role (${newValue}):`, error);
+        results.push(`⚠️ MongoDB was updated, but the Discord region role could not be updated: ${error.message}`);
+      }
+    }
+
+    const failures = results.filter(result => result.startsWith('❌') || result.startsWith('⚠️'));
     const resultMessage = failures.length
       ? `⚠️ Your **${infoType}** update was only partially completed.\n${results.join('\n')}`
       : `✅ Your **${infoType}** has been updated to **${newValue}**!\n${results.join('\n')}`;

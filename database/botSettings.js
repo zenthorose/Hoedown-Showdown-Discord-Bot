@@ -46,20 +46,6 @@ function copyDefaultBotSettings() {
   };
 }
 
-function isManagedGasPostPurpose(purpose) {
-  return purpose === 'team-check-preview' || purpose === 'approved-round';
-}
-
-function isGasPostEnabled(purpose, settings) {
-  if (purpose === 'team-check-preview') {
-    return settings.grabReactions.ENABLE_TEAM_CHECK_POSTING;
-  }
-  if (purpose === 'approved-round') {
-    return settings.approveRound.ENABLE_DISCORD_POSTING;
-  }
-  return true;
-}
-
 function validateBotSettings(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input) ||
       Object.keys(input).length !== Object.keys(DEFAULT_BOT_SETTINGS).length ||
@@ -185,8 +171,6 @@ module.exports = {
   BOT_SETTINGS_ID,
   DEFAULT_BOT_SETTINGS,
   getBotSettings,
-  isGasPostEnabled,
-  isManagedGasPostPurpose,
   normalizeStoredBotSettings,
   readBotSettings,
   validateBotSettings,

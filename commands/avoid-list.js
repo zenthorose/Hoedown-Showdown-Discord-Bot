@@ -1,9 +1,38 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
+const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
+const { splitDiscordMessage } = require('../database/teamDrafts');
+
+function getAvoidPairs(documents, selectedUserId = '') {
+  const pairs = [];
+  for (const document of documents) {
+    const sourceId = String(document._id || '');
+    const sourceName = String(document.name || sourceId).trim();
+    for (const relation of Array.isArray(document.avoids) ? document.avoids : []) {
+      const targetId = String(relation.discordId || relation.id || '');
+      if (!targetId || (selectedUserId && sourceId !== selectedUserId &&
+          targetId !== selectedUserId)) continue;
+      const targetName = String(relation.name || targetId).trim();
+      if (sourceName && targetName) pairs.push([sourceName, targetName]);
+    }
+  }
+  return pairs;
+}
+
+function formatAvoidListMessages(pairs, selectedUser) {
+  const list = pairs
+    .map((pair, index) => `**${index + 1}.** 🛑 ${pair[0]} =/ ${pair[1]}`)
+    .join('\n');
+  const title = selectedUser
+    ? `📋 Avoid List for **${selectedUser.username}** (showing ${pairs.length}):`
+    : `📋 Avoid List (showing ${pairs.length}):`;
+  return splitDiscordMessage(`${title}\n${list}`, 1900);
+}
 
 module.exports = {
+  getAvoidPairs,
+  formatAvoidListMessages,
   data: new SlashCommandBuilder()
     .setName('avoid-list')
     .setDescription('View the current avoid pairings.')
@@ -42,10 +71,6 @@ module.exports = {
       }
 
       const selectedUser = interaction.options.getUser('player');
-      const payload = { command: 'avoid-list' };
-      if (selectedUser) payload.userId = selectedUser.id;
-
-      console.log('📤 Sending avoid-list request to GAS:', JSON.stringify(payload, null, 2));
 
       // --- Defer reply to avoid Unknown interaction errors ---
       try {
@@ -57,20 +82,15 @@ module.exports = {
         replyDeferred = false;
       }
 
-      // --- Trigger the GAS avoid-list function ---
-      const triggerUrl = process.env.Google_Apps_Script_URL;
-      if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-      const response = await axios.post(triggerUrl, payload);
-      console.log("✅ GAS response:", response.data);
-
-      if (!response.data.success) {
-        await logUsage("❌ GAS error");
-        await interaction.editReply("❌ Failed to fetch avoid list.");
-        return;
-      }
-
-      const pairs = response.data.pairs || [];
+      const database = await connectHoedownInfoDatabase();
+      const selectedUserId = selectedUser ? String(selectedUser.id) : '';
+      const filter = selectedUserId
+        ? { $or: [{ _id: selectedUserId }, { 'avoids.discordId': selectedUserId }] }
+        : {};
+      const documents = await database.collection('Avoids').find(filter, {
+        projection: { _id: 1, name: 1, avoids: 1 }
+      }).toArray();
+      const pairs = getAvoidPairs(documents, selectedUserId);
       if (pairs.length === 0) {
         const noResultMsg = selectedUser
           ? `✅ No avoid pairs found for **${selectedUser.username}**.`
@@ -79,16 +99,11 @@ module.exports = {
         return;
       }
 
-      const list = pairs
-        .map((p, i) => `**${i + 1}.** 🛑 ${p[0]} =/ ${p[1]}`)
-        .join("\n");
-
-      const title = selectedUser
-        ? `📋 Avoid List for **${selectedUser.username}** (showing ${pairs.length}):`
-        : `📋 Avoid List (showing ${pairs.length}):`;
-
-      const finalMessage = `${title}\n${list}`;
-      await interaction.editReply(finalMessage);
+      const messages = formatAvoidListMessages(pairs, selectedUser);
+      await interaction.editReply(messages[0]);
+      for (const message of messages.slice(1)) {
+        await interaction.followUp({ content: message, flags: 64 });
+      }
       await logUsage(`→ Returned ${pairs.length} pairs${selectedUser ? ` for ${selectedUser.username}` : ""}`);
 
       // Optional: delete reply after 10 seconds (to keep things tidy)

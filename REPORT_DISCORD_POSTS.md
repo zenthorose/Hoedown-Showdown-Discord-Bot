@@ -2,6 +2,8 @@
 
 Generated: 2026-04-14
 
+Historical snapshot: this report predates the MongoDB migration. Its `/sendmessage` endpoint and Google Apps Script calls have since been removed and should not be treated as current runtime behavior.
+
 Total entries: 27
 
 Notes on `Sends` toggles:

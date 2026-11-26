@@ -30,6 +30,18 @@
           <button id="cancel-profile-delete" class="secondary" type="button" autofocus>Cancel</button>
         </div>
       </dialog>
+      <dialog id="account-settings-dialog" class="ticket-dialog account-settings-dialog">
+        <h2>Account settings</h2>
+        <p>Manage your sign-in and saved app profiles.</p>
+        <div class="account-settings-options">
+          <button id="open-password-form" class="secondary" type="button">🔑 Change password</button>
+          <button id="switch-account" class="secondary" type="button">⇄ Switch account</button>
+          <button id="sign-out" class="danger" type="button">↪ Sign out</button>
+        </div>
+        <div class="ticket-dialog-actions">
+          <button id="close-account-settings" class="secondary" type="button">Close</button>
+        </div>
+      </dialog>
       <form id="login-form" hidden>
         <p id="selected-profile-name" class="selected-profile-name" hidden></p>
         <label>Username<input id="username" name="username" autocomplete="username" maxlength="64" required></label>
@@ -71,9 +83,12 @@
           </nav>
           <div class="sidebar-account">
             <p class="account-label">SIGNED IN AS</p>
-            <p id="account-name" class="account-name"></p>
-            <button id="open-password-form" class="account-action" type="button">🔑 Change password</button>
-            <button id="sign-out" class="account-action" type="button">↪ Sign out</button>
+            <div class="account-identity">
+              <img id="account-avatar" class="account-avatar" alt="" hidden>
+              <p id="account-name" class="account-name"></p>
+              <button id="open-account-settings" class="account-settings-trigger secondary" type="button"
+                aria-label="Account settings" title="Account settings">⚙️</button>
+            </div>
           </div>
         </aside>
         <div class="workspace">

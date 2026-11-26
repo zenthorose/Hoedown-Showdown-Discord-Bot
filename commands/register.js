@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const config = require('../config.json');
 const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
 const { upsertMemberProfile } = require('../database/memberListImport');
@@ -89,34 +88,8 @@ module.exports = {
         return;
       }
 
-      // --- Send registration data to Google Sheets ---
-      const registerData = {
-        command: 'register',
-        registerData: [[
-          member.displayName || member.user.username, // Nickname
-          member.user.username,  // Username
-          member.user.id,        // Discord ID
-          region,
-          steamId,
-          streamLink,
-          gender
-        ]]
-      };
-
       const results = [];
-      let sheetsSucceeded = false;
-      try {
-        const response = await axios.post(process.env.Google_Apps_Script_URL, registerData);
-        if (!response.data?.success || response.data.error) {
-          throw new Error(response.data?.message || response.data?.error || 'Unknown error from backend.');
-        }
-        sheetsSucceeded = true;
-        results.push('✅ Google Sheets: registration saved.');
-      } catch (error) {
-        console.error('❌ Google Sheets registration failed:', error);
-        results.push(`❌ Google Sheets: ${error.message}`);
-      }
-
+      let registrationSaved = false;
       try {
         const database = await connectHoedownInfoDatabase();
         await upsertMemberProfile(database, {
@@ -128,6 +101,7 @@ module.exports = {
           streamLink,
           gender
         });
+        registrationSaved = true;
         results.push('✅ MongoDB (HoedownInfo.Members): registration saved.');
       } catch (error) {
         console.error('❌ MongoDB registration failed:', error);
@@ -135,28 +109,34 @@ module.exports = {
       }
 
       // --- Assign roles ---
-      if (sheetsSucceeded) {
+      if (registrationSaved) {
         const roleName = region === 'East' ? 'East' : region === 'West' ? 'West' : 'Both';
         const role = interaction.guild.roles.cache.find(r => r.name === roleName);
 
         if (role) {
-          await member.roles.add(role).catch(err =>
-            console.error(`❌ Failed to add region role (${roleName}):`, err)
-          );
+          try {
+            await member.roles.add(role);
+          } catch (error) {
+            console.error(`❌ Failed to add region role (${roleName}):`, error);
+            results.push(`⚠️ MongoDB registration was saved, but the ${roleName} Discord role could not be assigned: ${error.message}`);
+          }
         }
         if (registeredRole) {
-          await member.roles.add(registeredRole).catch(err =>
-            console.error("❌ Failed to add Registered role:", err)
-          );
+          try {
+            await member.roles.add(registeredRole);
+          } catch (error) {
+            console.error("❌ Failed to add Registered role:", error);
+            results.push(`⚠️ MongoDB registration was saved, but the Registered Discord role could not be assigned: ${error.message}`);
+          }
         }
       }
 
-      const failures = results.filter(result => result.startsWith('❌'));
+      const failures = results.filter(result => result.startsWith('❌') || result.startsWith('⚠️'));
       if (failures.length) {
         const outcome = [
-          '⚠️ Registration partially completed.',
+          registrationSaved ? '⚠️ Registration partially completed.' : '❌ Registration failed.',
           ...results,
-          ...(sheetsSucceeded ? [] : ['⚠️ Discord registration roles were not assigned because Google Sheets registration failed.'])
+          ...(!registrationSaved ? ['⚠️ Discord registration roles were not assigned because the MongoDB profile was not saved.'] : [])
         ].join('\n');
         await interaction.editReply(outcome);
         await logUsage(`⚠️ Partial failure | ${failures.join(' | ')}`);

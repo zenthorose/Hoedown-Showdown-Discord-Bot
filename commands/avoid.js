@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json');
 const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
@@ -73,8 +72,6 @@ module.exports = {
         });
       }
 
-      console.log('📤 Sending avoid data to GAS:', JSON.stringify({ command: 'avoid', users }, null, 2));
-
       // --- Defer reply to avoid Unknown interaction errors ---
       try {
         await interaction.deferReply({ flags: 64 });
@@ -84,32 +81,11 @@ module.exports = {
         replyMessage = false;
       }
 
-      // --- Trigger the GAS avoid function ---
-      const triggerUrl = process.env.Google_Apps_Script_URL;
-      if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-      const response = await axios.post(triggerUrl, { command: 'avoid', users });
-      console.log('✅ Google Apps Script response:', response.data);
-
-      const { success, addedPairs, skippedPairs } = response.data;
-      if (!success) {
-        const errorMessage = response.data.error || 'Google Sheets rejected the avoid update.';
-        await interaction.editReply(`❌ Failed to update avoid list: ${errorMessage}`);
-        await logUsage(`❌ Google Sheets update failed: ${errorMessage}`);
-        return;
-      }
-
-      let displayMessage =
-        `✅ Google Sheets updated. Added: ${addedPairs}, skipped (existing): ${skippedPairs}.`;
-      try {
-        const database = await connectHoedownInfoDatabase();
-        const mongoResult = await addAvoidRelationships(database, users);
-        displayMessage +=
-          `\n✅ MongoDB (${mongoResult.collectionName}) synced ${mongoResult.relationshipCount} avoid relationship(s).`;
-      } catch (error) {
-        console.error('❌ MongoDB Avoids sync failed:', error);
-        displayMessage += `\n⚠️ MongoDB (HoedownInfo.Avoids) sync failed: ${error.message}`;
-      }
+      const database = await connectHoedownInfoDatabase();
+      const mongoResult = await addAvoidRelationships(database, users);
+      const displayMessage =
+        `✅ MongoDB (HoedownInfo.${mongoResult.collectionName}) saved ` +
+        `${mongoResult.relationshipCount} avoid relationship(s).`;
 
       // --- Edit deferred reply with result ---
       await interaction.editReply(displayMessage);
@@ -126,9 +102,9 @@ module.exports = {
 
       try {
         if (replyMessage) {
-          await interaction.editReply('❌ There was an error executing this command. Please try again.');
+          await interaction.editReply(`❌ Failed to update the MongoDB avoid list: ${error.message}`);
         } else {
-          await interaction.reply({ content: '❌ There was an error executing this command. Please try again.', flags: 64 });
+          await interaction.reply({ content: `❌ Failed to update the MongoDB avoid list: ${error.message}`, flags: 64 });
         }
       } catch (err) {
         console.error('❌ Failed to send error message:', err);

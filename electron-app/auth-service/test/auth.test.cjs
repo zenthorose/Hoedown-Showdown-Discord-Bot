@@ -213,17 +213,9 @@ async function withServer(run, options = {}) {
   const avoids = new MemoryCollection(options.avoidDocuments || []);
   if (avoidsChangeStream) avoids.watch = () => avoidsChangeStream;
   const ticketDatabase = options.ticketDatabase || new MemoryTicketDatabase();
-  const googleSheetsAvoidUpdates = [];
   const mongoAvoidUpdates = [];
-  const avoidUpdateOrder = [];
-  const updateAvoidsInGoogleSheets = options.updateAvoidsInGoogleSheets || (async (users) => {
-    googleSheetsAvoidUpdates.push(users);
-    avoidUpdateOrder.push('google-sheets');
-    return { success: true, addedPairs: users.length - 1, skippedPairs: 0 };
-  });
   const saveAvoidRelationships = options.saveAvoidRelationships || (async (users) => {
     mongoAvoidUpdates.push(users);
-    avoidUpdateOrder.push('mongodb');
     return { collectionName: 'Avoids', relationshipCount: users.length - 1 };
   });
   if (memberChangeStream) members.watch = () => memberChangeStream;
@@ -260,7 +252,6 @@ async function withServer(run, options = {}) {
     syncRoundDraftPreview: options.syncRoundDraftPreview,
     grabRoundReactions: options.grabRoundReactions,
     canGrabRoundReactions: options.canGrabRoundReactions,
-    updateAvoidsInGoogleSheets,
     saveAvoidRelationships
   });
   const server = await new Promise((resolve) => {
@@ -278,9 +269,7 @@ async function withServer(run, options = {}) {
       avoids,
       roundDraftCollection: options.roundDraftCollection,
       ticketDatabase,
-      googleSheetsAvoidUpdates,
       mongoAvoidUpdates,
-      avoidUpdateOrder,
       discordNicknameUpdates,
       password,
       jwtSecret,
@@ -2092,13 +2081,11 @@ test('staff replies can be edited in place, but customer messages cannot', async
   });
 });
 
-test('avoid pairing creation updates Google Sheets before MongoDB using selected member usernames', async () => {
+test('avoid pairing creation saves MongoDB relationships using selected member usernames', async () => {
   await withServer(async ({
     baseUrl,
     password,
-    googleSheetsAvoidUpdates,
-    mongoAvoidUpdates,
-    avoidUpdateOrder
+    mongoAvoidUpdates
   }) => {
     const unauthorized = await fetch(`${baseUrl}/api/avoids`, {
       method: 'POST',
@@ -2140,12 +2127,9 @@ test('avoid pairing creation updates Google Sheets before MongoDB using selected
     assert.equal(response.status, 200);
     assert.deepEqual(result, {
       success: true,
-      googleSheets: { addedPairs: 1, skippedPairs: 0 },
       mongodb: { relationshipCount: 1 }
     });
-    assert.deepEqual(googleSheetsAvoidUpdates, [selectedUsers]);
     assert.deepEqual(mongoAvoidUpdates, [selectedUsers]);
-    assert.deepEqual(avoidUpdateOrder, ['google-sheets', 'mongodb']);
   }, {
     memberRecords: [{
       _id: '123456789012345678',
@@ -2161,8 +2145,8 @@ test('avoid pairing creation updates Google Sheets before MongoDB using selected
   });
 });
 
-test('avoid pairing rejects self-avoid requests before either write', async () => {
-  await withServer(async ({ baseUrl, password, googleSheetsAvoidUpdates, mongoAvoidUpdates }) => {
+test('avoid pairing rejects self-avoid requests before MongoDB write', async () => {
+  await withServer(async ({ baseUrl, password, mongoAvoidUpdates }) => {
     const login = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -2187,12 +2171,11 @@ test('avoid pairing rejects self-avoid requests before either write', async () =
 
     assert.equal(response.status, 400);
     assert.match((await response.json()).error, /cannot also be selected/);
-    assert.deepEqual(googleSheetsAvoidUpdates, []);
     assert.deepEqual(mongoAvoidUpdates, []);
   });
 });
 
-test('avoid pairing reports a partial Google Sheets update if MongoDB sync fails', async () => {
+test('avoid pairing reports MongoDB failures explicitly', async () => {
   await withServer(async ({ baseUrl, password }) => {
     const login = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
@@ -2218,7 +2201,7 @@ test('avoid pairing reports a partial Google Sheets update if MongoDB sync fails
     const result = await response.json();
 
     assert.equal(response.status, 502);
-    assert.match(result.error, /Google Sheets updated, but MongoDB Avoids sync failed/);
+    assert.match(result.error, /MongoDB Avoids update failed/);
   }, {
     memberRecords: [{
       _id: '123456789012345678',
@@ -2231,54 +2214,6 @@ test('avoid pairing reports a partial Google Sheets update if MongoDB sync fails
     }],
     saveAvoidRelationships: async () => {
       throw new Error('test MongoDB failure');
-    }
-  });
-});
-
-test('avoid pairing does not update MongoDB when Google Sheets rejects the write', async () => {
-  let mongoWriteAttempted = false;
-  await withServer(async ({ baseUrl, password }) => {
-    const login = await fetch(`${baseUrl}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        username: 'cowboy',
-        password,
-        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
-      })
-    });
-    const { token } = await login.json();
-    const response = await fetch(`${baseUrl}/api/avoids`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        avoiderDiscordId: '123456789012345678',
-        avoidedDiscordIds: ['234567890123456789']
-      })
-    });
-
-    assert.equal(response.status, 502);
-    assert.match((await response.json()).error, /Google Sheets update failed/);
-    assert.equal(mongoWriteAttempted, false);
-  }, {
-    memberRecords: [{
-      _id: '123456789012345678',
-      discordId: '123456789012345678',
-      username: 'test.player'
-    }, {
-      _id: '234567890123456789',
-      discordId: '234567890123456789',
-      username: 'target.player'
-    }],
-    updateAvoidsInGoogleSheets: async () => {
-      throw new Error('test Google Sheets failure');
-    },
-    saveAvoidRelationships: async () => {
-      mongoWriteAttempted = true;
-      return { collectionName: 'Avoids', relationshipCount: 1 };
     }
   });
 });
@@ -2316,11 +2251,20 @@ test('a Discord nickname failure prevents the MongoDB profile update', async () 
   });
 });
 
-test('authenticated event stream publishes member changes and Avoids and Tickets refresh events', async () => {
+test('authenticated event stream publishes member, Team Check, Avoids and Tickets updates', async () => {
   const memberChangeStream = new EventEmitter();
   memberChangeStream.close = async () => memberChangeStream.emit('close');
   const avoidsChangeStream = new EventEmitter();
   avoidsChangeStream.close = async () => avoidsChangeStream.emit('close');
+  const teamCheckChangeStream = new EventEmitter();
+  teamCheckChangeStream.close = async () => teamCheckChangeStream.emit('close');
+  const roundDraftCollection = {
+    watch: (pipeline, options) => {
+      assert.deepEqual(pipeline, []);
+      assert.deepEqual(options, { fullDocument: 'updateLookup' });
+      return teamCheckChangeStream;
+    }
+  };
   const ticketChangeStream = new EventEmitter();
   ticketChangeStream.close = async () => ticketChangeStream.emit('close');
   const ticketDatabase = new MemoryTicketDatabase();
@@ -2369,6 +2313,15 @@ test('authenticated event stream publishes member changes and Avoids and Tickets
       { $match: { 'ns.coll': { $regex: '^.*_Tickets$' } } }
     ]);
 
+    teamCheckChangeStream.emit('change', {
+      operationType: 'update',
+      documentKey: { _id: 'current' },
+      fullDocument: { _id: 'current', generationId: 'generation-command-update' }
+    });
+    const teamCheckUpdate = await readUntil(/event: round-draft-updated/);
+    assert.match(teamCheckUpdate, /event: round-draft-updated/);
+    assert.match(teamCheckUpdate, /"generationId":"generation-command-update"/);
+
     members.items[0].region = 'West';
     memberChangeStream.emit('change', {
       operationType: 'update',
@@ -2407,7 +2360,7 @@ test('authenticated event stream publishes member changes and Avoids and Tickets
     const failedStreamResync = await readUntil(/event: tickets-resync/);
     assert.match(failedStreamResync, /event: tickets-resync/);
     await reader.cancel();
-  }, { memberChangeStream, avoidsChangeStream, ticketDatabase });
+  }, { memberChangeStream, avoidsChangeStream, roundDraftCollection, ticketDatabase });
 });
 
 test('admin temporary passwords require a password change before a session is granted', async () => {

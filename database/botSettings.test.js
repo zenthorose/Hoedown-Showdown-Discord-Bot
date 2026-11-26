@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   DEFAULT_BOT_SETTINGS,
-  isGasPostEnabled,
   normalizeStoredBotSettings,
   readBotSettings,
   validateBotSettings
@@ -21,20 +20,6 @@ test('stored bot settings override defaults while allowing newly added flags', (
   assert.equal(settings.approveRound.ENABLE_TEAM_CLEANUP, true);
   assert.equal(settings.grabReactions.ENABLE_TEAM_CHECK_POSTING, true);
   assert.equal(settings.hoedownReset.ENABLE_LOGGING, false);
-});
-
-test('Team Check and approved-round GAS posts use independent bot toggles', () => {
-  const settings = structuredClone(DEFAULT_BOT_SETTINGS);
-  assert.equal(isGasPostEnabled('team-check-preview', settings), true);
-  assert.equal(isGasPostEnabled('approved-round', settings), true);
-
-  settings.grabReactions.ENABLE_TEAM_CHECK_POSTING = false;
-  assert.equal(isGasPostEnabled('team-check-preview', settings), false);
-  assert.equal(isGasPostEnabled('approved-round', settings), true);
-
-  settings.approveRound.ENABLE_DISCORD_POSTING = false;
-  assert.equal(isGasPostEnabled('approved-round', settings), false);
-  assert.equal(isGasPostEnabled('unmanaged-message', settings), true);
 });
 
 test('bot settings updates require every supported flag to be boolean', () => {

@@ -1,6 +1,11 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const config = require('../config.json');
+const { connectHoedownInfo } = require('../database/hoedownInfo');
+const {
+  getPendingCurrentDraftForRound,
+  replaceCurrentDraftSlot
+} = require('../database/teamDrafts');
+const { refreshTeamCheckPreview } = require('../utils/teamCheckPreview');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -18,6 +23,7 @@ module.exports = {
     .addIntegerOption(option =>
       option.setName('removefiller')
         .setDescription('The filler number to remove (e.g., 1 for Filler #1)')
+        .setMinValue(1)
         .setRequired(false))
     .addUserOption(option =>
       option.setName('addplayer')
@@ -26,6 +32,7 @@ module.exports = {
     .addIntegerOption(option =>
       option.setName('addfiller')
         .setDescription('The filler number to add (e.g., 1 for Filler #1)')
+        .setMinValue(1)
         .setRequired(false)),
 
   async execute(interaction) {
@@ -40,28 +47,19 @@ module.exports = {
     const addFillerNum = interaction.options.getInteger('addfiller');
 
     // --- Validation ---
-    if (!(removeUser || removeFillerNum)) {
-      return interaction.reply({ content: '❌ You must specify either a player or a filler to remove.', flags: 64 });
+    if (Boolean(removeUser) === Number.isInteger(removeFillerNum)) {
+      return interaction.reply({ content: '❌ Specify exactly one player or filler to remove.', flags: 64 });
     }
-    if (!(addUser || addFillerNum)) {
-      return interaction.reply({ content: '❌ You must specify either a player or a filler to add.', flags: 64 });
+    if (Boolean(addUser) === Number.isInteger(addFillerNum)) {
+      return interaction.reply({ content: '❌ Specify exactly one player or filler to add.', flags: 64 });
     }
 
     // --- Convert filler numbers to "Filler #" ---
     const removeFiller = removeFillerNum ? `Filler ${removeFillerNum}` : null;
     const addFiller = addFillerNum ? `Filler ${addFillerNum}` : null;
 
-    // --- Build payload for GAS ---
-    const payload = {
-      command: "replace",
-      round,
-      removePlayer: removeUser
-        ? { username: removeUser.username, id: removeUser.id }
-        : { username: removeFiller, id: null, filler: true },
-      addPlayer: addUser
-        ? { username: addUser.username, id: addUser.id }
-        : { username: addFiller, id: null, filler: true }
-    };
+    let teamCollections;
+    let currentDraft;
 
     async function logUsage(extra = "") {
       try {
@@ -91,6 +89,13 @@ module.exports = {
         return;
       }
 
+      const database = await connectHoedownInfo();
+      teamCollections = database.collections;
+      currentDraft = await getPendingCurrentDraftForRound({
+        teamCheckCollection: teamCollections.teamCheck,
+        round
+      });
+
       console.log(`Received replace command: round=${round}, remove=${removeUser?.tag || removeFiller}, add=${addUser?.tag || addFiller}`);
 
       // --- Clear old bot messages ---
@@ -116,44 +121,31 @@ module.exports = {
         console.error("Error sending processing reply:", err);
       }
 
-      // --- Send replacement data to Google Apps Script ---
-      const triggerUrl = process.env.Google_Apps_Script_URL;
-      if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-      const { data } = await axios.post(triggerUrl, payload);
-      console.log("✅ GAS response:", data);
-
-      // --- Interpret GAS response ---
-      let userMessage;
-      let logSuffix;
-
-      switch (data.type) {
-        case "success":
-          userMessage = `✅ Replacement completed! **${removeUser?.username || removeFiller}** ➝ **${addUser?.username || addFiller}** in Round #${round}.`;
-          logSuffix = "✅ Replacement successful.";
-          break;
-        case "duplicate":
-          userMessage = `⚠️ Cannot replace: **${addUser?.username || addFiller}** is already in Round #${round}.`;
-          logSuffix = "⚠️ Duplicate detected.";
-          break;
-        case "player_not_found":
-          userMessage = `❌ Player not found in Discord Member List.`;
-          if (data.missing?.removeMissing) userMessage += ` Missing remove: **${removeUser?.username || removeFiller}**.`;
-          if (data.missing?.addMissing) userMessage += ` Missing add: **${addUser?.username || addFiller}**.`;
-          logSuffix = "❌ Player not found in member list.";
-          break;
-        case "remove_not_found":
-          userMessage = `❌ Could not find **${removeUser?.username || removeFiller}** in Round #${round}.`;
-          logSuffix = "❌ Remove target not in round.";
-          break;
-        case "round_missing":
-          userMessage = `❌ Round #${round} not found in sheet.`;
-          logSuffix = "❌ Round missing.";
-          break;
-        default:
-          userMessage = `❌ Unexpected error.`;
-          logSuffix = `❌ Unexpected GAS response: ${JSON.stringify(data)}`;
-          break;
+      const updatedDraft = await replaceCurrentDraftSlot({
+        teamCheckCollection: teamCollections.teamCheck,
+        membersCollection: teamCollections.members,
+        avoidsCollection: teamCollections.avoids,
+        previousPairingsCollection: teamCollections.previousPairings,
+        round,
+        generationId: currentDraft.generationId,
+        removeDiscordId: removeUser?.id,
+        removeFillerNumber: removeFillerNum,
+        addDiscordId: addUser?.id,
+        addFillerNumber: addFillerNum
+      });
+      let userMessage =
+        `✅ Replacement completed in the current Team Check draft for Round #${round}: ` +
+        `**${removeUser?.username || removeFiller}** ➝ **${addUser?.username || addFiller}**.`;
+      let logSuffix = '✅ Replacement saved to MongoDB TeamCheck.';
+      try {
+        const previewDraft = await refreshTeamCheckPreview(interaction.client, updatedDraft);
+        userMessage += previewDraft.previewStatus === 'disabled'
+          ? '\nℹ️ Team Check and the desktop app were updated; the Discord preview is disabled.'
+          : '\n✅ Team Check, the desktop app, and the Discord preview were updated.';
+        logSuffix = '✅ Replacement and Discord Team Check preview synchronized.';
+      } catch (previewError) {
+        userMessage += `\n⚠️ Team Check and desktop app updated, but the Discord preview refresh failed: ${previewError.message}`;
+        logSuffix = `⚠️ Team Check synced; Discord preview refresh failed: ${previewError.message}`;
       }
 
       // --- Edit original reply ---
@@ -168,11 +160,12 @@ module.exports = {
 
     } catch (error) {
       console.error("❌ Error in replace command:", error);
+      const errorMessage = `❌ Replacement failed: ${error.message}`;
 
       if (interaction.replied || interaction.deferred) {
-        await interaction.editReply('❌ Replacement failed. Please try again.');
+        await interaction.editReply(errorMessage);
       } else {
-        await interaction.reply({ content: '❌ Replacement failed. Please try again.', flags: 64 });
+        await interaction.reply({ content: errorMessage, flags: 64 });
       }
 
       await logUsage(`❌ Error: ${error.message}`);

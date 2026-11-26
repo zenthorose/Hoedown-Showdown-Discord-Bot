@@ -217,7 +217,13 @@ footer { margin-top: 20px; font-size: 12px; }
 }
 
 .account-label { margin: 0 0 5px; color: var(--theme-muted); font-size: 10px; letter-spacing: .12em; }
-.account-name { margin: 0 0 13px; overflow-wrap: anywhere; font-size: 14px; font-weight: 700; }
+.account-identity { display: flex; align-items: center; gap: 9px; min-width: 0; margin-bottom: 13px; }
+.account-avatar { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; }
+.account-name { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 700; }
+.account-settings-trigger { width: 34px; min-width: 34px; height: 34px; margin-left: auto; padding: 0; font-size: 17px; }
+.account-settings-options { display: grid; gap: 8px; margin: 16px 0; }
+.account-settings-options button { width: 100%; text-align: left; }
+.account-settings-options .danger { background: #8d3936; }
 .account-action {
   display: block;
   width: 100%;
@@ -797,7 +803,10 @@ footer { margin-top: 20px; font-size: 12px; }
   .nav-item { flex-direction: column; justify-content: center; gap: 4px; padding: 8px 3px; font-size: 10px; }
   .sidebar-account { display: flex; align-items: center; gap: 8px; padding: 10px 3px 0; border-top: 0; }
   .account-label { display: none; }
-  .account-name { flex: 1; margin: 0; font-size: 12px; }
+  .account-identity { flex: 0 1 auto; margin: 0; }
+  .account-avatar { width: 28px; height: 28px; flex-basis: 28px; }
+  .account-name { flex: 0 1 auto; font-size: 12px; }
+  .account-settings-trigger { margin-left: 0; }
   .account-action { width: auto; margin: 0; padding: 7px; text-align: center; }
   .workspace-header { align-items: flex-start; padding: 20px 18px 16px; }
   .workspace-header h1 { font-size: 23px; }

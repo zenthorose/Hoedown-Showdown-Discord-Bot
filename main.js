@@ -1,16 +1,9 @@
 ﻿﻿require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = require('discord.js');
-const { google } = require('googleapis');
 const moment = require('moment-timezone');
 const fs = require('fs');
-const axios = require('axios');
 const express = require('express');
 const { updateBotStatus } = require('./events/swampmail');
-const {
-  getBotSettings,
-  isGasPostEnabled,
-  isManagedGasPostPurpose
-} = require('./database/botSettings');
 
 // --- Global error & health handlers ---
 function safeAppend(path, text) {
@@ -75,21 +68,7 @@ const ReactionPostsManager = require('./reactionPosts');
 const reactionPostsManager = new ReactionPostsManager();
 
 // Config
-const { Hoedown_New_banner, STATUS_CHANNEL_ID, SPREADSHEET_ID, SHEET_MEMBERS } = require('./config.json');
-
-// Google credentials
-const credentials = {
-  type: "service_account",
-  project_id: process.env.GOOGLE_PROJECT_ID,
-  private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-  private_key: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
-  client_email: process.env.GOOGLE_CLIENT_EMAIL,
-  client_id: process.env.GOOGLE_CLIENT_ID,
-  auth_uri: process.env.GOOGLE_AUTH_URI,
-  token_uri: process.env.GOOGLE_TOKEN_URI,
-  auth_provider_x509_cert_url: process.env.GOOGLE_AUTH_PROVIDER_CERT,
-  client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT
-};
+const { Hoedown_New_banner, STATUS_CHANNEL_ID } = require('./config.json');
 
 // --- Load slash commands ---
 const commandFiles = fs.readdirSync('./commands/').filter(file => file.endsWith('.js'));
@@ -124,16 +103,6 @@ async function onClientReady() {
 
   console.log(`✅ Bot online as ${client.user.tag}`);
   try { safeAppend('./bot-starts.log', `[${new Date().toISOString()}] online as ${client.user?.tag || 'unknown'}\n`); } catch (e) {}
-
-  // Test Google Apps Script
-  try {
-    if (process.env.Google_Apps_Script_URL) {
-      const response = await axios.get(process.env.Google_Apps_Script_URL);
-      console.log("Google Script test response:", response.data);
-    }
-  } catch (err) {
-    console.error("Error contacting Google Apps Script:", err?.message || err);
-  }
 
   // Startup status
   try {
@@ -288,76 +257,8 @@ client.on('interactionCreate', async (interaction) => {
 // --- Express endpoints ---
 const app = express();
 const port = process.env.PORT || 3000;
-app.use('/api', express.json({ limit: '8kb' }));
-app.use(express.json());
 
 app.get('/ping', (req, res) => res.send('Pong!'));
-
-app.post('/sendmessage', async (req, res) => {
-  const { channelId, message, source, purpose } = req.body;
-  if (!channelId || !message) return res.status(400).json({ error: 'Missing required fields: channelId and message' });
-
-  // Blocking controls: prefer environment variable, fallback to hard-coded toggle in code
-  // - To control without editing code, set env `BLOCK_GAS_POSTS=true`.
-  // - Otherwise change `HARD_BLOCK_GAS` below and restart to pick up the code toggle.
-  const HARD_BLOCK_GAS = false; // <-- change this value in-code to enable/disable GAS blocking
-
-  let blockGas;
-  if (typeof process.env.BLOCK_GAS_POSTS !== 'undefined' && String(process.env.BLOCK_GAS_POSTS) !== '') {
-    blockGas = String(process.env.BLOCK_GAS_POSTS).toLowerCase() === 'true';
-    console.log(`ℹ️ BLOCK_GAS_POSTS env override detected: ${blockGas}`);
-  } else {
-    blockGas = HARD_BLOCK_GAS;
-    console.log(`ℹ️ BLOCK_GAS_POSTS not set in env — using in-code toggle HARD_BLOCK_GAS=${HARD_BLOCK_GAS}`);
-  }
-
-  // Heuristics to detect Apps Script requests: explicit `source` field, special header, or User-Agent
-  const ua = String(req.headers['user-agent'] || '').toLowerCase();
-  const headerGas = String(req.headers['x-from-gas'] || '').toLowerCase();
-  const isFromGAS = (source === 'GAS') || (headerGas === 'true') || ua.includes('google-apps-script') || ua.includes('google-apps-script/');
-
-  // Debug logging to inspect incoming request headers and detection logic
-  try {
-    console.log('📥 /sendmessage incoming request — channelId:', channelId);
-    console.log('📥 Headers:', Object.keys(req.headers).length ? req.headers : '(no headers)');
-    console.log(`📥 GAS detection inputs: source='${source}', x-from-gas='${req.headers['x-from-gas']}', user-agent='${req.headers['user-agent']}'`);
-    console.log(`📥 Computed flags: blockGas=${blockGas}, headerGas='${headerGas}', ua='${ua}', isFromGAS=${isFromGAS}`);
-  } catch (logErr) {
-    console.error('❌ Failed to log /sendmessage request details:', logErr);
-  }
-
-  if (blockGas && isFromGAS) {
-    console.log(`ℹ️ Skipped posting to ${channelId} — request identified as GAS and BLOCK_GAS_POSTS=true`);
-    return res.status(200).json({ skipped: 'blocked_source', reason: 'identified_as_gas' });
-  } else {
-    console.log(`ℹ️ /sendmessage will proceed: blockGas=${blockGas}, isFromGAS=${isFromGAS}`);
-  }
-
-  if (isFromGAS && isManagedGasPostPurpose(purpose)) {
-    let settings;
-    try {
-      settings = await getBotSettings();
-    } catch (error) {
-      console.error(`Could not load settings for GAS ${purpose} post:`, error);
-      return res.status(503).json({ error: 'Bot posting settings are unavailable.' });
-    }
-    if (!isGasPostEnabled(purpose, settings)) {
-      console.log(`ℹ️ Skipped GAS ${purpose} post to ${channelId} because its Account Manager toggle is disabled.`);
-      return res.status(200).json({ skipped: 'disabled', purpose });
-    }
-  }
-
-  // Note: phrase-based blocking removed — use BLOCK_GAS_POSTS and explicit source/header detection instead
-
-  try {
-    const channel = await client.channels.fetch(channelId);
-    await channel.send(message);
-    res.status(200).json({ success: `Message sent to channel ${channelId}` });
-  } catch (err) {
-    console.error('Error sending message to Discord:', err);
-    res.status(500).json({ error: 'Failed to send message to Discord' });
-  }
-});
 
 async function startWebService() {
   const authEnvironment = ['MONGODB_ADMIN', 'JWT_SECRET', 'ADMIN_API_KEY'];

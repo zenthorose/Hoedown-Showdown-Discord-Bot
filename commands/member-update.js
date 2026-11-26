@@ -1,5 +1,4 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const { checkPermissions } = require('../permissions');
 const config = require('../config.json'); // 👈 for LOG_CHANNEL_ID
 const { connectHoedownInfoDatabase } = require('../database/hoedownInfo');
@@ -8,7 +7,7 @@ const { syncGuildMemberProfiles } = require('../database/memberListImport');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('member-update')
-    .setDescription('Syncs Discord members to Google Sheets and HoedownInfo.')
+    .setDescription('Syncs Discord members to HoedownInfo.')
     .setDefaultMemberPermissions(0), // Requires Manage Messages permission
 
   async execute(interaction) {
@@ -58,29 +57,6 @@ module.exports = {
 
       const results = [];
 
-      //
-      // ---- PART 1: Sync member names and IDs to Google Sheets ----
-      //
-      try {
-        const triggerUrl = process.env.Google_Apps_Script_URL;
-        if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-        const memberData = [
-          ['Nickname', 'Username', 'Discord ID'],
-          ...sortedMembers.map(({ nickname, username, discordId }) => [nickname, username, discordId])
-        ];
-        await axios.post(triggerUrl, {
-          command: 'member-update',
-          memberData
-        });
-        results.push(`✅ Google Sheets: synced ${sortedMembers.length} member(s).`);
-      } catch (error) {
-        console.error('❌ Google Sheets member sync failed:', error);
-        results.push(`❌ Google Sheets: ${error.message}`);
-      }
-
-      //
-      // ---- PART 2: Sync member names and IDs to HoedownInfo.Members ----
-      //
       try {
         const database = await connectHoedownInfoDatabase();
         const profiles = sortedMembers.map(({ nickname, username, discordId }) => ({

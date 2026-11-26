@@ -8,14 +8,17 @@ const {
   createCurrentTeamDraft,
   deleteCurrentDraftFillerTeam,
   formatTeamCheckPreview,
+  getPendingCurrentDraftForRound,
   generateTeamGroups,
   inspectTeams,
   recordCurrentDraftReview,
   recordCurrentDraftViewer,
   recordPreviousPairings,
   replaceCurrentDraftPlayer,
+  replaceCurrentDraftSlot,
   replaceCurrentDraftPlayerWithFiller,
   swapCurrentDraftPlayers,
+  swapCurrentDraftPlayersById,
   updateCurrentDraftViewerPresence
 } = require('./teamDrafts');
 
@@ -694,6 +697,209 @@ test('replacing a player with a registered member removes the original from the 
   assert.equal(updatedDraft.teams.flatMap((team) => team.players)
     .some((player) => player.discordId === '10000000000000001'), false);
   assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null]);
+});
+
+test('slash replacement updates only the matching Team Check draft', async () => {
+  const collections = createCollections();
+  const roundRecord = { _id: 'approved-round', teams: [{ name: 'Approved' }] };
+  await collections.roundsDatabase.collection('Round#01').insertOne(roundRecord);
+  const previousPairing = {
+    _id: '10000000000000001',
+    previousPairings: [{ discordId: '10000000000000002' }]
+  };
+  await collections.previousPairings.insertOne(previousPairing);
+  const previousPairingsBefore = structuredClone(collections.previousPairings.documents);
+  const roundRecordsBefore = structuredClone(
+    collections.roundsDatabase.collection('Round#01').documents
+  );
+  const teamCheckCollection = collections.teamCheck;
+  await teamCheckCollection.insertOne({
+    _id: 'current',
+    generationId: 'generation-command-replace',
+    round: 1,
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [{
+      name: 'A',
+      players: [
+        { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+        { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+        { id: 'FILLER_1', name: 'Filler #1', region: 'Filler' }
+      ]
+    }],
+    checks: {
+      manualAdjustments: 0,
+      final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] }
+    },
+    reviewActivity: [{ discordId: '10000000000000003', vote: 'approve' }]
+  });
+  const currentDraft = await getPendingCurrentDraftForRound({
+    teamCheckCollection,
+    round: 1
+  });
+
+  const updatedDraft = await replaceCurrentDraftSlot({
+    teamCheckCollection,
+    membersCollection: collections.members,
+    avoidsCollection: collections.avoids,
+    previousPairingsCollection: collections.previousPairings,
+    round: 1,
+    generationId: currentDraft.generationId,
+    removeDiscordId: '10000000000000001',
+    addFillerNumber: 5,
+    now: () => new Date('2026-03-01T00:01:00.000Z')
+  });
+
+  assert.deepEqual(updatedDraft.teams[0].players[0], {
+    id: 'FILLER_5',
+    name: 'Filler #5',
+    region: 'Filler'
+  });
+  assert.equal(updatedDraft.checks.manualAdjustments, 1);
+  assert.deepEqual(updatedDraft.reviewActivity.map((entry) => entry.vote), [null]);
+  assert.deepEqual(collections.previousPairings.documents, previousPairingsBefore);
+  assert.deepEqual(collections.roundsDatabase.collection('Round#01').documents, roundRecordsBefore);
+});
+
+test('slash replacement rejects a round that is not the current pending Team Check round', async () => {
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-current-round',
+    round: 2,
+    status: 'pending',
+    updatedAt: new Date(),
+    teams: []
+  }]);
+
+  await assert.rejects(getPendingCurrentDraftForRound({
+    teamCheckCollection,
+    round: 1
+  }), /not the current pending Team Check round/);
+  assert.equal(teamCheckCollection.documents[0].round, 2);
+});
+
+test('slash replacement requires a registered member and preserves its region', async () => {
+  const replacementDiscordId = '10000000000000006';
+  const teamCheckCollection = new MemoryCollection([{
+    _id: 'current',
+    generationId: 'generation-command-player-replace',
+    round: 1,
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [{
+      name: 'A',
+      players: [
+        { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+        { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+        { id: 'FILLER_1', name: 'Filler #1', region: 'Filler' }
+      ]
+    }],
+    checks: {
+      manualAdjustments: 0,
+      final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] }
+    },
+    reviewActivity: []
+  }]);
+
+  await assert.rejects(replaceCurrentDraftSlot({
+    teamCheckCollection,
+    membersCollection: new MemoryCollection(),
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    round: 1,
+    generationId: 'generation-command-player-replace',
+    removeDiscordId: '10000000000000001',
+    addDiscordId: replacementDiscordId
+  }), /no longer in the Members list/);
+  assert.equal(teamCheckCollection.documents[0].teams[0].players[0].discordId,
+    '10000000000000001');
+
+  const updatedDraft = await replaceCurrentDraftSlot({
+    teamCheckCollection,
+    membersCollection: new MemoryCollection([{
+      _id: replacementDiscordId,
+      username: 'replacement',
+      nickname: 'Replacement',
+      region: 'East'
+    }]),
+    avoidsCollection: new MemoryCollection(),
+    previousPairingsCollection: new MemoryCollection(),
+    round: 1,
+    generationId: 'generation-command-player-replace',
+    removeDiscordId: '10000000000000001',
+    addDiscordId: replacementDiscordId
+  });
+  assert.equal(updatedDraft.teams[0].players[0].discordId, replacementDiscordId);
+  assert.equal(updatedDraft.teams[0].players[0].region, 'East');
+});
+
+test('slash swaps update only Team Check and reject invalid team placements', async () => {
+  const collections = createCollections();
+  const roundRecord = { _id: 'approved-round', teams: [{ name: 'Approved' }] };
+  await collections.roundsDatabase.collection('Round#01').insertOne(roundRecord);
+  const previousPairing = {
+    _id: '10000000000000001',
+    previousPairings: [{ discordId: '10000000000000002' }]
+  };
+  await collections.previousPairings.insertOne(previousPairing);
+  const previousPairingsBefore = structuredClone(collections.previousPairings.documents);
+  const roundRecordsBefore = structuredClone(
+    collections.roundsDatabase.collection('Round#01').documents
+  );
+  await collections.teamCheck.insertOne({
+    _id: 'current',
+    generationId: 'generation-command-swap',
+    round: 1,
+    status: 'pending',
+    updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    teams: [
+      {
+        name: 'A',
+        players: [
+          { discordId: '10000000000000001', name: 'Player 1', region: 'East' },
+          { discordId: '10000000000000002', name: 'Player 2', region: 'East' },
+          { id: 'FILLER_1', name: 'Filler #1', region: 'Filler' }
+        ]
+      },
+      {
+        name: 'B',
+        players: [
+          { discordId: '10000000000000003', name: 'Player 3', region: 'East' },
+          { discordId: '10000000000000004', name: 'Player 4', region: 'East' },
+          { id: 'FILLER_2', name: 'Filler #2', region: 'Filler' }
+        ]
+      }
+    ],
+    checks: {
+      manualAdjustments: 0,
+      final: { avoidConflicts: [], previousConflicts: [], regionErrors: [] }
+    },
+    reviewActivity: []
+  });
+
+  const updatedDraft = await swapCurrentDraftPlayersById({
+    teamCheckCollection: collections.teamCheck,
+    avoidsCollection: collections.avoids,
+    previousPairingsCollection: collections.previousPairings,
+    round: 1,
+    generationId: 'generation-command-swap',
+    player1DiscordId: '10000000000000001',
+    player2DiscordId: '10000000000000003'
+  });
+
+  assert.equal(updatedDraft.teams[0].players[0].discordId, '10000000000000003');
+  assert.equal(updatedDraft.teams[1].players[0].discordId, '10000000000000001');
+  assert.deepEqual(collections.previousPairings.documents, previousPairingsBefore);
+  assert.deepEqual(collections.roundsDatabase.collection('Round#01').documents, roundRecordsBefore);
+  await assert.rejects(swapCurrentDraftPlayersById({
+    teamCheckCollection: collections.teamCheck,
+    avoidsCollection: collections.avoids,
+    previousPairingsCollection: collections.previousPairings,
+    round: 1,
+    generationId: 'generation-command-swap',
+    player1DiscordId: '10000000000000002',
+    player2DiscordId: '10000000000000003'
+  }), /different team/);
 });
 
 test('replacing a player with a filler uses the next unused number across draft edits', async () => {

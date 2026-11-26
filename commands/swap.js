@@ -1,6 +1,11 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
-const axios = require('axios');
 const config = require('../config.json');
+const { connectHoedownInfo } = require('../database/hoedownInfo');
+const {
+  getPendingCurrentDraftForRound,
+  swapCurrentDraftPlayersById
+} = require('../database/teamDrafts');
+const { refreshTeamCheckPreview } = require('../utils/teamCheckPreview');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -63,6 +68,9 @@ module.exports = {
     if (swaps.length === 0) {
       return interaction.reply({ content: "❌ You must specify at least one swap pair.", flags: 64 });
     }
+    if (swaps.some((swap) => swap.player1.id === swap.player2.id)) {
+      return interaction.reply({ content: '❌ Each swap must contain two different players.', flags: 64 });
+    }
 
     async function logUsage(extra = "") {
       try {
@@ -80,6 +88,8 @@ module.exports = {
         console.error("❌ Failed to log usage:", err);
       }
     }
+    let teamCollections;
+    let currentDraft;
 
     try {
       // --- Permission Check ---
@@ -92,6 +102,13 @@ module.exports = {
         await logUsage("⚠️ Permission denied.");
         return;
       }
+
+      const database = await connectHoedownInfo();
+      teamCollections = database.collections;
+      currentDraft = await getPendingCurrentDraftForRound({
+        teamCheckCollection: teamCollections.teamCheck,
+        round
+      });
 
       console.log(`Received swap command: round=${round}, swaps=${JSON.stringify(swaps)}`);
 
@@ -113,34 +130,76 @@ module.exports = {
         fetchReply: true
       });
 
-      // --- Send swap data to GAS ---
-      const triggerUrl = process.env.Google_Apps_Script_URL;
-      if (!triggerUrl) throw new Error('Google Apps Script URL is not defined.');
-
-      const payload = { command: "swap", round, swaps };
-      console.log("📤 Sending payload to GAS:", JSON.stringify(payload, null, 2));
-
-      const response = await axios.post(triggerUrl, payload);
-      console.log("✅ GAS response:", response.data);
-
-      if (!response.data.success) {
-        await replyMessage.edit("❌ Swap request failed.");
-        await logUsage("❌ GAS returned failure.");
-        return;
+      const results = [];
+      let successCount = 0;
+      let teamCheckSyncCount = 0;
+      let updatedTeamCheckDraft;
+      const teamCheckSyncErrors = [];
+      for (const swap of swaps) {
+        try {
+          updatedTeamCheckDraft = await swapCurrentDraftPlayersById({
+            teamCheckCollection: teamCollections.teamCheck,
+            avoidsCollection: teamCollections.avoids,
+            previousPairingsCollection: teamCollections.previousPairings,
+            round,
+            generationId: currentDraft.generationId,
+            player1DiscordId: swap.player1.id,
+            player2DiscordId: swap.player2.id
+          });
+          teamCheckSyncCount += 1;
+          successCount += 1;
+          results.push({
+            pair: [swap.player1.username, swap.player2.username],
+            status: 'ok'
+          });
+        } catch (syncError) {
+          teamCheckSyncErrors.push(
+            `${swap.player1.username} ↔ ${swap.player2.username}: ${syncError.message}`
+          );
+          results.push({
+            pair: [swap.player1.username, swap.player2.username],
+            status: 'failed',
+            reason: syncError.message
+          });
+        }
       }
-
-      const results = response.data.results || [];
-      let successCount = results.filter(r => r.status === "ok").length;
-      let failCount = results.filter(r => r.status !== "ok").length;
+      const failCount = results.length - successCount;
+      let previewRefreshError;
+      if (updatedTeamCheckDraft) {
+        try {
+          updatedTeamCheckDraft = await refreshTeamCheckPreview(
+            interaction.client,
+            updatedTeamCheckDraft
+          );
+        } catch (error) {
+          previewRefreshError = error.message;
+        }
+      }
 
       const details = results.map((r, i) =>
         `**${i + 1}.** ${r.pair[0]} ↔ ${r.pair[1]} → ${r.status === "ok" ? "✅ Success" : `❌ Failed (${r.reason || "unknown"})`}`
       ).join("\n");
 
-      const finalMessage = `📋 Swap results for Round #${round}:\n${details}\n\n✅ ${successCount} succeeded | ❌ ${failCount} failed`;
+      const syncDetails = successCount > 0
+        ? (teamCheckSyncCount
+          ? `\n\n✅ Team Check and desktop app updated for ${teamCheckSyncCount} swap(s).` +
+            (updatedTeamCheckDraft?.previewStatus === 'disabled'
+              ? '\nℹ️ The Discord Team Check preview is disabled.'
+              : previewRefreshError
+                ? `\n⚠️ The Team Check update succeeded, but the Discord preview refresh failed: ${previewRefreshError}`
+                : '\n✅ Discord Team Check preview refreshed.')
+          : '') +
+          (teamCheckSyncErrors.length
+            ? `\n⚠️ Some swaps could not be saved to Team Check:\n${teamCheckSyncErrors.join('\n')}`
+            : '')
+        : '';
+      const finalMessage = `📋 Swap results for Round #${round}:\n${details}\n\n✅ ${successCount} succeeded | ❌ ${failCount} failed${syncDetails}`;
 
       await replyMessage.edit(finalMessage);
-      await logUsage(`✅ ${successCount} success | ❌ ${failCount} failed`);
+      await logUsage(
+        `✅ ${successCount} success | ❌ ${failCount} failed | ` +
+        `Team Check synced ${teamCheckSyncCount}; sync failures ${teamCheckSyncErrors.length}`
+      );
 
       // Optionally auto-delete after 15s
       setTimeout(async () => {
@@ -149,11 +208,14 @@ module.exports = {
 
     } catch (error) {
       console.error("❌ Error in swap command:", error);
+      const errorMessage = error.statusCode
+        ? `❌ Swap failed: ${error.message}`
+        : '❌ Swap failed. Please try again.';
 
       if (interaction.replied || interaction.deferred) {
-        await interaction.editReply('❌ Swap failed. Please try again.');
+        await interaction.editReply(errorMessage);
       } else {
-        await interaction.reply({ content: '❌ Swap failed. Please try again.', flags: 64 });
+        await interaction.reply({ content: errorMessage, flags: 64 });
       }
 
       await logUsage(`❌ Error: ${error.message}`);
