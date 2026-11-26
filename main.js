@@ -106,13 +106,18 @@ async function onClientReady() {
 
   // Startup status
   try {
-    const statusChannel = client.channels.cache.get(STATUS_CHANNEL_ID);
-    if (statusChannel) {
+    const statusChannel = await client.channels.fetch(STATUS_CHANNEL_ID);
+    if (!statusChannel || typeof statusChannel.send !== 'function') {
+      console.warn('⚠️ Configured status channel is not a sendable text channel.');
+    } else {
       const currentTime = moment().tz("America/New_York").format("hh:mm:ss A [EST]");
       await statusChannel.send(`✅ The Hoedown Showdown Bot is now online! 🚀\n🕒 Current Time: **${currentTime}**`);
-    } else console.warn("⚠️ Status channel not found.");
+    }
   } catch (err) {
-    console.error("❌ Failed to send startup status:", err);
+    console.error(
+      `❌ Failed to fetch or send startup status (Discord error ${err.code || 'unknown'}):`,
+      err.message
+    );
   }
   await updateBotStatus(client);
 }
