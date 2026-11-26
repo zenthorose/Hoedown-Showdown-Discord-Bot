@@ -266,7 +266,7 @@ const port = process.env.PORT || 3000;
 app.get('/ping', (req, res) => res.send('Pong!'));
 
 async function startWebService() {
-  const authEnvironment = ['MONGODB_ADMIN', 'JWT_SECRET', 'ADMIN_API_KEY'];
+  const authEnvironment = ['MONGODB_ADMIN', 'JWT_SECRET', 'ADMIN_PUBLIC_ORIGIN', 'ADMIN_API_KEY'];
   const authConfigured = authEnvironment.some((name) => Boolean(process.env[name]));
   if (authConfigured) {
     const { createRuntime } = require('./electron-app/auth-service/server.cjs');
@@ -274,7 +274,7 @@ async function startWebService() {
     app.use(authRuntime.app);
     console.log('🔐 Authentication API mounted on the bot service.');
   } else {
-    console.warn('⚠️ Authentication API is disabled. Configure MONGODB_ADMIN, JWT_SECRET, and ADMIN_API_KEY to enable it.');
+    console.warn('⚠️ Authentication API is disabled. Configure MONGODB_ADMIN, JWT_SECRET, and ADMIN_PUBLIC_ORIGIN to enable it. ADMIN_API_KEY is needed only before the first owner passkey is enrolled.');
   }
 
   app.listen(port, async () => {

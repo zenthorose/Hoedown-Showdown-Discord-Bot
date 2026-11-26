@@ -937,7 +937,9 @@ test('signed sessions reject tampering and expiration', () => {
   }, 'a-secret-that-is-long-enough-to-sign-test-tokens', 100, 60);
   assert.equal(readToken(token, 'a-secret-that-is-long-enough-to-sign-test-tokens', 120).ver, 4);
   assert.equal(readToken(token, 'a-secret-that-is-long-enough-to-sign-test-tokens', 161), null);
-  assert.equal(readToken(`${token.slice(0, -1)}x`, 'a-secret-that-is-long-enough-to-sign-test-tokens', 120), null);
+  const [header, body, signature] = token.split('.');
+  const tamperedSignature = `${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
+  assert.equal(readToken(`${header}.${body}.${tamperedSignature}`, 'a-secret-that-is-long-enough-to-sign-test-tokens', 120), null);
 });
 
 test('a later login invalidates the previously active session', async () => {

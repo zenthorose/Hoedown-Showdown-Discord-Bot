@@ -1,0 +1,28 @@
+name: Dependency audit
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Audit bot dependencies
+        run: npm audit --audit-level=high
+      - name: Audit desktop dependencies
+        run: npm audit --prefix electron-app --audit-level=high
+      - name: Audit Account Manager dependencies
+        run: npm audit --prefix electron-app/account-manager --audit-level=high
+      - name: Audit auth-service dependencies
+        run: npm audit --prefix electron-app/auth-service --audit-level=high

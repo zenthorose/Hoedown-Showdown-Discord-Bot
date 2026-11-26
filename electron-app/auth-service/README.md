@@ -19,6 +19,10 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 
 Never commit or distribute these secrets. Restrict MongoDB network access to the Render service where possible. Render provides HTTPS for the service URL.
 
+### MongoDB permissions
+
+Use a dedicated MongoDB database user with `readWrite` access only to the configured `MONGODB_ADMIN`, `MONGODB_HOEDOWNINFO`, `MONGODB_ROUNDS`, and `MONGODB_TICKETS` databases, plus the fixed `Backups` database. The service creates indexes and temporary/backup collections, so read-only access is insufficient. Do not grant `readWriteAnyDatabase`, `dbAdminAnyDatabase`, or cluster administration roles. The current bot and auth service share `MONGO_URI`; keep its permissions limited to these application databases and any other databases the bot actually uses.
+
 The API has no public registration. Create users through the separate account manager or, for initial recovery, run `npm run create-user -- some.username` after setting `MONGO_URI` and `MONGODB_ADMIN` locally. The command displays a random temporary password once; the user must change it at first sign-in.
 
 Admin owner access uses WebAuthn passkeys. The `ADMIN_API_KEY` is accepted only by the one-time bootstrap endpoint and never authorizes regular `/api/admin/*` routes; remove it from Render after the first passkey is enrolled. Admin credentials, challenges, one-use handoff codes, and per-device sessions are stored in MongoDB. Ceremony challenges/tickets expire after five minutes, handoff codes after one minute, and admin sessions after 12 hours. Handoff codes are exchanged once for an opaque bearer session token; the token is returned only in the exchange response and should be kept by the desktop app in its protected credential store.
