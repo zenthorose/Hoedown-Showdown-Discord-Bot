@@ -41,8 +41,11 @@ Admin owner access uses WebAuthn passkeys. The `ADMIN_API_KEY` is accepted only 
 - `POST /api/admin/passkeys/credentials/options` and `/api/admin/passkeys/credentials/verify` — hosted registration ceremony for that ticket.
 - `GET /api/admin/sessions` — authenticated admin bearer token; lists active per-device sessions and marks the current session.
 - `DELETE /api/admin/sessions/:id` — authenticated admin bearer token; revokes the selected session, including the current one.
+- `GET /api/admin/database-export` — authenticated, rate-limited admin bearer token; streams a gzip-compressed Extended JSON Lines export of configured operational, backup, and Admin/auth databases. It skips MongoDB `system.*` collections and writes an audit event.
 
 Open `/admin/passkeys#action=enroll&ticket=…` for bootstrap, `/admin/passkeys#action=login&redirectUri=…&state=…&deviceId=…&deviceName=…&platform=…` for sign-in, and `/admin/passkeys#action=register&ticket=…` to add a backup credential. Bootstrap and login complete by redirecting to the validated callback with only `code` and `state`. Callback URLs must use HTTP on `127.0.0.1` with an explicit port. `state` must be a URL-safe value of at least 16 characters. The hosted page uses same-origin scripts only and does not persist tickets or session tokens in browser storage.
+
+The full database export is unencrypted and includes sensitive Admin/auth records such as password hashes and passkey/session metadata. The Account Manager warns and asks for confirmation before saving it locally. Protect the file and any cloud copy accordingly. The export streams collections while the service is running, so it is not a transactionally consistent point-in-time snapshot.
 
 Run `npm ci` and `npm test` here. Admin and login endpoints are rate-limited; audit records expire after 90 days. A single active session per staff user is enforced through a versioned signed token; admin passkey sessions are separate and do not alter staff sessions.
 

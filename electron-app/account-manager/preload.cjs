@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('admin', {
   listUsers: () => ipcRenderer.invoke('admin:list-users'),
   listBackups: () => ipcRenderer.invoke('admin:list-backups'),
   createBackups: (collections) => ipcRenderer.invoke('admin:create-backups', collections),
+  downloadDatabaseExport: () => ipcRenderer.invoke('admin:download-database-export'),
   wipeCollections: (collections) => ipcRenderer.invoke('admin:wipe-collections', collections),
   getReplacementOptions: (target) => ipcRenderer.invoke('admin:get-replacement-options', target),
   chooseReplacementCsv: () => ipcRenderer.invoke('admin:choose-replacement-csv'),

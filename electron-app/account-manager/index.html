@@ -110,10 +110,15 @@
             so they are not disaster-recovery copies; remove old snapshots manually in Atlas when needed.
           </p>
           <p class="backup-warning">
+            A full export includes all non-system collections, including Admin/auth data and password hashes. The downloaded
+            file is compressed but not encrypted. Store it securely before uploading it to cloud storage.
+          </p>
+          <p class="backup-warning">
             Wipe selected permanently deletes every document in those collections but keeps the collections and indexes.
             Create a backup first if you may need the data later.
           </p>
           <div class="actions backup-actions">
+            <button id="download-full-export" class="secondary" type="button">Download full database export</button>
             <button id="select-all-backups" class="secondary" type="button">Select all</button>
             <button id="create-backups" type="button" disabled>Create selected backups</button>
             <button id="wipe-selected" class="danger" type="button" disabled>Wipe selected</button>

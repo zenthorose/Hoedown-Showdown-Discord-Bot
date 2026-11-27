@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
-const { ObjectId } = require('mongodb');
+const { BSON, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const test = require('node:test');
+const { gunzipSync } = require('node:zlib');
 const {
   createApp,
   makeToken,
@@ -263,6 +264,7 @@ async function withServer(run, options = {}) {
     ticketDatabase,
     botSettings,
     backupDatabase: options.backupDatabase,
+    exportDatabases: options.exportDatabases,
     backupSources: options.backupSources,
     adminDatabaseName: 'Admin',
     hoedownInfoDatabaseName: options.hoedownInfoDatabaseName || 'HoedownInfo',
@@ -329,6 +331,78 @@ test('backup database name uses MONGODB_BACKUPS and defaults to Backups', () => 
     () => resolveBackupDatabaseName('Rounds', ['Admin', 'Rounds']),
     /must be different from the account and application database names/
   );
+});
+
+test('database export requires admin auth and streams configured collections as gzip Extended JSON', async () => {
+  const memberId = new ObjectId();
+  const createdAt = new Date('2026-10-10T12:34:56.000Z');
+  const hoedownDatabase = new MemoryTicketDatabase({
+    Members: [{ _id: memberId, username: 'test.player', createdAt }]
+  });
+  hoedownDatabase.collection('Members').indexSpecifications.push({
+    key: { username: 1 },
+    unique: true,
+    name: 'username_unique'
+  });
+  const backupDatabase = new MemoryTicketDatabase({
+    BackupHistory: [{ _id: 'backup-entry', sourceDatabase: 'HoedownInfo' }]
+  });
+  const adminDatabase = new MemoryTicketDatabase({
+    users: [{ _id: new ObjectId(), passwordHash: 'stored-password-hash' }],
+    'system.users': [{ _id: 'system-user' }]
+  });
+
+  await withServer(async ({ baseUrl, audit }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/database-export`);
+    assert.equal(unauthorized.status, 401);
+
+    const response = await fetch(`${baseUrl}/api/admin/database-export`, {
+      headers: { Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness' }
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/gzip');
+    assert.match(response.headers.get('content-disposition'), /\.jsonl\.gz"/);
+
+    const lines = gunzipSync(Buffer.from(await response.arrayBuffer()))
+      .toString('utf8')
+      .trim()
+      .split('\n')
+      .map((line) => BSON.EJSON.parse(line));
+    const manifest = lines[0];
+    assert.equal(manifest.format, 'hoedown-mongodb-export');
+    assert.deepEqual(manifest.databases, ['Admin', 'Backups', 'HoedownInfo']);
+
+    const memberCollection = lines.find((record) =>
+      record.recordType === 'collection' &&
+      record.database === 'HoedownInfo' &&
+      record.name === 'Members');
+    assert.equal(memberCollection.indexes.some((index) => index.name === 'username_unique'), true);
+
+    const memberRecord = lines.find((record) =>
+      record.recordType === 'document' &&
+      record.database === 'HoedownInfo' &&
+      record.collection === 'Members');
+    assert.equal(memberRecord.document._id.toString(), memberId.toString());
+    assert.equal(memberRecord.document.createdAt.toISOString(), createdAt.toISOString());
+    const adminRecord = lines.find((record) =>
+      record.recordType === 'document' &&
+      record.database === 'Admin' &&
+      record.collection === 'users');
+    assert.equal(adminRecord.document.passwordHash, 'stored-password-hash');
+    const backupRecord = lines.find((record) =>
+      record.recordType === 'document' &&
+      record.database === 'Backups' &&
+      record.collection === 'BackupHistory');
+    assert.equal(backupRecord.document.sourceDatabase, 'HoedownInfo');
+    assert.equal(lines.some((record) => record.name === 'system.users'), false);
+    assert.equal(audit.items.some((entry) => entry.action === 'download-database-export'), true);
+  }, {
+    exportDatabases: [
+      { databaseName: 'HoedownInfo', database: hoedownDatabase },
+      { databaseName: 'Backups', database: backupDatabase },
+      { databaseName: 'Admin', database: adminDatabase }
+    ]
+  });
 });
 
 test('admin bot settings require authorization and return the built-in defaults', async () => {

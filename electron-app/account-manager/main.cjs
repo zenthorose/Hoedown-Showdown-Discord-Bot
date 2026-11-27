@@ -1,9 +1,12 @@
 const { app, BrowserWindow, ipcMain, safeStorage, clipboard, dialog, shell } = require('electron');
 const crypto = require('node:crypto');
+const { createWriteStream } = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const {
   inspectWorkspace,
   readPublishedVersions,
@@ -110,6 +113,53 @@ async function requestAdmin(settings, route, { method = 'GET', body, rawBody, ti
     return data;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function downloadDatabaseExport(settings, filePath) {
+  if (!settings) throw new Error('Configure the Render service URL first.');
+  if (!settings.adminSessionToken) throw new Error('Sign in with your passkey before using Admin.');
+  if (settings.adminSessionExpiresAt &&
+      new Date(settings.adminSessionExpiresAt).getTime() <= Date.now()) {
+    throw new Error('Your Admin session expired. Sign in with your passkey again.');
+  }
+
+  const temporaryFilePath = `${filePath}.${crypto.randomUUID()}.partial`;
+  try {
+    const response = await fetch(new URL('/api/admin/database-export', `${settings.serviceUrl}/`), {
+      headers: {
+        Accept: 'application/gzip',
+        Authorization: `Bearer ${settings.adminSessionToken}`
+      }
+    });
+    if (!response.ok) {
+      let message = `Admin database export failed with HTTP ${response.status}.`;
+      try {
+        const data = await response.json();
+        if (typeof data.error === 'string' && data.error) message = data.error;
+      } catch {
+        message = `Render returned a non-JSON response (HTTP ${response.status}). Verify the service URL and deployment.`;
+      }
+      throw new Error(message);
+    }
+    if ((response.headers.get('content-type') || '').split(';', 1)[0].trim() !== 'application/gzip') {
+      throw new Error('Render returned an unexpected database export format.');
+    }
+    if (!response.body) throw new Error('Render returned an empty database export response.');
+
+    await pipeline(
+      Readable.fromWeb(response.body),
+      createWriteStream(temporaryFilePath, { flags: 'wx', mode: 0o600 })
+    );
+    await fs.rename(temporaryFilePath, filePath);
+    return path.basename(filePath);
+  } catch (error) {
+    try {
+      await fs.rm(temporaryFilePath, { force: true });
+    } catch (cleanupError) {
+      console.error('Could not remove incomplete database export file:', cleanupError);
+    }
+    throw error;
   }
 }
 
@@ -587,6 +637,35 @@ app.whenReady().then(() => {
       throw new Error('Render returned invalid collection backup results.');
     }
     return data;
+  });
+
+  ipcMain.handle('admin:download-database-export', async (event) => {
+    requireTrusted(event);
+    const settings = await loadSettings();
+    if (!settings || !settings.adminSessionToken) {
+      throw new Error('Sign in with your passkey before using Admin.');
+    }
+    if (settings.adminSessionExpiresAt &&
+        new Date(settings.adminSessionExpiresAt).getTime() <= Date.now()) {
+      throw new Error('Your Admin session expired. Sign in with your passkey again.');
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const choice = await dialog.showSaveDialog(mainWindow, {
+      title: 'Download full database export',
+      defaultPath: `hoedown-database-export-${timestamp}.jsonl.gz`,
+      filters: [{ name: 'Gzip-compressed database export', extensions: ['gz'] }]
+    });
+    if (choice.canceled) return { canceled: true };
+    if (typeof choice.filePath !== 'string' || !choice.filePath) {
+      throw new Error('Choose a destination for the database export.');
+    }
+    if (!choice.filePath.toLowerCase().endsWith('.gz')) {
+      throw new TypeError('Save the database export with the .gz extension.');
+    }
+
+    const fileName = await downloadDatabaseExport(settings, choice.filePath);
+    return { canceled: false, fileName };
   });
 
   ipcMain.handle('admin:wipe-collections', async (event, collections) => {

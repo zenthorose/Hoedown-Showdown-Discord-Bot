@@ -1,9 +1,12 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+const { createGzip } = require('node:zlib');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
-const { MongoClient, ObjectId } = require('mongodb');
+const { BSON, MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const {
   generateAuthenticationOptions,
@@ -271,6 +274,54 @@ function resolveBackupDatabaseName(value, applicationDatabaseNames = []) {
   return databaseName;
 }
 
+function stringifyExportRecord(record) {
+  return `${BSON.EJSON.stringify(record, { relaxed: false })}\n`;
+}
+
+async function* databaseExportRecords(databases) {
+  yield stringifyExportRecord({
+    recordType: 'manifest',
+    format: 'hoedown-mongodb-export',
+    formatVersion: 1,
+    createdAt: new Date().toISOString(),
+    databases: databases.map(({ databaseName }) => databaseName)
+  });
+
+  for (const { databaseName, database } of databases) {
+    const collectionDetails = await database.listCollections({}, { nameOnly: false }).toArray();
+    collectionDetails.sort((left, right) => left.name.localeCompare(right.name));
+    for (const details of collectionDetails) {
+      if (typeof details.name !== 'string' || details.name.startsWith('system.')) continue;
+      if (details.type === 'view') {
+        yield stringifyExportRecord({
+          recordType: 'view',
+          database: databaseName,
+          name: details.name,
+          options: details.options || {}
+        });
+        continue;
+      }
+
+      const collection = database.collection(details.name);
+      yield stringifyExportRecord({
+        recordType: 'collection',
+        database: databaseName,
+        name: details.name,
+        options: details.options || {},
+        indexes: await collection.indexes()
+      });
+      for await (const document of collection.find({}, { batchSize: 500 })) {
+        yield stringifyExportRecord({
+          recordType: 'document',
+          database: databaseName,
+          collection: details.name,
+          document
+        });
+      }
+    }
+  }
+}
+
 function makeToken(payload, secret, now = Math.floor(Date.now() / 1000), ttl = SESSION_TTL_SECONDS) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(JSON.stringify({
@@ -501,6 +552,7 @@ function createApp({
   backupDatabase,
   backupDatabaseName = DEFAULT_BACKUP_DATABASE_NAME,
   backupSources = [],
+  exportDatabases = [],
   adminDatabaseName,
   hoedownInfoDatabaseName,
   jwtSecret,
@@ -1410,6 +1462,7 @@ function createApp({
   app.post('/api/admin/backups', adminMutationLimit, async (req, res) => {
     if (!authorizeAdmin(req, res)) return;
     if (!backupDatabase) return res.status(503).json({ error: 'Collection backups are not configured.' });
+
     const requested = req.body && req.body.collections;
     if (!Array.isArray(requested) || requested.length < 1 || requested.length > 25) {
       return res.status(400).json({ error: 'Select between 1 and 25 collections to back up.' });
@@ -1461,6 +1514,40 @@ function createApp({
       return res.status(200).json({ results, auditLogged });
     } catch (error) {
       return sendError(res, error, 'Admin collection backup failed:');
+    }
+  });
+  app.get('/api/admin/database-export', limited(3), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    const databases = exportDatabases
+      .filter(({ databaseName, database }) =>
+        typeof databaseName === 'string' && databaseName && database)
+      .sort((left, right) => left.databaseName.localeCompare(right.databaseName));
+    if (!databases.length) {
+      return res.status(503).json({ error: 'Database export is not configured.' });
+    }
+
+    await recordAdminAction('download-database-export', 'all-configured-databases', {
+      databases: databases.map(({ databaseName }) => databaseName),
+      format: 'hoedown-mongodb-export'
+    });
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    res.status(200).set({
+      'Cache-Control': 'private, no-store',
+      'Content-Disposition': `attachment; filename="hoedown-database-export-${timestamp}.jsonl.gz"`,
+      'Content-Type': 'application/gzip',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    try {
+      await pipeline(
+        Readable.from(databaseExportRecords(databases)),
+        createGzip(),
+        res
+      );
+    } catch (error) {
+      console.error('Admin database export failed:', error);
+      if (!res.headersSent) return sendError(res, error, 'Admin database export failed:');
+      if (!res.destroyed) res.destroy(error);
     }
   });
   app.post('/api/admin/collections/wipe', adminMutationLimit, async (req, res) => {
@@ -4080,6 +4167,16 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     ].filter(({ databaseName, database }) =>
       database && databaseName && databaseName !== adminDatabaseName && databaseName !== backupDatabaseName);
     const backupDatabase = client.db(backupDatabaseName);
+    const exportDatabaseMap = new Map([
+      { databaseName: adminDatabaseName, database },
+      { databaseName: hoedownDatabaseName, database: hoedownDatabase },
+      { databaseName: roundsDatabaseName, database: roundsDatabase },
+      { databaseName: ticketDatabaseName, database: ticketDatabase },
+      { databaseName: backupDatabaseName, database: backupDatabase }
+    ]
+      .filter(({ databaseName, database }) => databaseName && database)
+      .map((entry) => [entry.databaseName, entry]));
+    const exportDatabases = [...exportDatabaseMap.values()];
     const members = hoedownDatabase ? hoedownDatabase.collection('Members') : null;
     const avoids = hoedownDatabase ? hoedownDatabase.collection('Avoids') : null;
     const sendTicketReply = discordClient && ticketDatabase
@@ -4749,6 +4846,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       backupDatabase,
       backupDatabaseName,
       backupSources,
+      exportDatabases,
       adminDatabaseName,
       hoedownInfoDatabaseName: hoedownDatabaseName,
       adminPublicOrigin: ADMIN_PUBLIC_ORIGIN,

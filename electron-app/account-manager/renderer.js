@@ -11,6 +11,7 @@ let discordLinkUsername = '';
 let botSettingsLoaded = false;
 let backupLoading = false;
 let backupRunning = false;
+let databaseExportRunning = false;
 let selectedReplacementCsv = null;
 
 function showStatus(id, message) {
@@ -183,7 +184,7 @@ function updateBackupControls() {
   const rows = byId('backup-source-rows');
   const checkboxes = [...rows.querySelectorAll('input[data-backup-database]')];
   const selectedCount = checkboxes.filter((input) => input.checked).length;
-  const busy = backupLoading || backupRunning;
+  const busy = backupLoading || backupRunning || databaseExportRunning;
   for (const checkbox of checkboxes) checkbox.disabled = busy;
   for (const group of rows.querySelectorAll('details[data-backup-group]')) {
     const groupCheckboxes = [...group.querySelectorAll('input[data-backup-database]')];
@@ -192,6 +193,7 @@ function updateBackupControls() {
     count.textContent = `${groupCheckboxes.length} collection(s)${groupSelected ? ` · ${groupSelected} selected` : ''}`;
   }
   byId('refresh-backups').disabled = busy;
+  byId('download-full-export').disabled = busy;
   byId('select-all-backups').disabled = busy || checkboxes.length === 0;
   byId('create-backups').disabled = busy || selectedCount === 0;
   byId('wipe-selected').disabled = busy || selectedCount === 0;
@@ -502,6 +504,33 @@ byId('create-backups').addEventListener('click', async () => {
     showStatus('backup-status', error.message || 'Could not create collection backups.');
   } finally {
     backupRunning = false;
+    updateBackupControls();
+  }
+});
+
+byId('download-full-export').addEventListener('click', async () => {
+  if (backupLoading || backupRunning || databaseExportRunning) return;
+  const confirmed = await confirmCollectionAction({
+    title: 'Download full database export?',
+    message: 'This export includes all non-system collections from the operational, backup, and Admin/auth databases. It includes account password hashes and passkey/session metadata. The file is compressed but not encrypted; anyone with the file could inspect its contents. Continue only if you can store it securely.',
+    confirmLabel: 'Choose save location',
+    collections: []
+  });
+  if (!confirmed) return;
+
+  databaseExportRunning = true;
+  updateBackupControls();
+  showStatus('backup-status', 'Preparing the full database export. This may take several minutes.');
+  try {
+    const result = await window.admin.downloadDatabaseExport();
+    showStatus(
+      'backup-status',
+      result.canceled ? 'Export canceled.' : `Full database export saved to ${result.fileName}.`
+    );
+  } catch (error) {
+    showStatus('backup-status', error.message || 'Could not download the full database export.');
+  } finally {
+    databaseExportRunning = false;
     updateBackupControls();
   }
 });
