@@ -1881,6 +1881,8 @@ function renderMembers() {
   const list = document.getElementById('members-list');
   const state = document.getElementById('members-state');
   const query = document.getElementById('member-search').value.trim().toLowerCase();
+  const sortOrder = document.getElementById('member-sort').value;
+  const regionFilter = document.getElementById('member-region-filter').value;
   const scrollTop = list.scrollTop;
   const activeElement = document.activeElement;
   const activeRow = activeElement?.closest('.member-row');
@@ -1893,7 +1895,40 @@ function renderMembers() {
   const selectionEnd = typeof activeElement?.selectionEnd === 'number' ? activeElement.selectionEnd : null;
   list.replaceChildren();
 
-  for (const member of memberRecords) {
+  const compareText = (left, right) =>
+    left.localeCompare(right, 'en', { sensitivity: 'base', numeric: true });
+  const compareSteamIds = (left, right) => {
+    const first = (left || '').trim();
+    const second = (right || '').trim();
+    if (/^\d+$/.test(first) && /^\d+$/.test(second)) {
+      const normalizedFirst = first.replace(/^0+(?=\d)/, '');
+      const normalizedSecond = second.replace(/^0+(?=\d)/, '');
+      return normalizedFirst.length - normalizedSecond.length ||
+        normalizedFirst.localeCompare(normalizedSecond);
+    }
+    return compareText(first, second);
+  };
+  const sortedMembers = memberRecords.slice().sort((left, right) => {
+    if (sortOrder.startsWith('steam-')) {
+      const leftSteamId = (left.steamId || '').trim();
+      const rightSteamId = (right.steamId || '').trim();
+      if (!leftSteamId || !rightSteamId) {
+        if (!leftSteamId && rightSteamId) return 1;
+        if (leftSteamId && !rightSteamId) return -1;
+      } else {
+        const result = compareSteamIds(leftSteamId, rightSteamId);
+        if (result) return sortOrder === 'steam-desc' ? -result : result;
+      }
+    }
+    const leftName = left.nickname || left.username || left.discordId || '';
+    const rightName = right.nickname || right.username || right.discordId || '';
+    const result = compareText(leftName, rightName) ||
+      compareText(left.username || '', right.username || '') ||
+      compareText(left.discordId || '', right.discordId || '');
+    return sortOrder === 'name-desc' ? -result : result;
+  });
+
+  for (const member of sortedMembers) {
     const edit = memberEdits.get(member.discordId);
     const username = member.username || '';
     const nickname = member.nickname || '';
@@ -1904,6 +1939,7 @@ function renderMembers() {
     const row = document.createElement('article');
     row.className = 'member-row';
     row.setAttribute('role', 'listitem');
+    row.dataset.region = region.trim();
     row.dataset.search = [username, nickname, discordId, region, steamId, streamLink].join(' ').toLowerCase();
 
     const identity = document.createElement('div');
@@ -1972,17 +2008,19 @@ function renderMembers() {
   }
 
   const visibleCount = [...list.children].filter((row) => {
-    const visible = !query || row.dataset.search.includes(query);
+    const regionMatches = regionFilter === 'all' || row.dataset.region === regionFilter;
+    const visible = regionMatches && (!query || row.dataset.search.includes(query));
     row.hidden = !visible;
     return visible;
   }).length;
   const totalCount = memberRecords.length;
-  document.getElementById('members-summary').textContent = query
-    ? `Showing ${visibleCount} of ${totalCount} member(s).`
+  const filtered = Boolean(query) || regionFilter !== 'all';
+  document.getElementById('members-summary').textContent = filtered
+    ? `Showing ${visibleCount} of ${totalCount} member(s)${regionFilter === 'all' ? '' : ` · Region: ${regionFilter}`}.`
     : `${totalCount} member${totalCount === 1 ? '' : 's'}.`;
   state.hidden = visibleCount > 0;
   if (totalCount === 0) state.textContent = 'No member records were found.';
-  else if (query && visibleCount === 0) state.textContent = 'No members match your search.';
+  else if (filtered && visibleCount === 0) state.textContent = 'No members match the selected search and region.';
 }
 
 async function loadMembers(options = {}) {
@@ -2144,7 +2182,7 @@ function renderAvoids() {
     const editButton = document.createElement('button');
     editButton.type = 'button';
     editButton.className = 'secondary icon-button avoid-edit-button';
-    editButton.textContent = isEditing ? 'Done' : '✎';
+    editButton.textContent = isEditing ? '✓' : '✎';
     editButton.setAttribute('aria-label', isEditing
       ? `Finish editing ${group.avoiderName}'s Avoids`
       : `Edit ${group.avoiderName}'s Avoids`);
@@ -2933,6 +2971,8 @@ document.getElementById('avoid-pairing-form').addEventListener('submit', async (
 });
 
 document.getElementById('member-search').addEventListener('input', renderMembers);
+document.getElementById('member-sort').addEventListener('change', renderMembers);
+document.getElementById('member-region-filter').addEventListener('change', renderMembers);
 document.getElementById('refresh-members').addEventListener('click', () => {
   membersLoaded = false;
   void loadMembers({ preserveEdits: true });

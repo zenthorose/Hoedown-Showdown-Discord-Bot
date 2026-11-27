@@ -857,14 +857,11 @@ app.whenReady().then(async () => {
       }
       if (!response.ok) return { ok: false, error: data.error || 'Could not save the Avoid Pairing.' };
       if (data.success !== true ||
-          !Number.isSafeInteger(data.googleSheets?.addedPairs) ||
-          !Number.isSafeInteger(data.googleSheets?.skippedPairs) ||
           !Number.isSafeInteger(data.mongodb?.relationshipCount)) {
         throw new Error('The service returned an invalid Avoid Pairing result.');
       }
       return {
         ok: true,
-        googleSheets: data.googleSheets,
         mongodb: data.mongodb
       };
     } catch (error) {

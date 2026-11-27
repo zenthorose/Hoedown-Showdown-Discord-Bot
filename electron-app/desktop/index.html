@@ -115,6 +115,24 @@
                   <p id="members-summary" class="muted">Loading member records…</p>
                 </div>
                 <div class="members-actions">
+                  <label class="member-list-control">
+                    <span class="visually-hidden">Sort members</span>
+                    <select id="member-sort">
+                      <option value="name-asc">Name A to Z</option>
+                      <option value="name-desc">Name Z to A</option>
+                      <option value="steam-asc">Steam ID Low to High</option>
+                      <option value="steam-desc">Steam ID High to Low</option>
+                    </select>
+                  </label>
+                  <label class="member-list-control">
+                    <span class="visually-hidden">Filter members by region</span>
+                    <select id="member-region-filter">
+                      <option value="all">All regions</option>
+                      <option value="East">East</option>
+                      <option value="West">West</option>
+                      <option value="Both">Both</option>
+                    </select>
+                  </label>
                   <label class="search-field">
                     <span class="visually-hidden">Search members</span>
                     <input id="member-search" type="search" placeholder="Search members…" autocomplete="off">

@@ -483,9 +483,18 @@ footer { margin-top: 20px; font-size: 12px; }
 }
 .live-updates-status.connected { background: #68d481; box-shadow: 0 0 8px #68d48188; }
 .live-updates-status.disconnected { background: #ec655f; box-shadow: 0 0 8px #ec655f66; }
-.members-actions { display: flex; align-items: center; gap: 9px; }
+.members-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
 .search-field { display: block; min-width: min(250px, 40vw); }
 .search-field input { padding: 9px 11px; }
+.member-list-control { display: block; }
+.member-list-control select {
+  max-width: 190px;
+  padding: 9px 10px;
+  border: 1px solid var(--theme-border);
+  border-radius: 7px;
+  background: var(--theme-background);
+  color: var(--theme-text);
+}
 .refresh-button { white-space: nowrap; padding: 10px 12px; }
 .icon-button { width: 36px; min-width: 36px; height: 36px; padding: 0; font-size: 22px; line-height: 1; }
 .avoid-pairing-form {
@@ -822,7 +831,9 @@ footer { margin-top: 20px; font-size: 12px; }
   .page-card, .password-card { min-height: 210px; padding: 22px; }
   .members-toolbar { align-items: stretch; flex-direction: column; }
   .members-actions { width: 100%; }
-  .search-field { flex: 1; min-width: 0; }
+  .member-list-control { flex: 1 1 130px; }
+  .member-list-control select { width: 100%; max-width: none; }
+  .search-field { flex: 1 1 200px; min-width: 0; }
   .ticket-filters { align-items: stretch; }
   .ticket-search-field { flex-basis: 100%; }
   .ticket-date-field { flex: 1; width: auto; }
