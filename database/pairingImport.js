@@ -216,16 +216,28 @@ async function removeAvoidRelationship(database, source, target) {
         { avoids: targetId }
       ]
     },
-    {
-      $pull: {
+    [{
+      $set: {
         avoids: {
-          $or: [
-            { discordId: targetId },
-            { $eq: targetId }
-          ]
+          $filter: {
+            input: { $ifNull: ['$avoids', []] },
+            as: 'avoid',
+            cond: {
+              $ne: [
+                {
+                  $cond: [
+                    { $eq: [{ $type: '$$avoid' }, 'object'] },
+                    '$$avoid.discordId',
+                    '$$avoid'
+                  ]
+                },
+                { $literal: targetId }
+              ]
+            }
+          }
         }
       }
-    }
+    }]
   );
   return {
     collectionName: 'Avoids',
