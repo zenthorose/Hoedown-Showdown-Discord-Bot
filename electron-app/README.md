@@ -26,7 +26,7 @@ The desktop app and Discord bot use the same Render Web Service and base URL. Th
 - Build command: `npm run render:build`
 - Start command: `npm start`
 - Keep the existing bot environment variables, including `BOT_TOKEN` and `CLIENT_ID`.
-- Add these database/authentication variables: `MONGO_URI`, `MONGODB_TICKETS`, `MONGODB_ADMIN`, `MONGODB_HOEDOWNINFO`, `MONGODB_ROUNDS`, `JWT_SECRET`, `ADMIN_API_KEY`, and `ADMIN_PUBLIC_ORIGIN`.
+- Add these database/authentication variables: `MONGO_URI`, `MONGODB_TICKETS`, `MONGODB_ADMIN`, `MONGODB_HOEDOWNINFO`, `MONGODB_ROUNDS`, `MONGODB_BACKUPS`, `JWT_SECRET`, `ADMIN_API_KEY`, and `ADMIN_PUBLIC_ORIGIN`.
 - The old `TEAM_CHECK_CHANNEL_ID` environment variable remains a fallback; current channel IDs are imported from `config.json` into MongoDB bot settings.
 - Optional update variables: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, `R2_READ_SECRET_ACCESS_KEY`, `APP_UPDATE_CHANNEL`
 
@@ -34,7 +34,7 @@ Generate separate random secrets for `JWT_SECRET` and `ADMIN_API_KEY`; keep them
 
 The authentication service is enabled when any of its auth-specific settings are present and serves `/healthz`, `/api/auth/*`, and `/api/admin/*` on the same origin. Configure `MONGODB_ADMIN`, `JWT_SECRET`, and `ADMIN_PUBLIC_ORIGIN` together with the existing `MONGO_URI`; a partial configuration fails startup rather than silently accepting incomplete settings. `ADMIN_API_KEY` is additionally required until the first owner passkey is enrolled, then can be removed while the passkey API continues to run.
 
-Use the same `MONGO_URI` for the MongoDB cluster. Set `MONGODB_TICKETS` to `Tickets`, `MONGODB_ADMIN` to the admin/auth database name, `MONGODB_HOEDOWNINFO` to `HoedownInfo`, and `MONGODB_ROUNDS` to `Rounds`. Avoid-pairing, past-team, member-list, and previous-pairing data share the HoedownInfo database; member profiles are stored in the `Members` collection. The rounds database contains `PlayersThatReacted`, `TeamCheck`, and sixteen separate collections named `Round#01` through `Round#16`; single-digit rounds use a leading zero. MongoDB creates collections when the first document is written. Changing a database name does not move existing data; migrate it separately if you need to preserve it.
+Use the same `MONGO_URI` for the MongoDB cluster. Set `MONGODB_TICKETS` to `Tickets`, `MONGODB_ADMIN` to the admin/auth database name, `MONGODB_HOEDOWNINFO` to `HoedownInfo`, and `MONGODB_ROUNDS` to `Rounds`. Set `MONGODB_BACKUPS` to `Backups` to keep using existing admin snapshots; if omitted or blank, it defaults to `Backups`. Avoid-pairing, past-team, member-list, and previous-pairing data share the HoedownInfo database; member profiles are stored in the `Members` collection. The rounds database contains `PlayersThatReacted`, `TeamCheck`, and sixteen separate collections named `Round#01` through `Round#16`; single-digit rounds use a leading zero. MongoDB creates collections when the first document is written. Changing a database name does not move existing data; migrate it separately if you need to preserve it.
 
 MongoDB BSON Date values remain UTC instants; the Account Manager displays them in Eastern Time (EST/EDT), and its audit date filters use Eastern calendar days. Ticket message timestamps are formatted with the Eastern timezone abbreviation.
 

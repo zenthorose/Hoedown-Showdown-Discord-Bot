@@ -4,7 +4,14 @@ const { EventEmitter } = require('node:events');
 const { ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const test = require('node:test');
-const { createApp, makeToken, normalizeUsername, readToken, validPassword } = require('../server.cjs');
+const {
+  createApp,
+  makeToken,
+  normalizeUsername,
+  readToken,
+  resolveBackupDatabaseName,
+  validPassword
+} = require('../server.cjs');
 const { DEFAULT_BOT_SETTINGS } = require('../../../database/botSettings');
 
 class MemoryCollection {
@@ -312,6 +319,17 @@ async function withServer(run, options = {}) {
     await new Promise((resolve) => server.close(resolve));
   }
 }
+
+test('backup database name uses MONGODB_BACKUPS and defaults to Backups', () => {
+  assert.equal(resolveBackupDatabaseName('ArchiveBackups'), 'ArchiveBackups');
+  assert.equal(resolveBackupDatabaseName('  Backups  '), 'Backups');
+  assert.equal(resolveBackupDatabaseName('  '), 'Backups');
+  assert.equal(resolveBackupDatabaseName(undefined), 'Backups');
+  assert.throws(
+    () => resolveBackupDatabaseName('Rounds', ['Admin', 'Rounds']),
+    /must be different from the account and application database names/
+  );
+});
 
 test('admin bot settings require authorization and return the built-in defaults', async () => {
   await withServer(async ({ baseUrl }) => {

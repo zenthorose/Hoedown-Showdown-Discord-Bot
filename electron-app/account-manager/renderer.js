@@ -476,7 +476,7 @@ byId('create-backups').addEventListener('click', async () => {
   if (!collections.length) return;
   const confirmed = await confirmCollectionAction({
     title: 'Create collection backups?',
-    message: 'Timestamped copies of these collections, including their documents and custom indexes, will be saved in the Backups database.',
+    message: 'Timestamped copies of these collections, including their documents and custom indexes, will be saved in the configured backup database.',
     confirmLabel: 'Create backups',
     collections
   });

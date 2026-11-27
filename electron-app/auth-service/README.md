@@ -6,6 +6,7 @@ Required Render environment variables:
 
 - `MONGO_URI`: private MongoDB connection string (same variable used by the existing bot scripts).
 - `MONGODB_ADMIN`: database name for app accounts, devices, and audit records.
+- `MONGODB_BACKUPS`: database name for manual snapshots; set it to `Backups` to preserve existing snapshots. If omitted or blank, the service defaults to `Backups`. Changing this name does not move existing snapshots. It must differ from the account and application database names.
 - `JWT_SECRET`: unique random secret, at least 32 characters.
 - `ADMIN_API_KEY`: separate unique random secret, at least 32 characters; required only until the first owner passkey is enrolled, then remove it from Render.
 - `ADMIN_PUBLIC_ORIGIN`: exact public HTTPS origin of the service (for example `https://auth.example.com`); this is the server-verified WebAuthn origin and RP ID source. HTTP is accepted only for localhost development.
@@ -21,7 +22,7 @@ Never commit or distribute these secrets. Restrict MongoDB network access to the
 
 ### MongoDB permissions
 
-Use a dedicated MongoDB database user with `readWrite` access only to the configured `MONGODB_ADMIN`, `MONGODB_HOEDOWNINFO`, `MONGODB_ROUNDS`, and `MONGODB_TICKETS` databases, plus the fixed `Backups` database. The service creates indexes and temporary/backup collections, so read-only access is insufficient. Do not grant `readWriteAnyDatabase`, `dbAdminAnyDatabase`, or cluster administration roles. The current bot and auth service share `MONGO_URI`; keep its permissions limited to these application databases and any other databases the bot actually uses.
+Use a dedicated MongoDB database user with `readWrite` access only to the configured `MONGODB_ADMIN`, `MONGODB_HOEDOWNINFO`, `MONGODB_ROUNDS`, and `MONGODB_TICKETS` databases, plus the database configured by `MONGODB_BACKUPS` (defaults to `Backups`). The service creates indexes and temporary/backup collections, so read-only access is insufficient. Do not grant `readWriteAnyDatabase`, `dbAdminAnyDatabase`, or cluster administration roles. The current bot and auth service share `MONGO_URI`; keep its permissions limited to these application databases and any other databases the bot actually uses.
 
 The API has no public registration. Create users through the separate account manager or, for initial recovery, run `npm run create-user -- some.username` after setting `MONGO_URI` and `MONGODB_ADMIN` locally. The command displays a random temporary password once; the user must change it at first sign-in.
 

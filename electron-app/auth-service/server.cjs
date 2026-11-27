@@ -62,6 +62,7 @@ const RESET_TTL_SECONDS = 15 * 60;
 const AUDIT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const MAX_REPLACEMENT_CSV_BYTES = 10 * 1024 * 1024;
 const BACKUP_HISTORY_COLLECTION = 'BackupHistory';
+const DEFAULT_BACKUP_DATABASE_NAME = 'Backups';
 const REPLACEMENT_CSV_COLLECTIONS = new Set([
   'Members',
   'Avoids',
@@ -258,6 +259,16 @@ function normalizeMemberUpdates(input) {
     updates[field] = value;
   }
   return updates;
+}
+
+function resolveBackupDatabaseName(value, applicationDatabaseNames = []) {
+  const databaseName = typeof value === 'string' && value.trim()
+    ? value.trim()
+    : DEFAULT_BACKUP_DATABASE_NAME;
+  if (applicationDatabaseNames.includes(databaseName)) {
+    throw new Error('MONGODB_BACKUPS must be different from the account and application database names.');
+  }
+  return databaseName;
 }
 
 function makeToken(payload, secret, now = Math.floor(Date.now() / 1000), ttl = SESSION_TTL_SECONDS) {
@@ -488,6 +499,7 @@ function createApp({
   ticketDatabase,
   botSettings,
   backupDatabase,
+  backupDatabaseName = DEFAULT_BACKUP_DATABASE_NAME,
   backupSources = [],
   adminDatabaseName,
   hoedownInfoDatabaseName,
@@ -1438,7 +1450,7 @@ function createApp({
           });
         }
       }
-      const auditLogged = await recordAdminAction('backup-collections', 'Backups', {
+      const auditLogged = await recordAdminAction('backup-collections', backupDatabaseName, {
         results: results.map(({ success, database, collection, backupCollection, documentCount, indexCount }) => ({
           success, database, collection, ...(backupCollection ? { backupCollection } : {}),
           ...(documentCount === undefined ? {} : { documentCount }),
@@ -4000,6 +4012,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
     MONGODB_HOEDOWNINFO,
     MONGODB_ROUNDS,
     MONGODB_TICKETS,
+    MONGODB_BACKUPS,
     JWT_SECRET,
     ADMIN_API_KEY,
     ADMIN_PUBLIC_ORIGIN
@@ -4013,6 +4026,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
   if (!validAdminPublicOrigin(ADMIN_PUBLIC_ORIGIN)) {
     throw new Error('Set ADMIN_PUBLIC_ORIGIN to the exact HTTPS service origin (HTTP localhost is allowed for development).');
   }
+  const configuredBackupDatabaseName = resolveBackupDatabaseName(MONGODB_BACKUPS);
   const client = new MongoClient(MONGO_URI);
   let unregisterTeamCheckPreviewSync = () => {};
   try {
@@ -4049,13 +4063,23 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       : '';
     const ticketDatabase = ticketDatabaseName ? client.db(ticketDatabaseName) : null;
     const adminDatabaseName = MONGODB_ADMIN.trim();
+    const applicationDatabaseNames = [
+      adminDatabaseName,
+      hoedownDatabaseName,
+      roundsDatabaseName,
+      ticketDatabaseName
+    ].filter(Boolean);
+    const backupDatabaseName = resolveBackupDatabaseName(
+      configuredBackupDatabaseName,
+      applicationDatabaseNames
+    );
     const backupSources = [
       { databaseName: hoedownDatabaseName, database: hoedownDatabase },
       { databaseName: roundsDatabaseName, database: roundsDatabase },
       { databaseName: ticketDatabaseName, database: ticketDatabase }
     ].filter(({ databaseName, database }) =>
-      database && databaseName && databaseName !== adminDatabaseName && databaseName !== 'Backups');
-    const backupDatabase = adminDatabaseName === 'Backups' ? null : client.db('Backups');
+      database && databaseName && databaseName !== adminDatabaseName && databaseName !== backupDatabaseName);
+    const backupDatabase = client.db(backupDatabaseName);
     const members = hoedownDatabase ? hoedownDatabase.collection('Members') : null;
     const avoids = hoedownDatabase ? hoedownDatabase.collection('Avoids') : null;
     const sendTicketReply = discordClient && ticketDatabase
@@ -4723,6 +4747,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       ticketDatabase,
       botSettings: botSettingsCollection,
       backupDatabase,
+      backupDatabaseName,
       backupSources,
       adminDatabaseName,
       hoedownInfoDatabaseName: hoedownDatabaseName,
@@ -4830,5 +4855,6 @@ module.exports = {
   normalizeMemberUpdates,
   normalizeUsername,
   readToken,
+  resolveBackupDatabaseName,
   validPassword
 };
