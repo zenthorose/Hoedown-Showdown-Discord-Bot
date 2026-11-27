@@ -16,6 +16,10 @@ const {
 } = require('@simplewebauthn/server');
 const { generatePassword } = require('./password.cjs');
 const { createUpdateFeed } = require('./update-feed.cjs');
+const {
+  DatabaseExportValidationError,
+  restoreDatabaseExport
+} = require('./database-export-restore.cjs');
 const { parseMemberListCsv } = require('../../database/memberListImport');
 const {
   addAvoidRelationships,
@@ -580,13 +584,43 @@ function createApp({
   syncRoundDraftPreview,
   grabRoundReactions,
   canGrabRoundReactions,
-  approveCurrentRound
+  approveCurrentRound,
+  onDatabaseRestoreChange = async () => {}
 }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
   app.use(helmet());
   app.use(express.json({ limit: '128kb' }));
+  let databaseRestoreInProgress = false;
+  let activeMutationRequests = 0;
+  const mutationDrainWaiters = [];
+  const waitForMutationDrain = () => activeMutationRequests === 0
+    ? Promise.resolve()
+    : new Promise((resolve) => mutationDrainWaiters.push(resolve));
+  app.use((req, res, next) => {
+    if (databaseRestoreInProgress &&
+        req.path !== '/api/admin/database-restore' &&
+        req.path !== '/healthz') {
+      return res.status(503).json({ error: 'A database restore is in progress. Try again when it finishes.' });
+    }
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) &&
+        req.path !== '/api/admin/database-restore') {
+      activeMutationRequests += 1;
+      let released = false;
+      const releaseMutation = () => {
+        if (released) return;
+        released = true;
+        activeMutationRequests -= 1;
+        if (activeMutationRequests === 0) {
+          while (mutationDrainWaiters.length) mutationDrainWaiters.shift()();
+        }
+      };
+      res.once('finish', releaseMutation);
+      res.once('close', releaseMutation);
+    }
+    return next();
+  });
 
   const webAuthnConfig = validAdminPublicOrigin(adminPublicOrigin);
   const passkeyCredentials = adminPasskeyCredentials;
@@ -1548,6 +1582,58 @@ function createApp({
       console.error('Admin database export failed:', error);
       if (!res.headersSent) return sendError(res, error, 'Admin database export failed:');
       if (!res.destroyed) res.destroy(error);
+    }
+  });
+  app.post('/api/admin/database-restore', limited(4), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    if (databaseRestoreInProgress) {
+      return res.status(409).json({ error: 'A database restore is already in progress.' });
+    }
+    if (!req.is('application/gzip')) {
+      return res.status(415).json({ error: 'Upload a gzip-compressed database export.' });
+    }
+    if (req.get('x-admin-database-restore-confirmation') !== 'replace-all-configured-databases') {
+      return res.status(400).json({ error: 'Confirm that all configured databases may be replaced.' });
+    }
+    const databases = exportDatabases
+      .filter(({ databaseName, database }) =>
+        typeof databaseName === 'string' && databaseName && database)
+      .sort((left, right) => left.databaseName.localeCompare(right.databaseName));
+    if (!databases.length) {
+      return res.status(503).json({ error: 'Database restore is not configured.' });
+    }
+
+    databaseRestoreInProgress = true;
+    try {
+      await onDatabaseRestoreChange(true);
+      await waitForMutationDrain();
+      const result = await restoreDatabaseExport(req, databases);
+      const auditLogged = await recordAdminAction('restore-database-export', 'all-configured-databases', {
+        databases: result.databases,
+        collectionCount: result.collectionCount,
+        viewCount: result.viewCount,
+        documentCount: result.documentCount
+      });
+      res.set('Cache-Control', 'private, no-store');
+      return res.status(200).json({ ...result, auditLogged });
+    } catch (error) {
+      if (error instanceof DatabaseExportValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (error.rollbackIncomplete) {
+        console.error('Admin database restore rollback failed:', error);
+        return res.status(503).json({
+          error: 'The restore failed and automatic rollback was incomplete. Check service logs and the target databases before using them.'
+        });
+      }
+      return sendError(res, error, 'Admin database restore failed:');
+    } finally {
+      databaseRestoreInProgress = false;
+      try {
+        await onDatabaseRestoreChange(false);
+      } catch (error) {
+        console.error('Could not resume bot activity after database restore:', error);
+      }
     }
   });
   app.post('/api/admin/collections/wipe', adminMutationLimit, async (req, res) => {
@@ -4092,7 +4178,11 @@ function createApp({
   return app;
 }
 
-async function createRuntime({ discordClient, discordGuildId = process.env.GUILD_ID } = {}) {
+async function createRuntime({
+  discordClient,
+  discordGuildId = process.env.GUILD_ID,
+  onDatabaseRestoreChange
+} = {}) {
   const {
     MONGO_URI,
     MONGODB_ADMIN,
@@ -4873,6 +4963,7 @@ async function createRuntime({ discordClient, discordGuildId = process.env.GUILD
       grabRoundReactions,
       canGrabRoundReactions,
       approveCurrentRound,
+      onDatabaseRestoreChange,
       jwtSecret: JWT_SECRET,
       adminApiKey: ADMIN_API_KEY,
       dummyPasswordHash,

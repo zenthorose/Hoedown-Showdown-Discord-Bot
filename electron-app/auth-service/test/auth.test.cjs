@@ -4,7 +4,7 @@ const { EventEmitter } = require('node:events');
 const { BSON, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const test = require('node:test');
-const { gunzipSync } = require('node:zlib');
+const { gunzipSync, gzipSync } = require('node:zlib');
 const {
   createApp,
   makeToken,
@@ -147,10 +147,10 @@ class MemoryCollection {
 
 class MemoryTicketDatabase {
   constructor(collections = {}) {
-    this.collections = new Map(Object.entries(collections).map(([name, items]) => [
-      name,
-      new MemoryCollection(items)
-    ]));
+    this.collections = new Map();
+    for (const [name, items] of Object.entries(collections)) {
+      this.collection(name).items = items;
+    }
   }
 
   listCollections(filter = {}) {
@@ -161,20 +161,30 @@ class MemoryTicketDatabase {
         : requestedName && requestedName.$regex
           ? new RegExp(requestedName.$regex).test(name)
           : true)
-      .map((name) => ({ name, options: this.collections.get(name).options || {} }));
+      .map((name) => {
+        const options = this.collections.get(name).options || {};
+        return { name, options, type: options.viewOn ? 'view' : 'collection' };
+      });
     return { toArray: async () => matches };
   }
 
   collection(name) {
     if (!this.collections.has(name)) {
       const collection = new MemoryCollection();
-      collection.onDrop = () => this.collections.delete(name);
+      collection.name = name;
+      collection.onDrop = () => this.collections.delete(collection.name);
       collection.onRename = async (newName, options = {}) => {
+        if (this.failInstallRename &&
+            collection.name.startsWith('_restore_') &&
+            !collection.name.startsWith('_restore_old_') &&
+            newName === 'Members') {
+          throw new Error('Simulated restore cutover failure.');
+        }
         if (this.collections.has(newName) && !options.dropTarget) {
           throw new Error('Target collection already exists.');
         }
         if (options.dropTarget) this.collections.delete(newName);
-        this.collections.delete(name);
+        this.collections.delete(collection.name);
         collection.name = newName;
         this.collections.set(newName, collection);
         return collection;
@@ -188,6 +198,7 @@ class MemoryTicketDatabase {
     if (this.collections.has(name)) throw new Error('Collection already exists.');
     const collection = this.collection(name);
     collection.options = options;
+    collection.failIndexCreation = this.failIndexCreation || false;
     return collection;
   }
 }
@@ -402,6 +413,117 @@ test('database export requires admin auth and streams configured collections as 
       { databaseName: 'Backups', database: backupDatabase },
       { databaseName: 'Admin', database: adminDatabase }
     ]
+  });
+});
+
+test('database restore validates the full export before replacing configured collections', async () => {
+  const restoredMemberId = new ObjectId();
+  const restoredAt = new Date('2026-11-27T10:00:00.000Z');
+  const database = new MemoryTicketDatabase({
+    Members: [{ _id: 'existing-member', username: 'old.player' }],
+    Obsolete: [{ _id: 'obsolete-record' }]
+  });
+  const archive = (records) => gzipSync(
+    `${records.map((record) => BSON.EJSON.stringify(record, { relaxed: false })).join('\n')}\n`
+  );
+  const validArchive = archive([
+    {
+      recordType: 'manifest',
+      format: 'hoedown-mongodb-export',
+      formatVersion: 1,
+      databases: ['HoedownInfo']
+    },
+    {
+      recordType: 'collection',
+      database: 'HoedownInfo',
+      name: 'Members',
+      options: {},
+      indexes: [
+        { name: '_id_', key: { _id: 1 }, v: 2 },
+        { name: 'username_unique', key: { username: 1 }, unique: true, v: 2 }
+      ]
+    },
+    {
+      recordType: 'document',
+      database: 'HoedownInfo',
+      collection: 'Members',
+      document: { _id: restoredMemberId, username: 'new.player', createdAt: restoredAt }
+    },
+    {
+      recordType: 'view',
+      database: 'HoedownInfo',
+      name: 'MemberView',
+      options: { viewOn: 'Members', pipeline: [] }
+    }
+  ]);
+  const headers = {
+    Authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
+    'Content-Type': 'application/gzip',
+    'X-Admin-Database-Restore-Confirmation': 'replace-all-configured-databases'
+  };
+
+  await withServer(async ({ baseUrl, audit }) => {
+    const invalidResponse = await fetch(`${baseUrl}/api/admin/database-restore`, {
+      method: 'POST',
+      headers,
+      body: archive([{
+        recordType: 'manifest',
+        format: 'hoedown-mongodb-export',
+        formatVersion: 1,
+        databases: ['Unexpected']
+      }])
+    });
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(database.collection('Members').items[0].username, 'old.player');
+
+    database.failIndexCreation = true;
+    const failedResponse = await fetch(`${baseUrl}/api/admin/database-restore`, {
+      method: 'POST',
+      headers,
+      body: validArchive
+    });
+    assert.equal(failedResponse.status, 503);
+    assert.equal(database.collection('Members').items[0].username, 'old.player');
+    assert.equal([...database.collections.keys()].some((name) =>
+      name.startsWith('_restore_')), false);
+    database.failIndexCreation = false;
+
+    database.failInstallRename = true;
+    const cutoverFailure = await fetch(`${baseUrl}/api/admin/database-restore`, {
+      method: 'POST',
+      headers,
+      body: validArchive
+    });
+    assert.equal(cutoverFailure.status, 503);
+    assert.equal(database.collection('Members').items[0].username, 'old.player');
+    assert.equal(database.collections.has('Obsolete'), true);
+    assert.equal([...database.collections.keys()].some((name) =>
+      name.startsWith('_restore_')), false);
+    database.failInstallRename = false;
+
+    const response = await fetch(`${baseUrl}/api/admin/database-restore`, {
+      method: 'POST',
+      headers,
+      body: validArchive
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.documentCount, 1);
+    assert.equal(result.collectionCount, 1);
+    assert.equal(result.viewCount, 1);
+    assert.equal(result.auditLogged, true);
+    assert.equal(database.collection('Members').items[0].username, 'new.player');
+    assert.equal(database.collection('Members').items[0]._id.toString(), restoredMemberId.toString());
+    assert.equal(database.collection('Members').items[0].createdAt.toISOString(), restoredAt.toISOString());
+    assert.equal(database.collections.has('Obsolete'), false);
+    assert.equal(database.collection('MemberView').options.viewOn, 'Members');
+    assert.equal(database.collection('Members').indexSpecifications.some((index) =>
+      index.name === 'username_unique' && index.unique), true);
+    assert.equal([...database.collections.keys()].some((name) =>
+      name.startsWith('_restore_')), false);
+    assert.equal(audit.items.some((entry) => entry.action === 'restore-database-export'), true);
+  }, {
+    exportDatabases: [{ databaseName: 'HoedownInfo', database }]
   });
 });
 

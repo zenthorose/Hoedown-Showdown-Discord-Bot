@@ -59,6 +59,47 @@ const client = new Client({
   ]
 });
 
+let databaseRestoreInProgress = false;
+let activeBotOperations = 0;
+let restorePauseWarningWritten = false;
+const databaseRestoreWaiters = [];
+
+function beginBotOperation() {
+  if (databaseRestoreInProgress) {
+    if (!restorePauseWarningWritten) {
+      console.warn('Discord event handling is paused during database restore; incoming events may be skipped.');
+      restorePauseWarningWritten = true;
+    }
+    return false;
+  }
+  activeBotOperations += 1;
+  return true;
+}
+
+function endBotOperation() {
+  activeBotOperations -= 1;
+  if (activeBotOperations === 0) {
+    while (databaseRestoreWaiters.length) databaseRestoreWaiters.shift()();
+  }
+}
+
+async function setDatabaseRestoreInProgress(restoring) {
+  databaseRestoreInProgress = restoring;
+  restorePauseWarningWritten = false;
+  if (restoring && activeBotOperations > 0) {
+    await new Promise((resolve) => databaseRestoreWaiters.push(resolve));
+  }
+}
+
+async function runBotOperation(operation) {
+  if (!beginBotOperation()) return;
+  try {
+    await operation();
+  } finally {
+    endBotOperation();
+  }
+}
+
 client.commands = new Collection();
 const botToken = process.env.BOT_TOKEN;
 const clientId = process.env.CLIENT_ID;
@@ -127,6 +168,7 @@ client.once('clientReady', onClientReady);
 
 // --- Auto-run member-update ---
 client.on('guildMemberAdd', async (member) => {
+  if (!beginBotOperation()) return;
   console.log(`🎉 New member joined: ${member.user.tag} (${member.id})`);
   try {
     const commandName = 'member-update';
@@ -153,17 +195,21 @@ client.on('guildMemberAdd', async (member) => {
     console.log(`✅ Auto-ran "${commandName}" for ${member.user.tag}`);
   } catch (err) {
     console.error(`❌ Failed to auto-run member-update:`, err);
+  } finally {
+    endBotOperation();
   }
 });
 
 // --- Swampmail event handlers ---
 const swampmail = require('./events/swampmail.js');
-client.on('messageCreate', msg => swampmail.handleMessageCreate(client, msg));
-client.on('messageUpdate', (oldMsg, newMsg) => swampmail.handleMessageUpdate(client, oldMsg, newMsg));
-client.on('messageDelete', msg => swampmail.handleMessageDelete(client, msg));
+client.on('messageCreate', msg => runBotOperation(() => swampmail.handleMessageCreate(client, msg)));
+client.on('messageUpdate', (oldMsg, newMsg) =>
+  runBotOperation(() => swampmail.handleMessageUpdate(client, oldMsg, newMsg)));
+client.on('messageDelete', msg => runBotOperation(() => swampmail.handleMessageDelete(client, msg)));
 
 // --- Muffin watcher in the messageCreate listener ---
 client.on('messageCreate', async (message) => {
+  if (!beginBotOperation()) return;
   try {
     if (message.content === '!ping') await message.channel.send('Pong!');
 
@@ -176,11 +222,26 @@ client.on('messageCreate', async (message) => {
     }
   } catch (err) {
     console.error('Unexpected messageCreate error:', err);
+  } finally {
+    endBotOperation();
   }
 });
 
 // --- Interaction handler ---
 client.on('interactionCreate', async (interaction) => {
+  if (!beginBotOperation()) {
+    if (interaction.isCommand() && !interaction.replied && !interaction.deferred) {
+      try {
+        await interaction.reply({
+          content: 'Database recovery is in progress. Please try again shortly.',
+          flags: 64
+        });
+      } catch (err) {
+        console.warn('Could not notify about database recovery:', err?.message || err);
+      }
+    }
+    return;
+  }
       try {
         if (interaction.isButton() && interaction.customId === 'muffin') {
       try {
@@ -256,6 +317,8 @@ client.on('interactionCreate', async (interaction) => {
       }
   } catch (err) {
     console.error('Unexpected interactionCreate error:', err);
+  } finally {
+    endBotOperation();
   }
 });
 
@@ -270,7 +333,10 @@ async function startWebService() {
   const authConfigured = authEnvironment.some((name) => Boolean(process.env[name]));
   if (authConfigured) {
     const { createRuntime } = require('./electron-app/auth-service/server.cjs');
-    const authRuntime = await createRuntime({ discordClient: client });
+    const authRuntime = await createRuntime({
+      discordClient: client,
+      onDatabaseRestoreChange: setDatabaseRestoreInProgress
+    });
     app.use(authRuntime.app);
     console.log('🔐 Authentication API mounted on the bot service.');
   } else {

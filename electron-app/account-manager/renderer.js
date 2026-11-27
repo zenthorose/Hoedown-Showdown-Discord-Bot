@@ -12,6 +12,7 @@ let botSettingsLoaded = false;
 let backupLoading = false;
 let backupRunning = false;
 let databaseExportRunning = false;
+let databaseRestoreRunning = false;
 let selectedReplacementCsv = null;
 
 function showStatus(id, message) {
@@ -184,7 +185,7 @@ function updateBackupControls() {
   const rows = byId('backup-source-rows');
   const checkboxes = [...rows.querySelectorAll('input[data-backup-database]')];
   const selectedCount = checkboxes.filter((input) => input.checked).length;
-  const busy = backupLoading || backupRunning || databaseExportRunning;
+  const busy = backupLoading || backupRunning || databaseExportRunning || databaseRestoreRunning;
   for (const checkbox of checkboxes) checkbox.disabled = busy;
   for (const group of rows.querySelectorAll('details[data-backup-group]')) {
     const groupCheckboxes = [...group.querySelectorAll('input[data-backup-database]')];
@@ -194,6 +195,7 @@ function updateBackupControls() {
   }
   byId('refresh-backups').disabled = busy;
   byId('download-full-export').disabled = busy;
+  byId('restore-full-export').disabled = busy;
   byId('select-all-backups').disabled = busy || checkboxes.length === 0;
   byId('create-backups').disabled = busy || selectedCount === 0;
   byId('wipe-selected').disabled = busy || selectedCount === 0;
@@ -531,6 +533,41 @@ byId('download-full-export').addEventListener('click', async () => {
     showStatus('backup-status', error.message || 'Could not download the full database export.');
   } finally {
     databaseExportRunning = false;
+    updateBackupControls();
+  }
+});
+
+byId('restore-full-export').addEventListener('click', async () => {
+  if (backupLoading || backupRunning || databaseExportRunning || databaseRestoreRunning) return;
+  const confirmed = await confirmCollectionAction({
+    title: 'Replace all configured databases?',
+    message: 'This will upload a .jsonl.gz export to Render over HTTPS and replace every configured database, including Admin/auth. Current account/passkey data and all current collections will be replaced; the current Admin session may stop working. Make sure the export is trusted, you have a separate recovery passkey, and database writes are quiet. Selecting a file starts the restore.',
+    confirmLabel: 'Choose export file',
+    collections: [],
+    danger: true
+  });
+  if (!confirmed) return;
+
+  databaseRestoreRunning = true;
+  updateBackupControls();
+  showStatus('backup-status', 'Choose the export file to upload and restore. This may take several minutes.');
+  try {
+    const result = await window.admin.restoreDatabaseExport();
+    if (result.canceled) {
+      showStatus('backup-status', 'Database restore canceled.');
+    } else {
+      const cleanupWarning = result.cleanupWarningCount
+        ? ` ${result.cleanupWarningCount} previous collection(s) could not be removed; review the service logs.`
+        : '';
+      showStatus(
+        'backup-status',
+        `Restored ${result.documentCount} document(s) across ${result.collectionCount} collection(s) and ${result.viewCount} view(s) from ${result.fileName}.${cleanupWarning}`
+      );
+    }
+  } catch (error) {
+    showStatus('backup-status', error.message || 'Could not restore the full database export.');
+  } finally {
+    databaseRestoreRunning = false;
     updateBackupControls();
   }
 });

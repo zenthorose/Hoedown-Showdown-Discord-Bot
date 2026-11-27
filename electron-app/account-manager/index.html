@@ -114,11 +114,17 @@
             file is compressed but not encrypted. Store it securely before uploading it to cloud storage.
           </p>
           <p class="backup-warning">
+            Restoring a full export uploads the selected file to Render over HTTPS and replaces every configured database,
+            including Admin/auth. This can restore older accounts and passkeys and invalidate your current Admin session.
+            Run the restore only when database writes are quiet and you have a separate recovery passkey.
+          </p>
+          <p class="backup-warning">
             Wipe selected permanently deletes every document in those collections but keeps the collections and indexes.
             Create a backup first if you may need the data later.
           </p>
           <div class="actions backup-actions">
             <button id="download-full-export" class="secondary" type="button">Download full database export</button>
+            <button id="restore-full-export" class="danger" type="button">Restore full database export</button>
             <button id="select-all-backups" class="secondary" type="button">Select all</button>
             <button id="create-backups" type="button" disabled>Create selected backups</button>
             <button id="wipe-selected" class="danger" type="button" disabled>Wipe selected</button>

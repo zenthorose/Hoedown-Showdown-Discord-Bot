@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, safeStorage, clipboard, dialog, shell } = require('electron');
 const crypto = require('node:crypto');
-const { createWriteStream } = require('node:fs');
+const { createReadStream, createWriteStream } = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const fs = require('node:fs/promises');
@@ -161,6 +161,55 @@ async function downloadDatabaseExport(settings, filePath) {
     }
     throw error;
   }
+}
+
+async function restoreDatabaseExport(settings, filePath) {
+  if (!settings) throw new Error('Configure the Render service URL first.');
+  if (!settings.adminSessionToken) throw new Error('Sign in with your passkey before using Admin.');
+  if (settings.adminSessionExpiresAt &&
+      new Date(settings.adminSessionExpiresAt).getTime() <= Date.now()) {
+    throw new Error('Your Admin session expired. Sign in with your passkey again.');
+  }
+
+  const fileStats = await fs.stat(filePath);
+  if (!fileStats.isFile() || fileStats.size === 0) {
+    throw new Error('Choose a non-empty database export file.');
+  }
+  const response = await fetch(new URL('/api/admin/database-restore', `${settings.serviceUrl}/`), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${settings.adminSessionToken}`,
+      'Content-Length': String(fileStats.size),
+      'Content-Type': 'application/gzip',
+      'X-Admin-Database-Restore-Confirmation': 'replace-all-configured-databases'
+    },
+    body: createReadStream(filePath),
+    duplex: 'half'
+  });
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Render returned a non-JSON response (HTTP ${response.status}). Verify the service URL and deployment.`);
+  }
+  if (!response.ok) {
+    throw new Error(
+      data && typeof data.error === 'string' && data.error
+        ? data.error
+        : `Database restore failed with HTTP ${response.status}.`
+    );
+  }
+  if (!Array.isArray(data.databases) ||
+      data.databases.some((database) => typeof database !== 'string') ||
+      !Number.isInteger(data.collectionCount) ||
+      !Number.isInteger(data.viewCount) ||
+      !Number.isInteger(data.documentCount) ||
+      !Number.isInteger(data.cleanupWarningCount) ||
+      typeof data.auditLogged !== 'boolean') {
+    throw new Error('Render returned invalid database restore results.');
+  }
+  return data;
 }
 
 function encrypt(value) {
@@ -666,6 +715,36 @@ app.whenReady().then(() => {
 
     const fileName = await downloadDatabaseExport(settings, choice.filePath);
     return { canceled: false, fileName };
+  });
+
+  ipcMain.handle('admin:restore-database-export', async (event) => {
+    requireTrusted(event);
+    const settings = await loadSettings();
+    if (!settings || !settings.adminSessionToken) {
+      throw new Error('Sign in with your passkey before using Admin.');
+    }
+    if (settings.adminSessionExpiresAt &&
+        new Date(settings.adminSessionExpiresAt).getTime() <= Date.now()) {
+      throw new Error('Your Admin session expired. Sign in with your passkey again.');
+    }
+
+    const choice = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select a full database export to restore',
+      properties: ['openFile'],
+      filters: [{ name: 'Hoedown database export', extensions: ['gz'] }]
+    });
+    if (choice.canceled || !choice.filePaths[0]) return { canceled: true };
+    const filePath = choice.filePaths[0];
+    if (!filePath.toLowerCase().endsWith('.jsonl.gz')) {
+      throw new TypeError('Choose a .jsonl.gz database export file.');
+    }
+
+    const result = await restoreDatabaseExport(settings, filePath);
+    return {
+      ...result,
+      canceled: false,
+      fileName: path.basename(filePath)
+    };
   });
 
   ipcMain.handle('admin:wipe-collections', async (event, collections) => {
