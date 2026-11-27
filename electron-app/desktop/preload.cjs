@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('hoedown', {
   updateMember: (discordId, fields) =>
     ipcRenderer.invoke('members:update', { discordId, fields }),
   createAvoids: (input) => ipcRenderer.invoke('avoids:create', input),
+  removeAvoid: (input) => ipcRenderer.invoke('avoids:remove', input),
   onMemberChange: (callback) => {
     if (typeof callback !== 'function') throw new TypeError('Member change callback must be a function.');
     const listener = (_event, update) => callback(update);

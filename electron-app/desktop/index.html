@@ -160,6 +160,14 @@
               </form>
               <datalist id="avoid-member-options"></datalist>
               <p id="avoids-feedback" class="avoids-feedback" role="status" aria-live="polite" hidden></p>
+              <dialog id="avoid-remove-confirmation" class="ticket-dialog">
+                <h2>Remove Avoid relationship?</h2>
+                <p id="avoid-remove-confirmation-message"></p>
+                <div class="ticket-dialog-actions">
+                  <button id="confirm-avoid-remove" class="danger" type="button">Remove Avoid</button>
+                  <button id="cancel-avoid-remove" class="secondary" type="button" autofocus>Cancel</button>
+                </div>
+              </dialog>
               <div id="avoids-list" class="avoids-list" role="list" aria-label="Directional avoid relationships"></div>
               <p id="avoids-state" class="members-state" role="status" aria-live="polite">Avoid relationships are not loaded.</p>
             </section>

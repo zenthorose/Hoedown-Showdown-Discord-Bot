@@ -877,6 +877,40 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('avoids:remove', async (event, input) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) {
+      throw new Error('Untrusted avoid removal request.');
+    }
+    if (!input || typeof input.avoiderDiscordId !== 'string' ||
+        !/^\d{17,20}$/.test(input.avoiderDiscordId) ||
+        typeof input.avoidedDiscordId !== 'string' ||
+        !/^\d{17,20}$/.test(input.avoidedDiscordId) ||
+        input.avoiderDiscordId === input.avoidedDiscordId) {
+      return { ok: false, error: 'Choose a valid avoider and Avoiding member.' };
+    }
+    try {
+      if (!sessionToken) sessionToken = await readToken();
+      if (!sessionToken) return { ok: false, error: 'Your session expired. Sign in again.' };
+      const { response, data } = await requestApi('/api/avoids', {
+        method: 'DELETE',
+        token: sessionToken,
+        body: input
+      });
+      if (response.status === 401) {
+        await clearToken();
+        sendStatus({ signedIn: false, error: data.error || 'Your session expired. Sign in again.' });
+        return { ok: false, error: data.error || 'Your session expired. Sign in again.' };
+      }
+      if (!response.ok) return { ok: false, error: data.error || 'Could not remove the Avoid relationship.' };
+      if (data.success !== true || data.removed !== true) {
+        throw new Error('The service returned an invalid Avoid removal result.');
+      }
+      return { ok: true, removed: true };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Could not reach the avoid service.' };
+    }
+  });
+
   ipcMain.handle('rounds:grab-reactions', async (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) {
       throw new Error('Untrusted round generation request.');

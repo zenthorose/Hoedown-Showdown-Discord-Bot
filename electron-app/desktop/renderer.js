@@ -39,6 +39,8 @@ let avoidsLoaded = false;
 let avoidsLoading = false;
 let avoidsResyncPending = false;
 let avoidTargetFieldId = 0;
+const editingAvoiderIds = new Set();
+const pendingAvoidRemovals = new Set();
 let ticketPeople = [];
 let ticketsLoaded = false;
 let ticketsLoading = false;
@@ -307,6 +309,8 @@ function showSignedOut(profileSelected = true) {
   avoidRecords = [];
   avoidsLoaded = false;
   avoidsResyncPending = false;
+  editingAvoiderIds.clear();
+  pendingAvoidRemovals.clear();
   document.getElementById('avoids-list').replaceChildren();
   document.getElementById('avoids-summary').textContent = 'Sign in to load avoid relationships.';
   document.getElementById('avoids-state').textContent = 'Avoid relationships are not loaded.';
@@ -2034,6 +2038,58 @@ async function resyncMembers() {
   }
 }
 
+function confirmAvoidRemoval(avoiderName, avoidedName) {
+  const dialog = document.getElementById('avoid-remove-confirmation');
+  document.getElementById('avoid-remove-confirmation-message').textContent =
+    `Remove ${avoidedName} from ${avoiderName}'s Avoiding list?`;
+  dialog.returnValue = '';
+  return new Promise((resolve, reject) => {
+    const onClose = () => resolve(dialog.returnValue === 'remove');
+    dialog.addEventListener('close', onClose, { once: true });
+    try {
+      dialog.showModal();
+    } catch (error) {
+      dialog.removeEventListener('close', onClose);
+      reject(error);
+    }
+  });
+}
+
+async function removeAvoidRelationship(group, member) {
+  const key = `${group.avoiderDiscordId}\0${member.discordId}`;
+  if (pendingAvoidRemovals.has(key)) return;
+  try {
+    if (!await confirmAvoidRemoval(group.avoiderName, member.name)) return;
+  } catch (error) {
+    setAvoidsFeedback(error.message || 'Could not open the confirmation dialog.', true);
+    return;
+  }
+
+  pendingAvoidRemovals.add(key);
+  renderAvoids();
+  setAvoidsFeedback(`Removing ${member.name} from ${group.avoiderName}'s Avoiding list…`);
+  try {
+    const result = await window.hoedown.removeAvoid({
+      avoiderDiscordId: group.avoiderDiscordId,
+      avoidedDiscordId: member.discordId
+    });
+    if (!result.ok) throw new Error(result.error || 'Could not remove the Avoid relationship.');
+    avoidRecords = avoidRecords.filter((pair) =>
+      pair.avoiderDiscordId !== group.avoiderDiscordId ||
+      pair.avoidedDiscordId !== member.discordId);
+    if (!avoidRecords.some((pair) => pair.avoiderDiscordId === group.avoiderDiscordId)) {
+      editingAvoiderIds.delete(group.avoiderDiscordId);
+    }
+    renderAvoids();
+    setAvoidsFeedback(`Removed ${member.name} from ${group.avoiderName}'s Avoiding list.`);
+  } catch (error) {
+    setAvoidsFeedback(error.message || 'Could not remove the Avoid relationship.', true);
+  } finally {
+    pendingAvoidRemovals.delete(key);
+    renderAvoids();
+  }
+}
+
 function renderAvoids() {
   const list = document.getElementById('avoids-list');
   const state = document.getElementById('avoids-state');
@@ -2077,18 +2133,36 @@ function renderAvoids() {
     const row = document.createElement('article');
     row.className = 'avoid-row';
     row.setAttribute('role', 'listitem');
+    const isEditing = editingAvoiderIds.has(group.avoiderDiscordId);
     const avoider = document.createElement('div');
     avoider.className = 'avoid-player';
+    const avoiderHeading = document.createElement('div');
+    avoiderHeading.className = 'avoid-player-heading';
     const avoiderLabel = document.createElement('span');
     avoiderLabel.className = 'avoid-player-label';
     avoiderLabel.textContent = 'Avoider';
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'secondary icon-button avoid-edit-button';
+    editButton.textContent = isEditing ? 'Done' : '✎';
+    editButton.setAttribute('aria-label', isEditing
+      ? `Finish editing ${group.avoiderName}'s Avoids`
+      : `Edit ${group.avoiderName}'s Avoids`);
+    editButton.title = isEditing ? 'Done editing Avoids' : 'Edit Avoiding list';
+    editButton.setAttribute('aria-pressed', String(isEditing));
+    editButton.addEventListener('click', () => {
+      if (isEditing) editingAvoiderIds.delete(group.avoiderDiscordId);
+      else editingAvoiderIds.add(group.avoiderDiscordId);
+      renderAvoids();
+    });
+    avoiderHeading.append(avoiderLabel, editButton);
     const avoiderName = document.createElement('strong');
     avoiderName.textContent = group.avoiderNickname || group.avoiderUsername || 'No nickname set';
     const avoiderUsername = document.createElement('small');
     avoiderUsername.textContent = group.avoiderUsername ? `@${group.avoiderUsername}` : 'No username listed';
     const avoiderId = document.createElement('small');
     avoiderId.textContent = group.avoiderDiscordId || '';
-    avoider.append(avoiderLabel, avoiderName, avoiderUsername, avoiderId);
+    avoider.append(avoiderHeading, avoiderName, avoiderUsername, avoiderId);
 
     const avoided = document.createElement('section');
     avoided.className = 'avoid-targets';
@@ -2100,13 +2174,31 @@ function renderAvoids() {
     for (const member of group.avoidedMembers) {
       const item = document.createElement('li');
       item.className = 'avoid-target-item';
+      const identity = document.createElement('div');
+      identity.className = 'avoid-target-identity';
       const name = document.createElement('strong');
       name.textContent = member.nickname || member.username || 'No nickname set';
       const username = document.createElement('small');
       username.textContent = member.username ? `@${member.username}` : 'No username listed';
       const discordId = document.createElement('small');
       discordId.textContent = member.discordId || '';
-      item.append(name, username, discordId);
+      identity.append(name, username, discordId);
+      item.append(identity);
+      if (isEditing) {
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'avoid-remove-button';
+        removeButton.textContent = '−';
+        removeButton.setAttribute('aria-label', `Remove ${member.name} from ${group.avoiderName}'s Avoiding list`);
+        removeButton.title = 'Remove Avoid relationship';
+        removeButton.disabled = pendingAvoidRemovals.has(
+          `${group.avoiderDiscordId}\0${member.discordId}`
+        );
+        removeButton.addEventListener('click', () => {
+          void removeAvoidRelationship(group, member);
+        });
+        item.append(removeButton);
+      }
       avoidedList.append(item);
     }
     avoided.append(avoidedLabel, avoidedList);
@@ -2776,6 +2868,17 @@ function resolveMemberPicker(value) {
   const normalizedValue = value.trim();
   return memberRecords.find((member) => memberPickerLabel(member) === normalizedValue);
 }
+
+document.getElementById('confirm-avoid-remove').addEventListener('click', () => {
+  const dialog = document.getElementById('avoid-remove-confirmation');
+  dialog.returnValue = 'remove';
+  dialog.close();
+});
+document.getElementById('cancel-avoid-remove').addEventListener('click', () => {
+  const dialog = document.getElementById('avoid-remove-confirmation');
+  dialog.returnValue = 'cancel';
+  dialog.close();
+});
 
 document.getElementById('add-avoid-pairing').addEventListener('click', () => {
   if (!membersLoaded || !memberRecords.some((member) => member.username)) {

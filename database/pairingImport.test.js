@@ -210,9 +210,21 @@ test('removes only the selected directional avoid from the source player documen
   assert.equal(writeCollection, 'Avoids');
   assert.deepEqual(filter, {
     _id: '431892857453019148',
-    'avoids.discordId': '507683691586387979'
+    $or: [
+      { 'avoids.discordId': '507683691586387979' },
+      { avoids: '507683691586387979' }
+    ]
   });
-  assert.deepEqual(update, { $pull: { avoids: { discordId: '507683691586387979' } } });
+  assert.deepEqual(update, {
+    $pull: {
+      avoids: {
+        $or: [
+          { discordId: '507683691586387979' },
+          { $eq: '507683691586387979' }
+        ]
+      }
+    }
+  });
   assert.equal(result.removed, true);
 });
 

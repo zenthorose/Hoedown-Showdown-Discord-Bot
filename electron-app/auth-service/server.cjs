@@ -24,7 +24,8 @@ const { parseMemberListCsv } = require('../../database/memberListImport');
 const {
   addAvoidRelationships,
   parseAvoidsCsv,
-  parsePreviousPairingsCsv
+  parsePreviousPairingsCsv,
+  removeAvoidRelationship: removeAvoidRelationshipFromDatabase
 } = require('../../database/pairingImport');
 const {
   PAST_HOEDOWN_EVENTS,
@@ -585,7 +586,8 @@ function createApp({
   grabRoundReactions,
   canGrabRoundReactions,
   approveCurrentRound,
-  onDatabaseRestoreChange = async () => {}
+  onDatabaseRestoreChange = async () => {},
+  removeAvoidRelationship = removeAvoidRelationshipFromDatabase
 }) {
   const app = express();
   app.disable('x-powered-by');
@@ -3247,6 +3249,35 @@ function createApp({
       });
     } catch (error) {
       return sendError(res, error, 'Avoid update failed:');
+    }
+  });
+  app.delete('/api/avoids', limited(20), async (req, res) => {
+    try {
+      const session = await readSession(req, res);
+      if (!session) return;
+      if (!avoids) return res.status(503).json({ error: 'Avoid data is not configured.' });
+
+      const avoiderDiscordId = req.body && req.body.avoiderDiscordId;
+      const avoidedDiscordId = req.body && req.body.avoidedDiscordId;
+      if (typeof avoiderDiscordId !== 'string' || !MEMBER_ID_PATTERN.test(avoiderDiscordId) ||
+          typeof avoidedDiscordId !== 'string' || !MEMBER_ID_PATTERN.test(avoidedDiscordId)) {
+        return res.status(400).json({ error: 'Choose a valid avoider and Avoiding member.' });
+      }
+      if (avoiderDiscordId === avoidedDiscordId) {
+        return res.status(400).json({ error: 'An avoider cannot remove themselves from their Avoiding list.' });
+      }
+
+      const result = await removeAvoidRelationship(
+        { collection: () => avoids },
+        { id: avoiderDiscordId },
+        { id: avoidedDiscordId }
+      );
+      if (!result.foundDocument || !result.removed) {
+        return res.status(404).json({ error: 'That Avoid relationship no longer exists.' });
+      }
+      return res.status(200).json({ success: true, removed: true });
+    } catch (error) {
+      return sendError(res, error, 'Avoid removal failed:');
     }
   });
 

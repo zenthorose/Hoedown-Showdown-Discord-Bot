@@ -585,6 +585,13 @@ footer { margin-top: 20px; font-size: 12px; }
   background: var(--theme-surface);
 }
 .avoid-player { display: grid; min-width: 0; gap: 4px; }
+.avoid-player-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.avoid-player-heading .avoid-player-label { padding-top: 5px; }
+.avoid-edit-button { width: 30px; min-width: 30px; height: 30px; padding: 0; font-size: 17px; line-height: 1; }
+.avoid-target-item { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.avoid-target-identity { display: grid; min-width: 0; gap: 4px; }
+.avoid-remove-button { width: 28px; min-width: 28px; height: 28px; padding: 0; border-radius: 50%; background: #a63f3b; color: #fff; font-size: 20px; font-weight: 700; line-height: 1; }
+.avoid-remove-button:hover:not(:disabled) { background: #c94c46; }
 .avoid-player-label { color: var(--theme-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 .avoid-player strong { overflow-wrap: anywhere; color: var(--theme-accent-text); font-size: 14px; }
 .avoid-player small { overflow-wrap: anywhere; color: var(--theme-muted); font-size: 11px; }

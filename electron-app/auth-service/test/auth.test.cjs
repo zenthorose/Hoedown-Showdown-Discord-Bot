@@ -277,6 +277,7 @@ async function withServer(run, options = {}) {
     backupDatabase: options.backupDatabase,
     exportDatabases: options.exportDatabases,
     backupSources: options.backupSources,
+    removeAvoidRelationship: options.removeAvoidRelationship,
     adminDatabaseName: 'Admin',
     hoedownInfoDatabaseName: options.hoedownInfoDatabaseName || 'HoedownInfo',
     roundDraftCollection: options.roundDraftCollection,
@@ -1443,6 +1444,70 @@ test('avoid directory requires a session and returns directional pairs with name
       username: 'target.player',
       nickname: 'Target Nick'
     }]
+  });
+});
+
+test('removing an Avoid relationship requires an authenticated, valid directional pair', async () => {
+  const removedPairs = [];
+  await withServer(async ({ baseUrl, password }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordId: '234567890123456789'
+      })
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'cowboy',
+        password,
+        ...deviceInfo('01234567-89ab-42cd-8abc-0123456789ab', '11234567-89ab-42cd-8abc-0123456789ab')
+      })
+    });
+    const { token } = await login.json();
+    const headers = {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json'
+    };
+
+    const invalid = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordId: '123456789012345678'
+      })
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal(removedPairs.length, 0);
+
+    const response = await fetch(`${baseUrl}/api/avoids`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({
+        avoiderDiscordId: '123456789012345678',
+        avoidedDiscordId: '234567890123456789'
+      })
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { success: true, removed: true });
+    assert.deepEqual(removedPairs, [{
+      avoiderDiscordId: '123456789012345678',
+      avoidedDiscordId: '234567890123456789'
+    }]);
+  }, {
+    removeAvoidRelationship: async (_database, source, target) => {
+      removedPairs.push({
+        avoiderDiscordId: source.id,
+        avoidedDiscordId: target.id
+      });
+      return { foundDocument: true, removed: true };
+    }
   });
 });
 

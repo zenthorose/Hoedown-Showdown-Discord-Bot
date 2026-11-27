@@ -209,8 +209,23 @@ async function removeAvoidRelationship(database, source, target) {
   }
 
   const result = await database.collection('Avoids').updateOne(
-    { _id: sourceId, 'avoids.discordId': targetId },
-    { $pull: { avoids: { discordId: targetId } } }
+    {
+      _id: sourceId,
+      $or: [
+        { 'avoids.discordId': targetId },
+        { avoids: targetId }
+      ]
+    },
+    {
+      $pull: {
+        avoids: {
+          $or: [
+            { discordId: targetId },
+            { $eq: targetId }
+          ]
+        }
+      }
+    }
   );
   return {
     collectionName: 'Avoids',
