@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, safeStorage, clipboard, dialog, shell } = require('electron');
+const { NsisUpdater } = require('electron-updater');
 const crypto = require('node:crypto');
 const { createReadStream, createWriteStream } = require('node:fs');
 const http = require('node:http');
@@ -15,9 +16,14 @@ const {
   suggestNextVersion,
   updateVersions
 } = require('./release-manager.cjs');
+const updateConfig = require('./update-config.json');
 
 let mainWindow;
 let releaseTaskRunning = false;
+let adminUpdateProvider;
+let adminUpdateFeedUrl = '';
+let adminUpdateDownloaded = false;
+let adminUpdateCheckPromise = null;
 let replacementCsvSelection = null;
 const MAX_REPLACEMENT_CSV_BYTES = 10 * 1024 * 1024;
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
@@ -69,6 +75,7 @@ async function loadSettings() {
       ? saved.adminDeviceId
       : crypto.randomUUID(),
     sourceDirectory: typeof saved.sourceDirectory === 'string' ? saved.sourceDirectory : '',
+    outputDirectory: typeof saved.outputDirectory === 'string' ? saved.outputDirectory : '',
     r2: {
       accountId: saved.accountId || '',
       bucketName: saved.bucketName || '',
@@ -364,6 +371,7 @@ async function saveSettings(input) {
     adminSessionExpiresAt: serviceChanged ? '' : old && old.adminSessionExpiresAt || '',
     adminDeviceId: old && old.deviceId || crypto.randomUUID(),
     sourceDirectory: old && old.sourceDirectory || '',
+    outputDirectory: old && old.outputDirectory || '',
     accountId: r2.accountId,
     bucketName: r2.bucketName,
     encryptedR2AccessKeyId: encrypt(r2.accessKeyId),
@@ -425,7 +433,102 @@ function createWindow() {
   mainWindow.loadFile(indexPath);
 }
 
+function sendAdminUpdateStatus(message, ready = false) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('admin:update-status', { message, ready });
+  }
+}
+
+function configureAdminUpdater(settings) {
+  if (!app.isPackaged) return null;
+  if (!['beta', 'stable'].includes(updateConfig.updateChannel)) {
+    throw new Error('The packaged Account Manager update channel is invalid.');
+  }
+  const feedUrl = new URL(
+    `/api/admin/app-updates/${updateConfig.updateChannel}/`,
+    `${settings.serviceUrl}/`
+  ).href;
+  if (adminUpdateProvider && adminUpdateFeedUrl === feedUrl) return adminUpdateProvider;
+
+  adminUpdateFeedUrl = feedUrl;
+  adminUpdateDownloaded = false;
+  adminUpdateProvider = new NsisUpdater({ provider: 'generic', url: feedUrl });
+  adminUpdateProvider.autoDownload = false;
+  adminUpdateProvider.autoInstallOnAppQuit = false;
+  adminUpdateProvider.on('download-progress', (progress) => {
+    sendAdminUpdateStatus(`Downloading Admin update: ${Math.round(progress.percent)}%`);
+  });
+  adminUpdateProvider.on('update-downloaded', () => {
+    adminUpdateDownloaded = true;
+    sendAdminUpdateStatus('Admin update downloaded and ready to install.', true);
+  });
+  adminUpdateProvider.on('error', (error) => {
+    console.error('Account Manager update error:', error);
+    sendAdminUpdateStatus('Could not check or download the Admin update. Try again later.');
+  });
+  return adminUpdateProvider;
+}
+
+async function checkAdminAppForUpdate() {
+  if (!app.isPackaged) {
+    sendAdminUpdateStatus('Admin app updates are available in installed builds.');
+    return { checked: false };
+  }
+  if (adminUpdateCheckPromise) return adminUpdateCheckPromise;
+
+  adminUpdateCheckPromise = (async () => {
+    const settings = await loadSettings();
+    if (!settings || !settings.adminSessionToken) {
+      throw new Error('Sign in with your passkey to check for Admin app updates.');
+    }
+    if (settings.adminSessionExpiresAt &&
+        new Date(settings.adminSessionExpiresAt).getTime() <= Date.now()) {
+      throw new Error('Your Admin session expired. Sign in with your passkey again.');
+    }
+
+    const updater = configureAdminUpdater(settings);
+    sendAdminUpdateStatus('Checking for Admin app updates…');
+    try {
+      updater.requestHeaders = { Authorization: `Bearer ${settings.adminSessionToken}` };
+      const result = await updater.checkForUpdates();
+      updater.requestHeaders = null;
+      if (!result || !result.isUpdateAvailable) {
+        sendAdminUpdateStatus('The Account Manager is up to date.');
+        return { checked: true, updateAvailable: false };
+      }
+      sendAdminUpdateStatus('A new Admin update is available. Downloading…');
+      await updater.downloadUpdate();
+      return { checked: true, updateAvailable: true };
+    } catch (error) {
+      updater.requestHeaders = null;
+      console.error('Account Manager update check failed:', error);
+      sendAdminUpdateStatus('Could not check or download the Admin update. Try again later.');
+      throw new Error('Could not check or download the Admin update. Try again later.');
+    }
+  })();
+
+  try {
+    return await adminUpdateCheckPromise;
+  } finally {
+    adminUpdateCheckPromise = null;
+  }
+}
+
 app.whenReady().then(() => {
+  ipcMain.handle('admin:check-app-update', (event) => {
+    requireTrusted(event);
+    return checkAdminAppForUpdate();
+  });
+
+  ipcMain.handle('admin:install-app-update', (event) => {
+    requireTrusted(event);
+    if (!adminUpdateProvider || !adminUpdateDownloaded) {
+      throw new Error('There is no downloaded Admin update ready to install.');
+    }
+    adminUpdateProvider.quitAndInstall(false, true);
+    return { ok: true };
+  });
+
   ipcMain.handle('admin:get-settings', async (event) => {
     requireTrusted(event);
     const settings = await loadSettings();
@@ -441,7 +544,8 @@ app.whenReady().then(() => {
         hasBootstrapKey: Boolean(settings.adminKey),
         r2AccountId: settings.r2.accountId,
         r2BucketName: settings.r2.bucketName,
-        sourceDirectory: settings.sourceDirectory
+        sourceDirectory: settings.sourceDirectory,
+        outputDirectory: settings.outputDirectory
       }
       : {
         configured: false,
@@ -449,7 +553,8 @@ app.whenReady().then(() => {
         hasR2: false,
         hasAdminSession: false,
         hasBootstrapKey: false,
-        sourceDirectory: ''
+        sourceDirectory: '',
+        outputDirectory: ''
       };
   });
 
@@ -469,12 +574,20 @@ app.whenReady().then(() => {
 
   ipcMain.handle('admin:enroll-passkey', async (event) => {
     requireTrusted(event);
-    return runPasskeyFlow(await loadSettings(), 'enroll');
+    const result = await runPasskeyFlow(await loadSettings(), 'enroll');
+    void checkAdminAppForUpdate().catch((error) => {
+      console.error('Could not check for Account Manager updates after passkey enrollment:', error);
+    });
+    return result;
   });
 
   ipcMain.handle('admin:sign-in-passkey', async (event) => {
     requireTrusted(event);
-    return runPasskeyFlow(await loadSettings(), 'login');
+    const result = await runPasskeyFlow(await loadSettings(), 'login');
+    void checkAdminAppForUpdate().catch((error) => {
+      console.error('Could not check for Account Manager updates after passkey sign-in:', error);
+    });
+    return result;
   });
 
   ipcMain.handle('admin:add-passkey', async (event) => {
@@ -932,6 +1045,23 @@ app.whenReady().then(() => {
     return { canceled: false, sourceDirectory: sourceDirectory.rootDirectory };
   });
 
+  ipcMain.handle('release:choose-output', async (event) => {
+    requireTrusted(event);
+    const settings = await loadSettings();
+    if (!settings) throw new Error('Save the Render service URL before selecting an output folder.');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose shared release output folder',
+      defaultPath: settings.outputDirectory || undefined,
+      properties: ['openDirectory', 'createDirectory']
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const outputDirectory = path.resolve(result.filePaths[0]);
+    const saved = JSON.parse(await fs.readFile(settingsPath(), 'utf8'));
+    saved.outputDirectory = outputDirectory;
+    await fs.writeFile(settingsPath(), JSON.stringify(saved), 'utf8');
+    return { canceled: false, outputDirectory };
+  });
+
   ipcMain.handle('release:set-channel', async (event, channel) => {
     requireTrusted(event);
     const settings = await loadSettings();
@@ -963,15 +1093,16 @@ app.whenReady().then(() => {
     if (releaseTaskRunning) throw new Error('A release task is already running.');
     const task = input && input.task;
     const channel = input && input.channel;
-    if (task === 'publish') {
+    if (task === 'publish' || task === 'publish-account-manager') {
+      const application = task === 'publish-account-manager' ? 'Account Manager' : 'desktop';
       const choice = await dialog.showMessageBox(mainWindow, {
         type: 'warning',
-        buttons: ['Cancel', `Publish ${channel}`],
+        buttons: ['Cancel', `Publish ${application} ${channel}`],
         defaultId: 0,
         cancelId: 0,
-        title: 'Publish app update',
-        message: `Publish the built desktop installer to ${channel}?`,
-        detail: 'Users on this channel will be offered this release. Confirm the build and version first.'
+        title: `Publish ${application} update`,
+        message: `Publish the built ${application} installer to ${channel}?`,
+        detail: 'Signed-in users on this channel will be offered this release. Confirm the build and version first.'
       });
       if (choice.response !== 1) return { canceled: true };
     }
@@ -987,6 +1118,7 @@ app.whenReady().then(() => {
         task,
         channel,
         settings && settings.r2,
+        settings && settings.outputDirectory,
         (text) => {
           if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('release:output', text);
         }
@@ -998,6 +1130,14 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  mainWindow.webContents.once('did-finish-load', () => {
+    void loadSettings().then((settings) => {
+      if (settings && settings.adminSessionToken) return checkAdminAppForUpdate();
+      return null;
+    }).catch((error) => {
+      console.error('Could not check for Account Manager updates at startup:', error);
+    });
+  });
 }).catch((error) => {
   console.error('Account manager failed to start:', error);
   app.quit();

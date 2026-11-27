@@ -294,6 +294,8 @@ async function withServer(run, options = {}) {
     adminSessions,
     adminPasskeyState,
     dummyPasswordHash: await bcrypt.hash('not-a-real-password', 4),
+    updateFeed: options.updateFeed,
+    appUpdateChannel: options.appUpdateChannel === undefined ? 'beta' : options.appUpdateChannel,
     updateDiscordNickname,
     getDiscordProfile: options.getDiscordProfile,
     sendTicketReply: options.sendTicketReply,
@@ -734,6 +736,32 @@ test('admin session revocation and expiry stop authorizing requests', async () =
     });
     assert.equal(expired.status, 401);
   });
+});
+
+test('Admin app update feed requires an Admin session and serves only the configured channel', async () => {
+  const requestedChannels = [];
+  const updateFeed = {
+    latestAdminManifest: async (channel) => {
+      requestedChannels.push(channel);
+      return 'version: 0.1.1-beta.1\n';
+    }
+  };
+  await withServer(async ({ baseUrl }) => {
+    const unauthenticated = await fetch(`${baseUrl}/api/admin/app-updates/beta/latest.yml`);
+    assert.equal(unauthenticated.status, 401);
+
+    const headers = {
+      authorization: 'Bearer test-admin-session-token-with-sufficient-randomness'
+    };
+    const available = await fetch(`${baseUrl}/api/admin/app-updates/beta/latest.yml`, { headers });
+    assert.equal(available.status, 200);
+    assert.match(available.headers.get('cache-control'), /no-store/);
+    assert.match(await available.text(), /version: 0\.1\.1-beta\.1/);
+
+    const unavailable = await fetch(`${baseUrl}/api/admin/app-updates/stable/latest.yml`, { headers });
+    assert.equal(unavailable.status, 404);
+  }, { updateFeed, appUpdateChannel: 'beta' });
+  assert.deepEqual(requestedChannels, ['beta']);
 });
 
 test('staff sessions and the admin API key cannot substitute for each other', async () => {

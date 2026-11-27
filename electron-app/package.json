@@ -6,8 +6,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test desktop/profile-store.test.cjs desktop/renderer-dom.test.cjs && npm --prefix auth-service test && npm --prefix account-manager test",
-    "build:win": "node scripts/validate-build-config.cjs && electron-builder --win nsis",
-    "build:portable": "node scripts/validate-build-config.cjs && electron-builder --win portable",
+    "build:win": "node scripts/validate-build-config.cjs && electron-builder --win nsis --publish never",
+    "build:portable": "node scripts/validate-build-config.cjs && electron-builder --win portable --publish never",
     "account-manager": "npm --prefix account-manager start"
   },
   "dependencies": {
@@ -32,9 +32,16 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
+    },
+    "publish": {
+      "provider": "generic",
+      "channel": "latest",
+      "url": "https://the-hunt-hoedown-showdown-discord-bot.onrender.com/api/app-updates/"
     },
     "nsis": {
       "oneClick": true,

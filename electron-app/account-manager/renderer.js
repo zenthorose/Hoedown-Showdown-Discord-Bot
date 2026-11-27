@@ -5,7 +5,8 @@ let currentSettings = {
   serviceUrl: '',
   hasR2: false,
   hasAdminSession: false,
-  hasBootstrapKey: false
+  hasBootstrapKey: false,
+  outputDirectory: ''
 };
 let discordLinkUsername = '';
 let botSettingsLoaded = false;
@@ -14,6 +15,7 @@ let backupRunning = false;
 let databaseExportRunning = false;
 let databaseRestoreRunning = false;
 let selectedReplacementCsv = null;
+let adminSessionExpiryTimer = null;
 
 function showStatus(id, message) {
   byId(id).textContent = message || '';
@@ -48,27 +50,49 @@ function addCell(row, value) {
 async function loadSettings() {
   currentSettings = await window.admin.getSettings();
   byId('service-url').value = currentSettings.serviceUrl || '';
+  byId('connection-service-url').textContent = currentSettings.serviceUrl
+    ? `Connected service: ${currentSettings.serviceUrl}`
+    : '';
   byId('source-directory').textContent = currentSettings.sourceDirectory || 'No source folder selected.';
+  byId('output-directory').textContent = currentSettings.outputDirectory || 'No output folder selected.';
   byId('r2-account').value = currentSettings.r2AccountId || '';
   byId('r2-bucket').value = currentSettings.r2BucketName || '';
+  byId('auth-screen').hidden = currentSettings.hasAdminSession;
+  byId('admin-shell').hidden = !currentSettings.hasAdminSession;
   byId('enroll-passkey').hidden = !currentSettings.hasBootstrapKey;
   byId('add-passkey').hidden = !currentSettings.hasAdminSession;
-  byId('sign-in-passkey').hidden = currentSettings.hasAdminSession;
+  byId('sign-in-passkey').hidden = !currentSettings.configured || currentSettings.hasBootstrapKey;
   byId('sign-out-admin').hidden = !currentSettings.hasAdminSession;
   byId('test-connection').disabled = !currentSettings.hasAdminSession;
+  byId('check-admin-updates').disabled = !currentSettings.hasAdminSession;
+  if (adminSessionExpiryTimer) clearTimeout(adminSessionExpiryTimer);
   if (currentSettings.hasAdminSession) {
     showStatus('connection-status', `Signed in on this computer until ${displayDate(currentSettings.adminSessionExpiresAt)}.`);
+    const expiresAt = currentSettings.adminSessionExpiresAt
+      ? new Date(currentSettings.adminSessionExpiresAt).getTime()
+      : NaN;
+    if (Number.isFinite(expiresAt)) {
+      adminSessionExpiryTimer = setTimeout(() => {
+        loadSettings().then(() => {
+          if (!currentSettings.hasAdminSession) {
+            showStatus('auth-status', 'Your Admin session expired. Sign in with your passkey again.');
+          }
+        }).catch((error) => {
+          showStatus('auth-status', error.message || 'Could not refresh the Admin session.');
+        });
+      }, Math.max(0, Math.min(expiresAt - Date.now(), 2147483647)));
+    }
     await loadAdminSessions();
   } else if (currentSettings.configured) {
     showStatus(
-      'connection-status',
+      'auth-status',
       currentSettings.hasBootstrapKey
-        ? 'First-time owner setup: choose Enroll first passkey. Sign-in is available after enrollment.'
-        : 'Not signed in on this computer. Use your passkey to continue. For first-time setup, enter the Render ADMIN_API_KEY and enroll the first passkey.'
+        ? 'First-time owner setup: enter the Render ADMIN_API_KEY, save the connection, then enroll the first passkey.'
+        : 'Enter your passkey to sign in.'
     );
     byId('admin-sessions').hidden = true;
   } else {
-    showStatus('connection-status', '');
+    showStatus('auth-status', 'Enter the Render service URL to get started.');
     byId('admin-sessions').hidden = true;
   }
 }
@@ -302,6 +326,27 @@ byId('backup-source-rows').addEventListener('change', () => {
   }
 });
 
+byId('check-admin-updates').addEventListener('click', async () => {
+  const button = byId('check-admin-updates');
+  button.disabled = true;
+  showStatus('admin-update-status', 'Checking for Admin app updates…');
+  try {
+    await window.admin.checkAdminAppUpdate();
+  } catch (error) {
+    showStatus('admin-update-status', error.message || 'Could not check for Admin app updates.');
+  } finally {
+    button.disabled = !currentSettings.hasAdminSession;
+  }
+});
+
+byId('install-admin-update').addEventListener('click', async () => {
+  try {
+    await window.admin.installAdminAppUpdate();
+  } catch (error) {
+    showStatus('admin-update-status', error.message || 'Could not install the Admin app update.');
+  }
+});
+
 byId('refresh-backups').addEventListener('click', () => loadBackups().catch(() => {}));
 
 byId('select-all-backups').addEventListener('click', () => {
@@ -310,6 +355,18 @@ byId('select-all-backups').addEventListener('click', () => {
   for (const checkbox of checkboxes) checkbox.checked = shouldSelect;
   const selectedCount = updateBackupControls();
   showStatus('backup-status', `${selectedCount} collection(s) selected.`);
+});
+
+byId('choose-output').addEventListener('click', async () => {
+  try {
+    const result = await window.admin.chooseOutput();
+    if (result.canceled) return;
+    byId('output-directory').textContent = result.outputDirectory;
+    currentSettings.outputDirectory = result.outputDirectory;
+    showStatus('release-status', 'Release output folder selected.');
+  } catch (error) {
+    showStatus('release-status', error.message || 'Could not select an output folder.');
+  }
 });
 
 function getSelectedBackupCollections() {
@@ -508,6 +565,12 @@ byId('create-backups').addEventListener('click', async () => {
     backupRunning = false;
     updateBackupControls();
   }
+});
+
+window.admin.onAdminUpdateStatus((update) => {
+  if (!update || typeof update.message !== 'string') return;
+  showStatus('admin-update-status', update.message);
+  byId('install-admin-update').hidden = update.ready !== true;
 });
 
 byId('download-full-export').addEventListener('click', async () => {
@@ -775,10 +838,9 @@ byId('settings-form').addEventListener('submit', async (event) => {
     byId('admin-key').value = '';
     currentSettings = saved;
     await loadSettings();
-    await loadBotSettings();
-    showStatus('connection-status', 'Connection settings saved securely on this computer.');
+    showStatus('auth-status', 'Connection settings saved securely on this computer.');
   } catch (error) {
-    showStatus('connection-status', error.message || 'Could not save connection settings.');
+    showStatus('auth-status', error.message || 'Could not save connection settings.');
   }
 });
 
@@ -787,7 +849,7 @@ byId('enroll-passkey').addEventListener('click', async () => {
     const result = await window.admin.enrollPasskey();
     await loadSettings();
     showStatus(
-      'connection-status',
+      currentSettings.hasAdminSession ? 'connection-status' : 'auth-status',
       result.enrolled
         ? 'First passkey enrolled. The one-time enrollment key was removed; add a separate backup passkey now.'
         : 'Passkey enrollment completed.'
@@ -795,7 +857,7 @@ byId('enroll-passkey').addEventListener('click', async () => {
     await loadBotSettings();
     await loadUsers();
   } catch (error) {
-    showStatus('connection-status', error.message || 'Passkey enrollment failed.');
+    showStatus('auth-status', error.message || 'Passkey enrollment failed.');
   }
 });
 
@@ -816,7 +878,7 @@ byId('sign-in-passkey').addEventListener('click', async () => {
     await loadBotSettings();
     await loadUsers();
   } catch (error) {
-    showStatus('connection-status', error.message || 'Passkey sign-in failed.');
+    showStatus('auth-status', error.message || 'Passkey sign-in failed.');
   }
 });
 
@@ -824,12 +886,13 @@ byId('sign-out-admin').addEventListener('click', async () => {
   try {
     await window.admin.signOutAdmin();
     await loadSettings();
-    await loadBotSettings();
-    showStatus('connection-status', 'This computer has been signed out.');
+    showStatus('auth-status', 'This computer has been signed out.');
   } catch (error) {
     await loadSettings();
-    await loadBotSettings();
-    showStatus('connection-status', error.message || 'Could not sign out this computer.');
+    showStatus(
+      currentSettings.hasAdminSession ? 'connection-status' : 'auth-status',
+      error.message || 'Could not sign out this computer.'
+    );
   }
 });
 
@@ -1073,7 +1136,8 @@ byId('fetch-versions').addEventListener('click', async () => {
       : result.suggestedManagerStable;
     showStatus(
       'release-status',
-      `Latest published desktop versions — beta: ${result.beta || 'none'}, stable: ${result.stable || 'none'}.`
+      `Latest published versions — desktop beta: ${result.beta || 'none'}, stable: ${result.stable || 'none'}; ` +
+      `Account Manager beta: ${result.accountManagerBeta || 'none'}, stable: ${result.accountManagerStable || 'none'}.`
     );
   } catch (error) {
     showStatus('release-status', error.message || 'Could not fetch published versions.');
@@ -1111,7 +1175,7 @@ byId('save-versions').addEventListener('click', async () => {
 byId('apply-channel').addEventListener('click', async () => {
   try {
     const channel = await window.admin.setChannel(byId('release-channel').value);
-    showStatus('release-status', `Applied ${channel} channel to desktop app config.`);
+    showStatus('release-status', `Applied ${channel} channel to both app configs.`);
     await loadReleaseInfo();
   } catch (error) {
     showStatus('release-status', error.message || 'Could not apply channel.');
@@ -1146,7 +1210,7 @@ byId('releases').addEventListener('click', async (event) => {
     const result = await window.admin.runReleaseTask(button.dataset.task, byId('release-channel').value);
     showStatus('release-status', result.canceled
       ? 'Publish canceled.'
-      : `Completed ${result.task}. Artifacts are under electron-app/dist.`);
+      : `Completed ${result.task}. Output: ${result.artifactDirectory || result.outputDirectory}`);
   } catch (error) {
     showStatus('release-status', error.message || 'Release task failed.');
   } finally {
@@ -1161,7 +1225,12 @@ window.admin.onOutput((text) => {
 
 (async () => {
   await loadSettings();
-  await Promise.all([loadReleaseInfo(), loadBotSettings()]);
+  if (currentSettings.hasAdminSession) {
+    await Promise.all([loadReleaseInfo(), loadBotSettings()]);
+  }
 })().catch((error) => {
-  showStatus('global-status', error.message || 'Could not load account manager.');
+  showStatus(
+    currentSettings.hasAdminSession ? 'global-status' : 'auth-status',
+    error.message || 'Could not load account manager.'
+  );
 });

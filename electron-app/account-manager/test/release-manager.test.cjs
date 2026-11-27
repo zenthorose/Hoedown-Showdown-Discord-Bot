@@ -5,6 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   inspectWorkspace,
+  resolveOutputPaths,
   setChannel,
   suggestNextVersion,
   updateVersions,
@@ -17,8 +18,7 @@ async function writeJson(root, relativePath, value) {
   await fs.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-async function workspace() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'hoedown-release-'));
+async function createWorkspace(root) {
   await writeJson(root, 'package.json', {
     name: 'hoedown-showdown-desktop',
     version: '0.1.0-beta.1'
@@ -39,11 +39,17 @@ async function workspace() {
     lockfileVersion: 3,
     packages: { '': { name: 'hoedown-showdown-account-manager', version: '0.1.0-beta.1' } }
   });
+  await writeJson(root, 'account-manager/update-config.json', { updateChannel: 'beta' });
   await writeJson(root, 'desktop/auth-config.json', {
     apiBaseUrl: '',
     updateChannel: 'beta'
   });
   return root;
+}
+
+async function workspace() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'hoedown-release-'));
+  return createWorkspace(root);
 }
 
 test('validates release versions and suggests channel-appropriate increments', () => {
@@ -59,9 +65,30 @@ test('checks project identity and sets the selected channel and Render URL', asy
   assert.equal((await inspectWorkspace(root)).channel, 'beta');
   await setChannel(root, 'stable', 'https://auth.example.onrender.com');
   const config = JSON.parse(await fs.readFile(path.join(root, 'desktop/auth-config.json'), 'utf8'));
+  const managerConfig = JSON.parse(await fs.readFile(path.join(root, 'account-manager/update-config.json'), 'utf8'));
   assert.equal(config.updateChannel, 'stable');
   assert.equal(config.apiBaseUrl, 'https://auth.example.onrender.com');
+  assert.equal(managerConfig.updateChannel, 'stable');
   await assert.rejects(setChannel(root, 'beta', 'http://example.test'), /HTTPS/);
+});
+
+test('accepts a repository root containing the electron-app source folder', async (t) => {
+  const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'hoedown-release-repo-'));
+  t.after(() => fs.rm(repositoryRoot, { recursive: true, force: true }));
+  const appRoot = await createWorkspace(path.join(repositoryRoot, 'electron-app'));
+  assert.equal((await inspectWorkspace(repositoryRoot)).rootDirectory, appRoot);
+});
+
+test('resolves shared app output folders outside the source checkout', async (t) => {
+  const root = await workspace();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const selectedOutput = path.join(os.tmpdir(), 'Hoedown release output');
+  assert.deepEqual(resolveOutputPaths(root, selectedOutput), {
+    rootDirectory: path.resolve(selectedOutput),
+    desktopDirectory: path.join(path.resolve(selectedOutput), 'desktop'),
+    managerDirectory: path.join(path.resolve(selectedOutput), 'account-manager')
+  });
+  assert.throws(() => resolveOutputPaths(root, path.join(root, 'dist')), /outside the app source folder/);
 });
 
 test('updates only selected package and lock versions', async (t) => {

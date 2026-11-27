@@ -14,29 +14,31 @@ function createUpdateFeed(env = process.env) {
       secretAccessKey: R2_READ_SECRET_ACCESS_KEY
     }
   });
-  return {
-    async latestManifest(channel) {
-      if (!['beta', 'stable'].includes(channel)) throw new Error('Invalid update channel.');
-      const prefix = `updates/${channel}/`;
-      const result = await client.send(new GetObjectCommand({
-        Bucket: R2_BUCKET_NAME,
-        Key: `${prefix}latest.yml`
-      }));
-      const contents = await result.Body.transformToString();
-      const manifest = YAML.parse(contents);
-      if (!manifest || !Array.isArray(manifest.files) || manifest.files.length === 0) {
-        throw new Error('The published update manifest is invalid.');
-      }
-      for (const file of manifest.files) {
-        const fileName = path.basename(typeof file.url === 'string' ? file.url : manifest.path || '');
-        if (!fileName || fileName === '.' || fileName === '..') throw new Error('The update file path is invalid.');
-        file.url = await getSignedUrl(client, new GetObjectCommand({
-          Bucket: R2_BUCKET_NAME,
-          Key: `${prefix}${fileName}`
-        }), { expiresIn: 900 });
-      }
-      return YAML.stringify(manifest);
+  const latestManifestFromPrefix = async (channel, prefix) => {
+    if (!['beta', 'stable'].includes(channel)) throw new Error('Invalid update channel.');
+    const channelPrefix = `${prefix}/${channel}/`;
+    const result = await client.send(new GetObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: `${channelPrefix}latest.yml`
+    }));
+    const contents = await result.Body.transformToString();
+    const manifest = YAML.parse(contents);
+    if (!manifest || !Array.isArray(manifest.files) || manifest.files.length === 0) {
+      throw new Error('The published update manifest is invalid.');
     }
+    for (const file of manifest.files) {
+      const fileName = path.basename(typeof file.url === 'string' ? file.url : manifest.path || '');
+      if (!fileName || fileName === '.' || fileName === '..') throw new Error('The update file path is invalid.');
+      file.url = await getSignedUrl(client, new GetObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: `${channelPrefix}${fileName}`
+      }), { expiresIn: 900 });
+    }
+    return YAML.stringify(manifest);
+  };
+  return {
+    latestManifest: (channel) => latestManifestFromPrefix(channel, 'updates'),
+    latestAdminManifest: (channel) => latestManifestFromPrefix(channel, 'admin-updates')
   };
 }
 

@@ -7,6 +7,25 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
+    <section id="auth-screen" class="auth-screen">
+      <div class="auth-card card">
+        <p class="eyebrow">HOEDOWN SHOWDOWN</p>
+        <h1>Account Manager sign in</h1>
+        <p class="muted">Sign in with the owner's passkey to open Admin tools.</p>
+        <form id="settings-form" class="settings-grid">
+          <label>Service HTTPS URL<input id="service-url" type="url" placeholder="https://your-service.onrender.com" required></label>
+          <label>Initial enrollment key<input id="admin-key" type="password" placeholder="Only needed to register the first passkey" autocomplete="new-password"></label>
+          <div class="actions">
+            <button type="submit">Save connection</button>
+            <button id="enroll-passkey" class="secondary" type="button" hidden>Enroll first passkey</button>
+            <button id="sign-in-passkey" class="secondary" type="button" hidden>Sign in with passkey</button>
+          </div>
+        </form>
+        <p id="auth-status" class="status" role="status" aria-live="polite"></p>
+        <p class="muted">For first-time setup, enter the Render service URL and the one-time ADMIN_API_KEY, save, then enroll the owner's first passkey. The key is removed after enrollment. On other computers, use a synced passkey or separate security key.</p>
+      </div>
+    </section>
+    <div id="admin-shell" hidden>
     <header class="topbar">
       <div>
         <p class="eyebrow">HOEDOWN SHOWDOWN</p>
@@ -21,20 +40,19 @@
     </header>
     <main>
       <section class="card">
-        <h2>Render connection</h2>
-        <form id="settings-form" class="settings-grid">
-          <label>Service HTTPS URL<input id="service-url" type="url" placeholder="https://your-service.onrender.com" required></label>
-          <label>Initial enrollment key<input id="admin-key" type="password" placeholder="Only needed to register the first passkey" autocomplete="new-password"></label>
-          <div class="actions">
-            <button type="submit">Save connection</button>
-            <button id="enroll-passkey" class="secondary" type="button">Enroll first passkey</button>
-            <button id="add-passkey" class="secondary" type="button">Add backup passkey</button>
-            <button id="sign-in-passkey" class="secondary" type="button">Sign in with passkey</button>
-            <button id="sign-out-admin" class="secondary" type="button">Sign out this computer</button>
-            <button id="test-connection" class="secondary" type="button">Test connection</button>
-          </div>
-        </form>
+        <h2>Admin session</h2>
+        <p id="connection-service-url" class="muted"></p>
+        <div class="actions">
+          <button id="add-passkey" class="secondary" type="button">Add backup passkey</button>
+          <button id="test-connection" class="secondary" type="button">Test connection</button>
+          <button id="sign-out-admin" class="secondary" type="button">Sign out this computer</button>
+        </div>
         <p id="connection-status" class="status" role="status"></p>
+        <div class="actions">
+          <button id="check-admin-updates" class="secondary" type="button">Check for Admin updates</button>
+          <button id="install-admin-update" type="button" hidden>Install and restart</button>
+        </div>
+        <p id="admin-update-status" class="status" role="status" aria-live="polite"></p>
         <p class="muted">Admin sessions are stored encrypted on this computer. Use your synced passkey or a separate security key to sign in on another computer. The initial enrollment key is removed after the first passkey is registered.</p>
         <section id="admin-sessions" hidden>
           <div class="section-heading">
@@ -250,8 +268,16 @@
         <section class="card">
           <h2>Local source checkout</h2>
           <div class="actions">
-            <button id="choose-source" class="secondary" type="button">Choose app source folder</button>
+            <button id="choose-source" class="secondary" type="button">Choose app source or repository folder</button>
             <span id="source-directory" class="muted"></span>
+          </div>
+        </section>
+        <section class="card">
+          <h2>Build output location</h2>
+          <p class="muted">Both apps use this folder, with separate desktop and account-manager subfolders. Publishing reads artifacts from the same location.</p>
+          <div class="actions">
+            <button id="choose-output" class="secondary" type="button">Choose output folder</button>
+            <span id="output-directory" class="muted"></span>
           </div>
         </section>
         <section class="card">
@@ -288,14 +314,16 @@
           <div class="actions wrap">
             <button data-task="desktop-portable">Build desktop portable EXE</button>
             <button data-task="desktop-installer">Build desktop installer</button>
-            <button data-task="account-manager" class="secondary">Build account manager</button>
+            <button data-task="account-manager" class="secondary">Build Account Manager installer</button>
             <button data-task="publish" class="danger">Publish desktop update</button>
+            <button data-task="publish-account-manager" class="danger">Publish Account Manager update</button>
           </div>
           <pre id="build-output" aria-live="polite"></pre>
         </section>
       </section>
       <p id="global-status" class="status" role="status" aria-live="polite"></p>
     </main>
+    </div>
     <dialog id="discord-link-dialog" class="discord-link-dialog">
       <form id="discord-link-form">
         <h2>Link Discord account</h2>

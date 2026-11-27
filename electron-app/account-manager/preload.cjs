@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('admin', {
   addPasskey: () => ipcRenderer.invoke('admin:add-passkey'),
   signInPasskey: () => ipcRenderer.invoke('admin:sign-in-passkey'),
   signOutAdmin: () => ipcRenderer.invoke('admin:sign-out'),
+  checkAdminAppUpdate: () => ipcRenderer.invoke('admin:check-app-update'),
+  installAdminAppUpdate: () => ipcRenderer.invoke('admin:install-app-update'),
   listAdminSessions: () => ipcRenderer.invoke('admin:list-sessions'),
   revokeAdminSession: (sessionId) => ipcRenderer.invoke('admin:revoke-session', sessionId),
   listUsers: () => ipcRenderer.invoke('admin:list-users'),
@@ -33,6 +35,7 @@ contextBridge.exposeInMainWorld('admin', {
   saveAudit: (events) => ipcRenderer.invoke('admin:save-audit', events),
   saveReleaseSettings: (settings) => ipcRenderer.invoke('release:save-settings', settings),
   chooseSource: () => ipcRenderer.invoke('release:choose-source'),
+  chooseOutput: () => ipcRenderer.invoke('release:choose-output'),
   getReleaseInfo: () => ipcRenderer.invoke('release:get-info'),
   setChannel: (channel) => ipcRenderer.invoke('release:set-channel', channel),
   fetchPublishedVersions: () => ipcRenderer.invoke('release:fetch-versions'),
@@ -44,5 +47,11 @@ contextBridge.exposeInMainWorld('admin', {
     const listener = (_event, text) => callback(text);
     ipcRenderer.on('release:output', listener);
     return () => ipcRenderer.removeListener('release:output', listener);
+  },
+  onAdminUpdateStatus: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Admin update callback must be a function.');
+    const listener = (_event, update) => callback(update);
+    ipcRenderer.on('admin:update-status', listener);
+    return () => ipcRenderer.removeListener('admin:update-status', listener);
   }
 });

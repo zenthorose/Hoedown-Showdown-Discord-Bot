@@ -6,7 +6,10 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "build:win": "electron-builder --win portable"
+    "build:win": "electron-builder --win nsis --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "electron": "^45.3.4",
@@ -25,15 +28,23 @@
       "renderer.js",
       "styles.css",
       "release-manager.cjs",
+      "update-config.json",
       "package.json"
     ],
     "win": {
       "target": [
         {
-          "target": "portable",
-          "arch": ["x64"]
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ]
+    },
+    "publish": {
+      "provider": "generic",
+      "channel": "latest",
+      "url": "https://the-hunt-hoedown-showdown-discord-bot.onrender.com/api/admin/app-updates/"
     }
   }
 }

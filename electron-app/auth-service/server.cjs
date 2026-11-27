@@ -571,6 +571,7 @@ function createApp({
   adminPasskeyState,
   dummyPasswordHash,
   updateFeed,
+  appUpdateChannel = process.env.APP_UPDATE_CHANNEL,
   updateDiscordNickname,
   getDiscordProfile,
   sendTicketReply: sendTicketReplyCallback,
@@ -2170,7 +2171,7 @@ function createApp({
     try {
       const session = await readSession(req, res);
       if (!session) return;
-      if (!updateFeed || req.params.channel !== process.env.APP_UPDATE_CHANNEL) {
+      if (!updateFeed || req.params.channel !== appUpdateChannel) {
         return res.status(404).json({ error: 'No update is available on this channel.' });
       }
       const manifest = await updateFeed.latestManifest(req.params.channel);
@@ -2178,6 +2179,20 @@ function createApp({
       return res.type('application/yaml').status(200).send(manifest);
     } catch (error) {
       return sendError(res, error, 'App update manifest lookup failed:');
+    }
+  });
+
+  app.get('/api/admin/app-updates/:channel/latest.yml', limited(60), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    try {
+      if (!updateFeed || req.params.channel !== appUpdateChannel) {
+        return res.status(404).json({ error: 'No Admin app update is available on this channel.' });
+      }
+      const manifest = await updateFeed.latestAdminManifest(req.params.channel);
+      res.set('Cache-Control', 'private, no-store');
+      return res.type('application/yaml').status(200).send(manifest);
+    } catch (error) {
+      return sendError(res, error, 'Admin app update manifest lookup failed:');
     }
   });
 

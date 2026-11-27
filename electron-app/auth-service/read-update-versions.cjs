@@ -14,11 +14,11 @@ async function main() {
       secretAccessKey: R2_WRITE_SECRET_ACCESS_KEY
     }
   });
-  const readChannel = async (channel) => {
+  const readChannel = async (prefix, channel) => {
     try {
       const response = await client.send(new GetObjectCommand({
         Bucket: R2_BUCKET_NAME,
-        Key: `updates/${channel}/latest.yml`
+        Key: `${prefix}/${channel}/latest.yml`
       }));
       const manifest = YAML.parse(await response.Body.transformToString());
       if (!manifest || typeof manifest.version !== 'string') {
@@ -30,8 +30,13 @@ async function main() {
       throw error;
     }
   };
-  const [beta, stable] = await Promise.all([readChannel('beta'), readChannel('stable')]);
-  process.stdout.write(`${JSON.stringify({ beta, stable })}\n`);
+  const [beta, stable, accountManagerBeta, accountManagerStable] = await Promise.all([
+    readChannel('updates', 'beta'),
+    readChannel('updates', 'stable'),
+    readChannel('admin-updates', 'beta'),
+    readChannel('admin-updates', 'stable')
+  ]);
+  process.stdout.write(`${JSON.stringify({ beta, stable, accountManagerBeta, accountManagerStable })}\n`);
 }
 
 main().catch((error) => {
