@@ -27,6 +27,7 @@
       "preload.cjs",
       "renderer.js",
       "styles.css",
+      "build-timing.cjs",
       "release-manager.cjs",
       "update-config.json",
       "package.json"

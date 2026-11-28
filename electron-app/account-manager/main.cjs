@@ -9,13 +9,21 @@ const path = require('node:path');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const {
+  getPublishTarget,
   inspectWorkspace,
   readPublishedVersions,
   runTask,
   setChannel,
   suggestNextVersion,
-  updateVersions
+  updateVersions,
+  validateChannel
 } = require('./release-manager.cjs');
+const {
+  estimateBuildDuration,
+  getBuildDurationSamples,
+  isBuildTask,
+  recordBuildDuration
+} = require('./build-timing.cjs');
 const updateConfig = require('./update-config.json');
 
 let mainWindow;
@@ -24,7 +32,10 @@ let adminUpdateProvider;
 let adminUpdateFeedUrl = '';
 let adminUpdateDownloaded = false;
 let adminUpdateCheckPromise = null;
+let pendingPasskeyFlow = null;
 let replacementCsvSelection = null;
+const pendingPublishConfirmations = new Map();
+const PUBLISH_CONFIRMATION_TTL_MS = 2 * 60 * 1000;
 const MAX_REPLACEMENT_CSV_BYTES = 10 * 1024 * 1024;
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const appRoot = path.resolve(__dirname, '..');
@@ -76,6 +87,9 @@ async function loadSettings() {
       : crypto.randomUUID(),
     sourceDirectory: typeof saved.sourceDirectory === 'string' ? saved.sourceDirectory : '',
     outputDirectory: typeof saved.outputDirectory === 'string' ? saved.outputDirectory : '',
+    buildDurations: saved.buildDurations && typeof saved.buildDurations === 'object'
+      ? saved.buildDurations
+      : {},
     r2: {
       accountId: saved.accountId || '',
       bucketName: saved.bucketName || '',
@@ -251,10 +265,13 @@ function openPasskeyCallback(state) {
     }
     response.writeHead(200, {
       'Cache-Control': 'no-store',
+      Connection: 'close',
       'Content-Type': 'text/html; charset=utf-8'
     });
-    response.end('<!doctype html><meta charset="utf-8"><title>Admin</title><p>Passkey verified. You can return to Hoedown Showdown Account Manager.</p>');
-    resolveCallback(code);
+    response.end(
+      '<!doctype html><meta charset="utf-8"><title>Admin</title><p>Passkey verified. You can return to Hoedown Showdown Account Manager.</p>',
+      () => resolveCallback(code)
+    );
   });
   const timeout = setTimeout(() => rejectCallback(new Error('Passkey sign-in timed out. Try again.')), 5 * 60 * 1000);
   server.once('close', () => clearTimeout(timeout));
@@ -265,14 +282,20 @@ function openPasskeyCallback(state) {
       resolve(`http://127.0.0.1:${port}/admin-passkey-callback`);
     });
   });
+  let closePromise;
   return {
     ready,
     result,
-    close: () => !server.listening
-      ? Promise.resolve()
-      : new Promise((resolve, reject) => {
+    cancel: () => rejectCallback(new Error('Passkey sign-in canceled.')),
+    close: () => {
+      if (closePromise) return closePromise;
+      if (!server.listening) return Promise.resolve();
+      closePromise = new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
-      })
+        if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+      });
+      return closePromise;
+    }
   };
 }
 
@@ -281,8 +304,12 @@ async function runPasskeyFlow(settings, mode) {
   if (mode === 'enroll' && (!settings.adminKey || settings.adminKey.length < 32)) {
     throw new Error('Enter the one-time Admin enrollment key from Render before enrolling your first passkey.');
   }
+  if (mode === 'login' && pendingPasskeyFlow) {
+    throw new Error('A passkey sign-in is already in progress.');
+  }
   const state = crypto.randomBytes(32).toString('base64url');
   const callback = openPasskeyCallback(state);
+  if (mode === 'login') pendingPasskeyFlow = callback;
   let callbackUrl;
   try {
     callbackUrl = await callback.ready;
@@ -305,7 +332,14 @@ async function runPasskeyFlow(settings, mode) {
         body: JSON.stringify(device)
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `Passkey enrollment failed with HTTP ${response.status}.`);
+      if (!response.ok) {
+        if (response.status === 503 && data.error === 'Admin passkey bootstrap is not configured.') {
+          throw new Error(
+            'First-passkey enrollment is disabled on Render. If an owner passkey is already registered, use Sign in with passkey. Otherwise, check the Render ADMIN_API_KEY and passkey configuration.'
+          );
+        }
+        throw new Error(data.error || `Passkey enrollment failed with HTTP ${response.status}.`);
+      }
       if (typeof data.ticket !== 'string' || !data.ticket) throw new Error('Render returned an invalid enrollment ticket.');
       ticket = data.ticket;
     }
@@ -318,7 +352,11 @@ async function runPasskeyFlow(settings, mode) {
       platform: process.platform,
       ...(ticket ? { ticket } : {})
     });
-    await shell.openExternal(`${settings.serviceUrl}/admin/passkeys#${fragment.toString()}`);
+    const passkeyUrl = `${settings.serviceUrl}/admin/passkeys#${fragment.toString()}`;
+    await shell.openExternal(passkeyUrl);
+    if (mode === 'login' && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('admin:passkey-login-link', passkeyUrl);
+    }
     const code = await callback.result;
     const response = await fetch(new URL('/api/admin/passkeys/exchange', `${settings.serviceUrl}/`), {
       method: 'POST',
@@ -336,6 +374,12 @@ async function runPasskeyFlow(settings, mode) {
     });
     return { signedIn: true, expiresAt: data.expiresAt, enrolled: mode === 'enroll' };
   } finally {
+    if (mode === 'login' && pendingPasskeyFlow === callback) {
+      pendingPasskeyFlow = null;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('admin:passkey-login-link', null);
+      }
+    }
     await callback.close();
   }
 }
@@ -372,6 +416,7 @@ async function saveSettings(input) {
     adminDeviceId: old && old.deviceId || crypto.randomUUID(),
     sourceDirectory: old && old.sourceDirectory || '',
     outputDirectory: old && old.outputDirectory || '',
+    buildDurations: old && old.buildDurations || {},
     accountId: r2.accountId,
     bucketName: r2.bucketName,
     encryptedR2AccessKeyId: encrypt(r2.accessKeyId),
@@ -588,6 +633,13 @@ app.whenReady().then(() => {
       console.error('Could not check for Account Manager updates after passkey sign-in:', error);
     });
     return result;
+  });
+
+  ipcMain.handle('admin:cancel-passkey-flow', (event) => {
+    requireTrusted(event);
+    if (!pendingPasskeyFlow) return { canceled: false };
+    pendingPasskeyFlow.cancel();
+    return { canceled: true };
   });
 
   ipcMain.handle('admin:add-passkey', async (event) => {
@@ -1082,10 +1134,40 @@ app.whenReady().then(() => {
     );
   });
 
+  ipcMain.handle('release:create-download-link', async (event, input) => {
+    requireTrusted(event);
+    const application = input && input.application;
+    const channel = input && input.channel;
+    if (!['desktop', 'account-manager'].includes(application) ||
+        !['beta', 'stable'].includes(channel)) {
+      throw new TypeError('Choose an app and a beta or stable channel.');
+    }
+    const data = await requestAdmin(await loadSettings(), '/api/admin/app-download-links', {
+      method: 'POST',
+      body: { application, channel }
+    });
+    if (typeof data.url !== 'string' || typeof data.fileName !== 'string' ||
+        typeof data.version !== 'string' || typeof data.expiresAt !== 'string') {
+      throw new Error('Render returned an invalid app download link.');
+    }
+    const downloadUrl = new URL(data.url);
+    if (downloadUrl.protocol !== 'https:' || downloadUrl.username || downloadUrl.password) {
+      throw new Error('Render returned an unsafe app download link.');
+    }
+    return data;
+  });
+
   ipcMain.handle('release:update-versions', async (event, input) => {
     requireTrusted(event);
     const settings = await loadSettings();
     return updateVersions(getSourceRoot(settings), input && input.versions, input && input.selections);
+  });
+
+  ipcMain.handle('release:cancel-publish-confirmation', (event, confirmationId) => {
+    requireTrusted(event);
+    if (typeof confirmationId !== 'string') throw new TypeError('Publish confirmation is invalid.');
+    pendingPublishConfirmations.delete(confirmationId);
+    return { canceled: true };
   });
 
   ipcMain.handle('release:run-task', async (event, input) => {
@@ -1093,25 +1175,61 @@ app.whenReady().then(() => {
     if (releaseTaskRunning) throw new Error('A release task is already running.');
     const task = input && input.task;
     const channel = input && input.channel;
-    if (task === 'publish' || task === 'publish-account-manager') {
-      const application = task === 'publish-account-manager' ? 'Account Manager' : 'desktop';
-      const choice = await dialog.showMessageBox(mainWindow, {
-        type: 'warning',
-        buttons: ['Cancel', `Publish ${application} ${channel}`],
-        defaultId: 0,
-        cancelId: 0,
-        title: `Publish ${application} update`,
-        message: `Publish the built ${application} installer to ${channel}?`,
-        detail: 'Signed-in users on this channel will be offered this release. Confirm the build and version first.'
-      });
-      if (choice.response !== 1) return { canceled: true };
-    }
     const settings = await loadSettings();
+    if (task === 'publish' || task === 'publish-account-manager') {
+      validateChannel(channel);
+      const workspace = await inspectWorkspace(getSourceRoot(settings));
+      const target = getPublishTarget(task, workspace);
+      const confirmationId = input && input.confirmationId;
+      if (typeof confirmationId !== 'string') {
+        const now = Date.now();
+        for (const [id, pending] of pendingPublishConfirmations) {
+          if (pending.expiresAt <= now) pendingPublishConfirmations.delete(id);
+        }
+        const id = crypto.randomUUID();
+        const expiresAt = now + PUBLISH_CONFIRMATION_TTL_MS;
+        pendingPublishConfirmations.set(id, {
+          task,
+          channel,
+          version: target.version,
+          expiresAt
+        });
+        return {
+          confirmationRequired: true,
+          confirmation: {
+            id,
+            name: target.name,
+            version: target.version,
+            channel,
+            expiresAt
+          }
+        };
+      }
+      const pending = pendingPublishConfirmations.get(confirmationId);
+      pendingPublishConfirmations.delete(confirmationId);
+      if (!pending || pending.expiresAt <= Date.now() ||
+          pending.task !== task || pending.channel !== channel ||
+          pending.version !== target.version) {
+        throw new Error('Publish confirmation expired or no longer matches this release. Try again.');
+      }
+    }
     releaseTaskRunning = true;
     try {
       if (['desktop-portable', 'desktop-installer'].includes(task)) {
         if (!settings) throw new Error('Configure the Render service URL before building.');
         await setChannel(getSourceRoot(settings), channel, settings.serviceUrl);
+      }
+      const buildStartedAt = Date.now();
+      const buildSamples = isBuildTask(task)
+        ? getBuildDurationSamples(settings && settings.buildDurations, task)
+        : [];
+      if (isBuildTask(task) && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('release:build-eta-start', {
+          task,
+          startedAt: buildStartedAt,
+          estimatedDurationMs: estimateBuildDuration(settings && settings.buildDurations, task),
+          sampleCount: buildSamples.length
+        });
       }
       const result = await runTask(
         getSourceRoot(settings),
@@ -1123,7 +1241,27 @@ app.whenReady().then(() => {
           if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('release:output', text);
         }
       );
-      return { canceled: false, ...result };
+      const response = { canceled: false, ...result };
+      if (isBuildTask(task)) {
+        const durationMs = Date.now() - buildStartedAt;
+        try {
+          const saved = JSON.parse(await fs.readFile(settingsPath(), 'utf8'));
+          saved.buildDurations = recordBuildDuration(saved.buildDurations, task, durationMs);
+          await fs.writeFile(settingsPath(), JSON.stringify(saved), 'utf8');
+          response.buildTiming = {
+            durationMs,
+            sampleCount: saved.buildDurations[task].length
+          };
+        } catch (error) {
+          console.error('Build succeeded, but its ETA history could not be saved:', error);
+          response.buildTiming = {
+            durationMs,
+            sampleCount: buildSamples.length,
+            warning: `Build succeeded, but ETA history could not be saved: ${error.message}`
+          };
+        }
+      }
+      return response;
     } finally {
       releaseTaskRunning = false;
     }

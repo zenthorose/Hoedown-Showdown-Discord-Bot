@@ -18,6 +18,24 @@ function validateChannel(channel) {
   return channel;
 }
 
+function getPublishTarget(task, workspace) {
+  if (task === 'publish') {
+    return {
+      name: 'Hoedown Showdown Team App',
+      shortName: 'Team App',
+      version: workspace.desktopVersion
+    };
+  }
+  if (task === 'publish-account-manager') {
+    return {
+      name: 'Hoedown Showdown Admin App',
+      shortName: 'Admin App',
+      version: workspace.managerVersion
+    };
+  }
+  throw new TypeError('Choose a supported publish task.');
+}
+
 async function readJson(file) {
   return JSON.parse(await fs.readFile(file, 'utf8'));
 }
@@ -90,17 +108,18 @@ function isWithinDirectory(parent, target) {
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
-function resolveOutputPaths(sourceRoot, outputDirectory) {
+function resolveOutputPaths(sourceRoot, outputDirectory, desktopVersion) {
   if (typeof outputDirectory !== 'string' || !outputDirectory.trim()) {
     throw new Error('Choose a shared output folder before building or publishing.');
   }
+  const version = validateVersion(desktopVersion);
   const rootDirectory = path.resolve(outputDirectory);
   if (isWithinDirectory(path.resolve(sourceRoot), rootDirectory)) {
     throw new Error('Choose an output folder outside the app source folder.');
   }
   return {
     rootDirectory,
-    desktopDirectory: path.join(rootDirectory, 'desktop'),
+    desktopDirectory: path.join(rootDirectory, `Hoedown Showdown Team App (${version})`),
     managerDirectory: path.join(rootDirectory, 'account-manager')
   };
 }
@@ -266,7 +285,7 @@ async function runTask(root, task, channel, credentials, outputDirectory, onOutp
   if (!TASKS.has(task)) throw new TypeError('Choose a supported release task.');
   const workspace = await inspectWorkspace(root);
   const base = workspace.rootDirectory;
-  const outputPaths = resolveOutputPaths(base, outputDirectory);
+  const outputPaths = resolveOutputPaths(base, outputDirectory, workspace.desktopVersion);
   const isManagerTask = task === 'account-manager' || task === 'publish-account-manager';
   const productOutput = isManagerTask ? outputPaths.managerDirectory : outputPaths.desktopDirectory;
   const outputArgument = `--config.directories.output="${productOutput}"`;
@@ -341,6 +360,7 @@ async function runTask(root, task, channel, credentials, outputDirectory, onOutp
 }
 
 module.exports = {
+  getPublishTarget,
   inspectWorkspace,
   resolveOutputPaths,
   readPublishedVersions,

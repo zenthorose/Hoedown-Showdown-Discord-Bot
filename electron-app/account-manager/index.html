@@ -14,15 +14,25 @@
         <p class="muted">Sign in with the owner's passkey to open Admin tools.</p>
         <form id="settings-form" class="settings-grid">
           <label>Service HTTPS URL<input id="service-url" type="url" placeholder="https://your-service.onrender.com" required></label>
-          <label>Initial enrollment key<input id="admin-key" type="password" placeholder="Only needed to register the first passkey" autocomplete="new-password"></label>
-          <div class="actions">
-            <button type="submit">Save connection</button>
+          <details class="bootstrap-setup">
+            <summary>First-time owner setup</summary>
+            <label>Initial enrollment key<input id="admin-key" type="password" placeholder="Only needed to register the first passkey" autocomplete="new-password"></label>
             <button id="enroll-passkey" class="secondary" type="button" hidden>Enroll first passkey</button>
-            <button id="sign-in-passkey" class="secondary" type="button" hidden>Sign in with passkey</button>
+          </details>
+          <div class="actions">
+            <button id="sign-in-passkey" type="button" hidden>Sign in with passkey</button>
+            <button class="secondary" type="submit">Save connection</button>
           </div>
         </form>
         <p id="auth-status" class="status" role="status" aria-live="polite"></p>
-        <p class="muted">For first-time setup, enter the Render service URL and the one-time ADMIN_API_KEY, save, then enroll the owner's first passkey. The key is removed after enrollment. On other computers, use a synced passkey or separate security key.</p>
+        <section id="passkey-browser-help" class="passkey-browser-help" hidden>
+          <p class="muted">If this opened in the wrong browser, copy the temporary sign-in link and paste it into the browser that has your passkey. Cancel to unlock sign-in.</p>
+          <div class="actions">
+            <button id="copy-passkey-link" class="secondary" type="button">Copy sign-in link</button>
+            <button id="cancel-passkey-sign-in" class="secondary" type="button">Cancel sign-in</button>
+          </div>
+        </section>
+        <p class="muted">For first-time setup, expand the setup section, enter the one-time Render ADMIN_API_KEY, save the connection, then enroll the owner's first passkey. On other computers, use a synced passkey or separate security key.</p>
       </div>
     </section>
     <div id="admin-shell" hidden>
@@ -315,10 +325,24 @@
             <button data-task="desktop-portable">Build desktop portable EXE</button>
             <button data-task="desktop-installer">Build desktop installer</button>
             <button data-task="account-manager" class="secondary">Build Account Manager installer</button>
-            <button data-task="publish" class="danger">Publish desktop update</button>
-            <button data-task="publish-account-manager" class="danger">Publish Account Manager update</button>
+            <button data-task="publish" class="danger">Publish Team App update</button>
+            <button data-task="publish-account-manager" class="danger">Publish Admin App update</button>
           </div>
+          <p id="build-eta" class="status" role="status" aria-live="polite"></p>
           <pre id="build-output" aria-live="polite"></pre>
+        </section>
+        <section class="card">
+          <h2>Initial app download links</h2>
+          <p class="muted">Generate a 15-minute signed link for the latest published build on the selected channel. Anyone with the link can download that installer until it expires.</p>
+          <div id="release-download-actions" class="actions wrap">
+            <button data-download-app="desktop" type="button">Generate Team App link</button>
+            <button data-download-app="account-manager" class="secondary" type="button">Generate Admin App link</button>
+          </div>
+          <label>Temporary download link<input id="release-download-url" type="url" readonly placeholder="Generate a link after publishing an installer"></label>
+          <div class="actions">
+            <button id="copy-release-download" class="secondary" type="button" disabled>Copy download link</button>
+          </div>
+          <p id="release-download-status" class="status" role="status" aria-live="polite"></p>
         </section>
       </section>
       <p id="global-status" class="status" role="status" aria-live="polite"></p>
@@ -347,6 +371,22 @@
         <div class="actions">
           <button type="submit" value="cancel" class="secondary">Cancel</button>
           <button id="collection-confirm-accept" type="submit" value="confirm">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="publish-confirm-dialog" class="collection-confirm-dialog publish-confirm-dialog">
+      <form method="dialog">
+        <p class="eyebrow">CLOUDFLARE RELEASE</p>
+        <h2 id="publish-confirm-title"></h2>
+        <p class="muted">Review the app, version, and channel before publishing.</p>
+        <dl class="publish-confirm-details">
+          <div><dt>Version</dt><dd id="publish-confirm-version"></dd></div>
+          <div><dt>Channel</dt><dd id="publish-confirm-channel"></dd></div>
+        </dl>
+        <p class="publish-confirm-warning">Publishing uploads the installer and update manifest to Cloudflare R2. Users on this channel will be offered this release.</p>
+        <div class="actions">
+          <button type="submit" value="cancel" class="secondary">Cancel</button>
+          <button id="publish-confirm-accept" type="submit" value="confirm" class="danger">Publish update</button>
         </div>
       </form>
     </dialog>

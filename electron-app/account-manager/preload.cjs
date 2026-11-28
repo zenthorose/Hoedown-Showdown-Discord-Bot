@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('admin', {
   enrollPasskey: () => ipcRenderer.invoke('admin:enroll-passkey'),
   addPasskey: () => ipcRenderer.invoke('admin:add-passkey'),
   signInPasskey: () => ipcRenderer.invoke('admin:sign-in-passkey'),
+  cancelPasskeyFlow: () => ipcRenderer.invoke('admin:cancel-passkey-flow'),
   signOutAdmin: () => ipcRenderer.invoke('admin:sign-out'),
   checkAdminAppUpdate: () => ipcRenderer.invoke('admin:check-app-update'),
   installAdminAppUpdate: () => ipcRenderer.invoke('admin:install-app-update'),
@@ -40,7 +41,12 @@ contextBridge.exposeInMainWorld('admin', {
   setChannel: (channel) => ipcRenderer.invoke('release:set-channel', channel),
   fetchPublishedVersions: () => ipcRenderer.invoke('release:fetch-versions'),
   updateVersions: (versions, selections) => ipcRenderer.invoke('release:update-versions', { versions, selections }),
-  runReleaseTask: (task, channel) => ipcRenderer.invoke('release:run-task', { task, channel }),
+  createReleaseDownloadLink: (application, channel) =>
+    ipcRenderer.invoke('release:create-download-link', { application, channel }),
+  runReleaseTask: (task, channel, confirmationId) =>
+    ipcRenderer.invoke('release:run-task', { task, channel, confirmationId }),
+  cancelPublishConfirmation: (confirmationId) =>
+    ipcRenderer.invoke('release:cancel-publish-confirmation', confirmationId),
   copyText: (text) => ipcRenderer.invoke('admin:copy-text', text),
   onOutput: (callback) => {
     if (typeof callback !== 'function') throw new TypeError('Build output callback must be a function.');
@@ -48,10 +54,22 @@ contextBridge.exposeInMainWorld('admin', {
     ipcRenderer.on('release:output', listener);
     return () => ipcRenderer.removeListener('release:output', listener);
   },
+  onBuildEtaStart: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Build ETA callback must be a function.');
+    const listener = (_event, estimate) => callback(estimate);
+    ipcRenderer.on('release:build-eta-start', listener);
+    return () => ipcRenderer.removeListener('release:build-eta-start', listener);
+  },
   onAdminUpdateStatus: (callback) => {
     if (typeof callback !== 'function') throw new TypeError('Admin update callback must be a function.');
     const listener = (_event, update) => callback(update);
     ipcRenderer.on('admin:update-status', listener);
     return () => ipcRenderer.removeListener('admin:update-status', listener);
+  },
+  onPasskeyLoginLink: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Passkey link callback must be a function.');
+    const listener = (_event, url) => callback(url);
+    ipcRenderer.on('admin:passkey-login-link', listener);
+    return () => ipcRenderer.removeListener('admin:passkey-login-link', listener);
   }
 });

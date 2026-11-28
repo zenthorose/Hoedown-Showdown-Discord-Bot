@@ -54,6 +54,6 @@ Run `npm ci` and `npm test` here. Admin and login endpoints are rate-limited; au
 
 ## Private app updates
 
-Set `APP_UPDATE_CHANNEL` to `beta` or `stable` and configure `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, and `R2_READ_SECRET_ACCESS_KEY` on Render. The read token should be restricted to list/read access for the update bucket. The service returns desktop manifests from `updates/<channel>/` only to a valid app session and Account Manager manifests from `admin-updates/<channel>/` only to a valid Admin session. Both routes sign installer downloads for 15 minutes.
+Set `APP_UPDATE_CHANNEL` to `beta` or `stable` and configure `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_READ_ACCESS_KEY_ID`, and `R2_READ_SECRET_ACCESS_KEY` on Render. The read token should be restricted to list/read access for the update bucket. The service returns desktop manifests from `Hoedown Showdown Team App/<channel>/` only to a valid app session and Admin app manifests from `Hoedown Showdown Admin App/<channel>/` only to a valid Admin session. Both routes sign installer downloads for 15 minutes. A passkey-authenticated Admin can also generate a 15-minute signed initial-download link for the latest published Team App or Admin App installer on either channel.
 
 The Account Manager publishes from a trusted Windows checkout with a separate bucket-scoped read/write token. It uploads installer objects first and the `latest.yml` manifest last. Never place the write token on Render or in the desktop app.

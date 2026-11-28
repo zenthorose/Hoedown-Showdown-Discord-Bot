@@ -16,9 +16,103 @@ let databaseExportRunning = false;
 let databaseRestoreRunning = false;
 let selectedReplacementCsv = null;
 let adminSessionExpiryTimer = null;
+let passkeyLoginUrl = '';
+let buildEtaTimer = null;
+let activeBuildEta = null;
+
+const BUILD_TASK_NAMES = {
+  'desktop-portable': 'Desktop portable build',
+  'desktop-installer': 'Desktop installer build',
+  'account-manager': 'Account Manager installer build'
+};
 
 function showStatus(id, message) {
   byId(id).textContent = message || '';
+}
+
+function formatBuildDuration(milliseconds) {
+  const minutes = Math.ceil(Math.max(0, milliseconds) / 60000);
+  return minutes < 1 ? 'less than a minute' : `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+function updateBuildEta() {
+  if (!activeBuildEta) return;
+  const elapsedMs = Date.now() - activeBuildEta.startedAt;
+  const elapsed = formatBuildDuration(elapsedMs);
+  let message;
+  if (activeBuildEta.estimatedDurationMs === null) {
+    message = `${BUILD_TASK_NAMES[activeBuildEta.task]}: learning typical duration; ETA will be available after a successful build. Elapsed ${elapsed}.`;
+  } else {
+    const remainingMs = activeBuildEta.estimatedDurationMs - elapsedMs;
+    message = remainingMs > 0
+      ? `${BUILD_TASK_NAMES[activeBuildEta.task]}: about ${formatBuildDuration(remainingMs)} remaining, based on ${activeBuildEta.sampleCount} previous successful build${activeBuildEta.sampleCount === 1 ? '' : 's'}. Elapsed ${elapsed}.`
+      : `${BUILD_TASK_NAMES[activeBuildEta.task]} is taking longer than its recent typical time. Elapsed ${elapsed}.`;
+  }
+  if (activeBuildEta.lastMessage !== message) {
+    activeBuildEta.lastMessage = message;
+    showStatus('build-eta', message);
+  }
+}
+
+function startBuildEta(estimate) {
+  if (!estimate || !Object.hasOwn(BUILD_TASK_NAMES, estimate.task)) return;
+  if (buildEtaTimer) clearInterval(buildEtaTimer);
+  activeBuildEta = {
+    task: estimate.task,
+    startedAt: Number.isFinite(estimate.startedAt) ? estimate.startedAt : Date.now(),
+    estimatedDurationMs: Number.isSafeInteger(estimate.estimatedDurationMs) && estimate.estimatedDurationMs > 0
+      ? estimate.estimatedDurationMs
+      : null,
+    sampleCount: Number.isSafeInteger(estimate.sampleCount) ? estimate.sampleCount : 0,
+    lastMessage: ''
+  };
+  updateBuildEta();
+  buildEtaTimer = setInterval(updateBuildEta, 15000);
+}
+
+function finishBuildEta(task, timing, error) {
+  if (!activeBuildEta || activeBuildEta.task !== task) {
+    if (error && Object.hasOwn(BUILD_TASK_NAMES, task)) {
+      showStatus('build-eta', `${BUILD_TASK_NAMES[task]} failed before timing could start.`);
+    }
+    return;
+  }
+  const elapsedMs = Date.now() - activeBuildEta.startedAt;
+  clearInterval(buildEtaTimer);
+  buildEtaTimer = null;
+  activeBuildEta = null;
+  if (error) {
+    showStatus('build-eta', `${BUILD_TASK_NAMES[task]} failed after ${formatBuildDuration(elapsedMs)}. This run was not added to ETA history.`);
+    return;
+  }
+  if (!timing || !Number.isSafeInteger(timing.durationMs)) {
+    showStatus('build-eta', `${BUILD_TASK_NAMES[task]} completed, but its duration was unavailable.`);
+    return;
+  }
+  const learned = timing.sampleCount === 1
+    ? 'Future estimates will use this successful run.'
+    : `ETA uses the ${timing.sampleCount} most recent successful runs.`;
+  const warning = timing.warning ? ` ${timing.warning}` : ` ${learned}`;
+  showStatus('build-eta', `${BUILD_TASK_NAMES[task]} completed in ${formatBuildDuration(timing.durationMs)}.${warning}`);
+}
+
+function confirmPublishRelease(confirmation) {
+  const dialog = byId('publish-confirm-dialog');
+  byId('publish-confirm-title').textContent = confirmation.name;
+  byId('publish-confirm-version').textContent = confirmation.version;
+  byId('publish-confirm-channel').textContent = confirmation.channel;
+  byId('publish-confirm-accept').textContent = `Publish ${confirmation.channel} release`;
+  dialog.returnValue = '';
+  return new Promise((resolve, reject) => {
+    const onClose = () => resolve(dialog.returnValue === 'confirm');
+    dialog.addEventListener('close', onClose, { once: true });
+    try {
+      dialog.showModal();
+    } catch (error) {
+      dialog.removeEventListener('close', onClose);
+      reject(error);
+    }
+  });
 }
 
 function displayDate(value) {
@@ -61,7 +155,7 @@ async function loadSettings() {
   byId('admin-shell').hidden = !currentSettings.hasAdminSession;
   byId('enroll-passkey').hidden = !currentSettings.hasBootstrapKey;
   byId('add-passkey').hidden = !currentSettings.hasAdminSession;
-  byId('sign-in-passkey').hidden = !currentSettings.configured || currentSettings.hasBootstrapKey;
+  byId('sign-in-passkey').hidden = !currentSettings.configured;
   byId('sign-out-admin').hidden = !currentSettings.hasAdminSession;
   byId('test-connection').disabled = !currentSettings.hasAdminSession;
   byId('check-admin-updates').disabled = !currentSettings.hasAdminSession;
@@ -87,7 +181,7 @@ async function loadSettings() {
     showStatus(
       'auth-status',
       currentSettings.hasBootstrapKey
-        ? 'First-time owner setup: enter the Render ADMIN_API_KEY, save the connection, then enroll the first passkey.'
+        ? 'First-time setup is available if no owner passkey exists. If one is already enrolled, choose Sign in with passkey.'
         : 'Enter your passkey to sign in.'
     );
     byId('admin-sessions').hidden = true;
@@ -573,6 +667,13 @@ window.admin.onAdminUpdateStatus((update) => {
   byId('install-admin-update').hidden = update.ready !== true;
 });
 
+window.admin.onPasskeyLoginLink((url) => {
+  passkeyLoginUrl = typeof url === 'string' ? url : '';
+  byId('passkey-browser-help').hidden = !passkeyLoginUrl;
+  byId('copy-passkey-link').disabled = !passkeyLoginUrl;
+  byId('cancel-passkey-sign-in').disabled = !passkeyLoginUrl;
+});
+
 byId('download-full-export').addEventListener('click', async () => {
   if (backupLoading || backupRunning || databaseExportRunning) return;
   const confirmed = await confirmCollectionAction({
@@ -838,7 +939,12 @@ byId('settings-form').addEventListener('submit', async (event) => {
     byId('admin-key').value = '';
     currentSettings = saved;
     await loadSettings();
-    showStatus('auth-status', 'Connection settings saved securely on this computer.');
+      showStatus(
+        'auth-status',
+        currentSettings.hasBootstrapKey
+          ? 'Connection saved. Expand First-time owner setup to enroll the first passkey.'
+          : 'Connection settings saved securely on this computer.'
+      );
   } catch (error) {
     showStatus('auth-status', error.message || 'Could not save connection settings.');
   }
@@ -871,6 +977,9 @@ byId('add-passkey').addEventListener('click', async () => {
 });
 
 byId('sign-in-passkey').addEventListener('click', async () => {
+  const button = byId('sign-in-passkey');
+  button.disabled = true;
+  showStatus('auth-status', 'Waiting for passkey verification in your browser…');
   try {
     const result = await window.admin.signInPasskey();
     await loadSettings();
@@ -878,7 +987,36 @@ byId('sign-in-passkey').addEventListener('click', async () => {
     await loadBotSettings();
     await loadUsers();
   } catch (error) {
-    showStatus('auth-status', error.message || 'Passkey sign-in failed.');
+    showStatus(
+      'auth-status',
+      error.message === 'Passkey sign-in canceled.'
+        ? 'Sign-in canceled. You can try again in the browser that has your passkey.'
+        : error.message || 'Passkey sign-in failed.'
+    );
+  } finally {
+    button.disabled = !currentSettings.configured;
+  }
+});
+
+byId('copy-passkey-link').addEventListener('click', async () => {
+  if (!passkeyLoginUrl) return;
+  try {
+    await window.admin.copyText(passkeyLoginUrl);
+    showStatus('auth-status', 'Temporary sign-in link copied. Paste it into the browser that has your passkey.');
+  } catch (error) {
+    showStatus('auth-status', error.message || 'Could not copy the sign-in link.');
+  }
+});
+
+byId('cancel-passkey-sign-in').addEventListener('click', async () => {
+  const button = byId('cancel-passkey-sign-in');
+  button.disabled = true;
+  showStatus('auth-status', 'Canceling passkey sign-in…');
+  try {
+    await window.admin.cancelPasskeyFlow();
+  } catch (error) {
+    showStatus('auth-status', error.message || 'Could not cancel passkey sign-in.');
+    button.disabled = false;
   }
 });
 
@@ -1202,21 +1340,93 @@ byId('r2-form').addEventListener('submit', async (event) => {
 byId('releases').addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-task]');
   if (!button) return;
+  const task = button.dataset.task;
   const output = byId('build-output');
   output.textContent = '';
+  if (Object.hasOwn(BUILD_TASK_NAMES, task)) {
+    if (buildEtaTimer) clearInterval(buildEtaTimer);
+    buildEtaTimer = null;
+    activeBuildEta = null;
+    showStatus('build-eta', 'Preparing build…');
+  }
   button.disabled = true;
   showStatus('release-status', 'Release task running…');
   try {
-    const result = await window.admin.runReleaseTask(button.dataset.task, byId('release-channel').value);
+    const channel = byId('release-channel').value;
+    let result = await window.admin.runReleaseTask(task, channel);
+    if (result.confirmationRequired) {
+      const confirmation = result.confirmation;
+      let confirmed = false;
+      try {
+        confirmed = await confirmPublishRelease(confirmation);
+      } catch (error) {
+        await window.admin.cancelPublishConfirmation(confirmation.id);
+        throw error;
+      }
+      if (!confirmed) {
+        await window.admin.cancelPublishConfirmation(confirmation.id);
+        showStatus('release-status', 'Publish canceled.');
+        return;
+      }
+      result = await window.admin.runReleaseTask(task, channel, confirmation.id);
+    }
+    finishBuildEta(task, result.buildTiming);
     showStatus('release-status', result.canceled
       ? 'Publish canceled.'
       : `Completed ${result.task}. Output: ${result.artifactDirectory || result.outputDirectory}`);
   } catch (error) {
+    finishBuildEta(task, null, error);
     showStatus('release-status', error.message || 'Release task failed.');
   } finally {
     button.disabled = false;
   }
 });
+
+byId('release-download-actions').addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-download-app]');
+  if (!button) return;
+  const urlInput = byId('release-download-url');
+  const copyButton = byId('copy-release-download');
+  urlInput.value = '';
+  copyButton.disabled = true;
+  button.disabled = true;
+  showStatus('release-download-status', 'Generating a passkey-protected download link…');
+  try {
+    const result = await window.admin.createReleaseDownloadLink(
+      button.dataset.downloadApp,
+      byId('release-channel').value
+    );
+    urlInput.value = result.url;
+    copyButton.disabled = false;
+    showStatus(
+      'release-download-status',
+      `${result.fileName} (${result.version}) is ready. Link expires ${displayDate(result.expiresAt)}. Anyone with it can download until it expires.`
+    );
+  } catch (error) {
+    showStatus('release-download-status', error.message || 'Could not generate the app download link.');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+byId('copy-release-download').addEventListener('click', async () => {
+  const url = byId('release-download-url').value;
+  if (!url) return;
+  try {
+    await window.admin.copyText(url);
+    showStatus('release-download-status', 'Temporary download link copied. Share it before it expires.');
+  } catch (error) {
+    showStatus('release-download-status', error.message || 'Could not copy the download link.');
+  }
+});
+
+byId('release-channel').addEventListener('change', () => {
+  byId('release-download-url').value = '';
+  byId('copy-release-download').disabled = true;
+  showStatus('release-download-status', '');
+});
+
+window.admin.onBuildEtaStart(startBuildEta);
 
 window.admin.onOutput((text) => {
   byId('build-output').textContent += text;

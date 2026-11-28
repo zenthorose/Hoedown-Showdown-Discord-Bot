@@ -764,6 +764,66 @@ test('Admin app update feed requires an Admin session and serves only the config
   assert.deepEqual(requestedChannels, ['beta']);
 });
 
+test('initial app download links require Admin authorization and support both apps and channels', async () => {
+  const requestedDownloads = [];
+  const updateFeed = {
+    installerDownload: async (application, channel) => {
+      requestedDownloads.push({ application, channel });
+      return {
+        url: `https://downloads.example.test/${encodeURIComponent(application)}.exe?signature=test`,
+        fileName: `${application}.exe`,
+        version: channel === 'beta' ? '0.1.1-beta.1' : '0.1.1',
+        expiresInSeconds: 900
+      };
+    }
+  };
+  await withServer(async ({ baseUrl }) => {
+    const unauthorized = await fetch(`${baseUrl}/api/admin/app-download-links`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ application: 'desktop', channel: 'beta' })
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const headers = {
+      authorization: 'Bearer test-admin-session-token-with-sufficient-randomness',
+      'content-type': 'application/json'
+    };
+    const desktop = await fetch(`${baseUrl}/api/admin/app-download-links`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ application: 'desktop', channel: 'beta' })
+    });
+    assert.equal(desktop.status, 200);
+    assert.match(desktop.headers.get('cache-control'), /no-store/);
+    const desktopDownload = await desktop.json();
+    assert.equal(desktopDownload.url, 'https://downloads.example.test/desktop.exe?signature=test');
+    assert.equal(desktopDownload.fileName, 'desktop.exe');
+    assert.equal(desktopDownload.version, '0.1.1-beta.1');
+    assert.equal(desktopDownload.expiresInSeconds, 900);
+    assert.ok(Number.isFinite(Date.parse(desktopDownload.expiresAt)));
+
+    const adminApp = await fetch(`${baseUrl}/api/admin/app-download-links`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ application: 'account-manager', channel: 'stable' })
+    });
+    assert.equal(adminApp.status, 200);
+    assert.equal((await adminApp.json()).version, '0.1.1');
+
+    const invalid = await fetch(`${baseUrl}/api/admin/app-download-links`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ application: 'other', channel: 'beta' })
+    });
+    assert.equal(invalid.status, 400);
+  }, { updateFeed });
+  assert.deepEqual(requestedDownloads, [
+    { application: 'desktop', channel: 'beta' },
+    { application: 'account-manager', channel: 'stable' }
+  ]);
+});
+
 test('staff sessions and the admin API key cannot substitute for each other', async () => {
   await withServer(async ({ baseUrl, password }) => {
     const login = await fetch(`${baseUrl}/api/auth/login`, {

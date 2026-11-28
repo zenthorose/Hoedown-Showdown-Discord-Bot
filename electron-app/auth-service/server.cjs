@@ -2196,6 +2196,28 @@ function createApp({
     }
   });
 
+  app.post('/api/admin/app-download-links', limited(10), async (req, res) => {
+    if (!authorizeAdmin(req, res)) return;
+    const { application, channel } = req.body || {};
+    if (!['desktop', 'account-manager'].includes(application) ||
+        !['beta', 'stable'].includes(channel)) {
+      return res.status(400).json({ error: 'Choose a supported app and release channel.' });
+    }
+    if (!updateFeed || typeof updateFeed.installerDownload !== 'function') {
+      return res.status(503).json({ error: 'App downloads are not configured.' });
+    }
+    try {
+      const download = await updateFeed.installerDownload(application, channel);
+      noStore(res);
+      return res.status(200).json({
+        ...download,
+        expiresAt: new Date(Date.now() + download.expiresInSeconds * 1000).toISOString()
+      });
+    } catch (error) {
+      return sendError(res, error, 'App download link generation failed:');
+    }
+  });
+
   app.post('/api/auth/login', limited(10), async (req, res) => {
     const username = normalizeUsername(req.body && req.body.username);
     const password = req.body && req.body.password;

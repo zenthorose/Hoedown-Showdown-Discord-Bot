@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { PutObjectCommand, S3Client } = require('@aws-sdk/client-s3');
 const YAML = require('yaml');
+const { updateObjectPrefix } = require('./update-prefixes.cjs');
 
 async function main() {
   const channel = process.argv[2];
@@ -17,17 +18,25 @@ async function main() {
   const serviceDirectory = __dirname;
   const appRoot = path.resolve(serviceDirectory, '..');
   const outputRoot = process.env.RELEASE_OUTPUT_DIRECTORY || path.join(appRoot, 'dist');
-  const outputDirectory = path.join(outputRoot, application === 'desktop' ? 'desktop' : 'account-manager');
-  const manifestPath = path.join(outputDirectory, 'latest.yml');
-  const manifestText = await fs.readFile(manifestPath, 'utf8');
-  const manifest = YAML.parse(manifestText);
-  if (!manifest || !Array.isArray(manifest.files) || manifest.files.length === 0) {
-    throw new Error('The desktop app update manifest is invalid.');
-  }
   const appPackagePath = application === 'desktop'
     ? path.join(appRoot, 'package.json')
     : path.join(appRoot, 'account-manager', 'package.json');
   const appPackage = JSON.parse(await fs.readFile(appPackagePath, 'utf8'));
+  const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+  if (typeof appPackage.version !== 'string' || !versionPattern.test(appPackage.version)) {
+    throw new Error(`The built ${application} version in package.json is invalid.`);
+  }
+  let outputFolderName = application === 'desktop' ? 'desktop' : 'account-manager';
+  if (application === 'desktop' && process.env.RELEASE_OUTPUT_DIRECTORY) {
+    outputFolderName = `Hoedown Showdown Team App (${appPackage.version})`;
+  }
+  const outputDirectory = path.join(outputRoot, outputFolderName);
+  const manifestPath = path.join(outputDirectory, 'latest.yml');
+  const manifestText = await fs.readFile(manifestPath, 'utf8');
+  const manifest = YAML.parse(manifestText);
+  if (!manifest || !Array.isArray(manifest.files) || manifest.files.length === 0) {
+    throw new Error(`The ${application} update manifest is invalid.`);
+  }
   if (typeof manifest.version !== 'string' || manifest.version !== appPackage.version ||
       (channel === 'stable' && manifest.version.includes('-')) ||
       (channel === 'beta' && !manifest.version.includes('-'))) {
@@ -45,7 +54,7 @@ async function main() {
       secretAccessKey: R2_WRITE_SECRET_ACCESS_KEY
     }
   });
-  const prefix = `${application === 'desktop' ? 'updates' : 'admin-updates'}/${channel}/`;
+  const prefix = updateObjectPrefix(application, channel);
   for (const fileName of fileNames) {
     const installerPath = path.join(outputDirectory, fileName);
     const installer = await fs.readFile(installerPath);

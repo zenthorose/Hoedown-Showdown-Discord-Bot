@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  getPublishTarget,
   inspectWorkspace,
   resolveOutputPaths,
   setChannel,
@@ -83,12 +84,35 @@ test('resolves shared app output folders outside the source checkout', async (t)
   const root = await workspace();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const selectedOutput = path.join(os.tmpdir(), 'Hoedown release output');
-  assert.deepEqual(resolveOutputPaths(root, selectedOutput), {
+  assert.deepEqual(resolveOutputPaths(root, selectedOutput, '0.1.0-beta.1'), {
     rootDirectory: path.resolve(selectedOutput),
-    desktopDirectory: path.join(path.resolve(selectedOutput), 'desktop'),
+    desktopDirectory: path.join(path.resolve(selectedOutput), 'Hoedown Showdown Team App (0.1.0-beta.1)'),
     managerDirectory: path.join(path.resolve(selectedOutput), 'account-manager')
   });
-  assert.throws(() => resolveOutputPaths(root, path.join(root, 'dist')), /outside the app source folder/);
+  assert.notEqual(
+    resolveOutputPaths(root, selectedOutput, '0.1.0-beta.2').desktopDirectory,
+    resolveOutputPaths(root, selectedOutput, '0.1.0-beta.1').desktopDirectory
+  );
+  assert.throws(
+    () => resolveOutputPaths(root, path.join(root, 'dist'), '0.1.0-beta.1'),
+    /outside the app source folder/
+  );
+});
+
+test('maps each publish task to its app-specific confirmation details', () => {
+  const workspace = { desktopVersion: '0.1.1-beta.2', managerVersion: '0.1.2-beta.1' };
+
+  assert.deepEqual(getPublishTarget('publish', workspace), {
+    name: 'Hoedown Showdown Team App',
+    shortName: 'Team App',
+    version: '0.1.1-beta.2'
+  });
+  assert.deepEqual(getPublishTarget('publish-account-manager', workspace), {
+    name: 'Hoedown Showdown Admin App',
+    shortName: 'Admin App',
+    version: '0.1.2-beta.1'
+  });
+  assert.throws(() => getPublishTarget('desktop-installer', workspace), /supported publish task/);
 });
 
 test('updates only selected package and lock versions', async (t) => {

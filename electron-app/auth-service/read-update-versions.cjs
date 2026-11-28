@@ -1,5 +1,6 @@
 const { GetObjectCommand, S3Client } = require('@aws-sdk/client-s3');
 const YAML = require('yaml');
+const { updateObjectPrefix } = require('./update-prefixes.cjs');
 
 async function main() {
   const { R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_WRITE_ACCESS_KEY_ID, R2_WRITE_SECRET_ACCESS_KEY } = process.env;
@@ -18,7 +19,7 @@ async function main() {
     try {
       const response = await client.send(new GetObjectCommand({
         Bucket: R2_BUCKET_NAME,
-        Key: `${prefix}/${channel}/latest.yml`
+        Key: `${updateObjectPrefix(prefix, channel)}latest.yml`
       }));
       const manifest = YAML.parse(await response.Body.transformToString());
       if (!manifest || typeof manifest.version !== 'string') {
@@ -31,10 +32,10 @@ async function main() {
     }
   };
   const [beta, stable, accountManagerBeta, accountManagerStable] = await Promise.all([
-    readChannel('updates', 'beta'),
-    readChannel('updates', 'stable'),
-    readChannel('admin-updates', 'beta'),
-    readChannel('admin-updates', 'stable')
+    readChannel('desktop', 'beta'),
+    readChannel('desktop', 'stable'),
+    readChannel('account-manager', 'beta'),
+    readChannel('account-manager', 'stable')
   ]);
   process.stdout.write(`${JSON.stringify({ beta, stable, accountManagerBeta, accountManagerStable })}\n`);
 }
